@@ -1,6 +1,7 @@
 # ==================== Project Specific ====================
 Reference/
 docs/
+.agent/
 
 # ==================== Build Directories ====================
 build/
