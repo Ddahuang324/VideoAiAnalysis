@@ -1,0 +1,15 @@
+# Build tools (already installed)
+ninja>=1.11.0
+pybind11>=2.11.0
+
+# Qt for Python
+PySide6>=6.5.0
+
+# AI 服务
+google-generativeai>=0.3.0
+
+# 数据处理
+numpy>=1.24.0
+
+# 开发工具
+pytest>=7.4.0

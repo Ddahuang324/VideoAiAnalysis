@@ -1,0 +1,95 @@
+# ==================== Project Specific ====================
+Reference/
+docs/
+
+# ==================== Build Directories ====================
+build/
+cmake-build-*/
+out/
+bin/
+lib/
+
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+*.egg
+
+# ==================== C++ ====================
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# ==================== IDE ====================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/c_cpp_properties.json
+!.vscode/pid.txt
+!.vscode/cmake-kits.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.clangd.local
+
+# ==================== CMake ====================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!cmake/*.cmake
+# compile_commands.json - 保留此文件供 clangd 使用
+CTestTestfile.cmake
+_deps/
+
+# ==================== Qt/QML ====================
+*.qmlc
+*.jsc
+*.autosave
+*.user
+*.pro.user*
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qm
+
+# ==================== Logs and Temp ====================
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# ==================== OS ====================
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
