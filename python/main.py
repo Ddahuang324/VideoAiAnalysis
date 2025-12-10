@@ -9,6 +9,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import os
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtCore import QUrl
@@ -41,15 +42,30 @@ def main():
     context.setContextProperty("mainViewModel", main_viewmodel)
     context.setContextProperty("videoViewModel", video_viewmodel)
     
-    # 5. 加载 QML 文件
-    qml_file = project_root / "python" / "views" / "main.qml"
+    # 5. 添加 QML 导入路径
+    views_path = project_root / "python" / "views"
+    engine.addImportPath(str(views_path))
+    # PySide6 自带的 Qt QML 模块路径
+    import PySide6
+    qt_qml_path = Path(PySide6.__file__).resolve().parent / "qml"
+    if qt_qml_path.exists():
+        engine.addImportPath(str(qt_qml_path))
+        os.environ.setdefault("QML_IMPORT_PATH", str(qt_qml_path))
+        os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Material")
+        print(f"📦 Qt QML import path: {qt_qml_path}")
+    else:
+        print(f"⚠️  Qt QML modules not found at {qt_qml_path}")
+    print(f"📁 QML import path: {views_path}")
+    
+    # 6. 加载 QML 文件
+    qml_file = views_path / "main.qml"
     if not qml_file.exists():
         print(f"❌ Error: QML file not found: {qml_file}")
         return -1
     
     engine.load(QUrl.fromLocalFile(str(qml_file)))
     
-    # 6. 检查加载结果
+    # 7. 检查加载结果
     if not engine.rootObjects():
         print("❌ Error: Failed to load QML file")
         return -1

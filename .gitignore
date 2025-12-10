@@ -1,6 +1,6 @@
 # ==================== Project Specific ====================
 Reference/
-docs/
+docs/implementation_report.md
 .agent/
 
 # ==================== Build Directories ====================

@@ -1,0 +1,4 @@
+module layouts
+TitleBar 1.0 TitleBar.qml
+Sidebar 1.0 Sidebar.qml
+PageContainer 1.0 PageContainer.qml

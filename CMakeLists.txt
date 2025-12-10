@@ -14,6 +14,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # 导出 compile_commands.json 供 clangd 使用
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# 生成 .qmlls.ini 文件，解决 QML 导入警告
+set(QT_QML_GENERATE_QMLLS_INI ON)
+
 # ==================== 输出目录设置 ====================
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

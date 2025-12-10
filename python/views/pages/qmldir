@@ -1,0 +1,5 @@
+module pages
+HomePage 1.0 HomePage.qml
+RecordPage 1.0 RecordPage.qml
+ArchivePage 1.0 ArchivePage.qml
+SettingsPage 1.0 SettingsPage.qml
