@@ -147,5 +147,54 @@ Rectangle {
                 }
             }
         }
+
+        // ==================== 测试 C++ 调用按钮 ====================
+        Rectangle {
+            id: testButton
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Styles.ThemeManager.spacingLg
+            width: 200
+            height: 50
+            radius: Styles.ThemeManager.radiusMd
+            color: testButtonArea.containsMouse ? "#4CAF50" : "#388E3C"
+            border.width: 2
+            border.color: "#2E7D32"
+
+            Text {
+                anchors.centerIn: parent
+                text: "🔧 测试 C++ 调用"
+                color: "white"
+                font.pixelSize: Styles.ThemeManager.fontSizeBody
+                font.weight: Font.Bold
+            }
+
+            MouseArea {
+                id: testButtonArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    console.log("点击测试按钮，调用 C++ 模块...");
+                    var result = videoViewModel.testCppCall();
+                    console.log("C++ 调用结果: " + result);
+                }
+            }
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: 150
+                }
+            }
+        }
+
+        // 显示测试结果
+        Text {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Styles.ThemeManager.spacingSm
+            text: videoViewModel.result
+            color: Styles.ThemeManager.textSecondary
+            font.pixelSize: Styles.ThemeManager.fontSizeSmall
+            visible: videoViewModel.result !== ""
+        }
     }
 }

@@ -77,10 +77,20 @@ def main():
     print(f"🔗 C++ module: video_analysis_cpp")
     print("\n" + "=" * 70)
     
-    # 7. 初始化 ViewModels
+    # 7. 初始化 ViewModels 和服务
     main_viewmodel.initialize()
     
-    # 8. 进入事件循环
+    # 8. 预加载 C++ 模块（确保调试器可以附加）
+    try:
+        print("\n🔧 Initializing C++ module...")
+        video_viewmodel._service.initialize()
+        version = video_viewmodel._service.get_version()
+        print(f"✅ C++ module loaded successfully! Version: {version}")
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to load C++ module: {e}")
+        print("   Debugging C++ code will not be available.")
+    
+    # 9. 进入事件循环
     return app.exec()
 
 
