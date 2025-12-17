@@ -4,7 +4,6 @@ cmake_minimum_required(VERSION 3.20)
 if(pybind11_FOUND)
     pybind11_add_module(video_analysis_cpp
         bindings.cpp
-        ../src/video_processor.cpp
     )
     
     target_include_directories(video_analysis_cpp PRIVATE

@@ -56,6 +56,71 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "G
 endif()
 
 # ==================== 查找依赖 ====================
+# 查找 FFmpeg (需要预编译版本，不是源代码)
+# 从 https://github.com/BtbN/FFmpeg-Builds/releases 下载预编译版本
+set(FFmpeg_ROOT "${CMAKE_SOURCE_DIR}/packages/ffmpeg")
+if(EXISTS "${FFmpeg_ROOT}")
+    message(STATUS "FFmpeg root: ${FFmpeg_ROOT}")
+    # 自定义查找 FFmpeg
+    find_path(FFmpeg_INCLUDE_DIR
+        NAMES libavutil/avutil.h libavformat/avformat.h libavcodec/avcodec.h
+        PATHS "${FFmpeg_ROOT}/include"
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(FFmpeg_avutil_LIBRARY
+        NAMES avutil avutil-60 libavutil
+        PATHS
+            "${FFmpeg_ROOT}/lib/x64"
+            "${FFmpeg_ROOT}/lib"
+            "${FFmpeg_ROOT}/lib64"
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(FFmpeg_avformat_LIBRARY
+        NAMES avformat avformat-62 libavformat
+        PATHS
+            "${FFmpeg_ROOT}/lib/x64"
+            "${FFmpeg_ROOT}/lib"
+            "${FFmpeg_ROOT}/lib64"
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(FFmpeg_avcodec_LIBRARY
+        NAMES avcodec avcodec-62 libavcodec
+        PATHS
+            "${FFmpeg_ROOT}/lib/x64"
+            "${FFmpeg_ROOT}/lib"
+            "${FFmpeg_ROOT}/lib64"
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(FFmpeg_swscale_LIBRARY
+        NAMES swscale swscale-9 libswscale
+        PATHS
+            "${FFmpeg_ROOT}/lib/x64"
+            "${FFmpeg_ROOT}/lib"
+            "${FFmpeg_ROOT}/lib64"
+        NO_DEFAULT_PATH
+    )
+    
+    if(FFmpeg_INCLUDE_DIR AND FFmpeg_avutil_LIBRARY AND FFmpeg_avformat_LIBRARY AND FFmpeg_avcodec_LIBRARY)
+        set(FFmpeg_FOUND TRUE)
+        message(STATUS "✓ FFmpeg found")
+        message(STATUS "  Include: ${FFmpeg_INCLUDE_DIR}")
+        message(STATUS "  avutil: ${FFmpeg_avutil_LIBRARY}")
+        message(STATUS "  avformat: ${FFmpeg_avformat_LIBRARY}")
+        message(STATUS "  avcodec: ${FFmpeg_avcodec_LIBRARY}")
+        message(STATUS "  swscale: ${FFmpeg_swscale_LIBRARY}")
+    else()
+        message(WARNING "FFmpeg libraries not found. Please place FFmpeg headers and libraries in ${FFmpeg_ROOT}")
+        message(STATUS "  Expected header location: ${FFmpeg_ROOT}/include/libavutil/avutil.h")
+        message(STATUS "  Expected lib location: ${FFmpeg_ROOT}/lib/x64/")
+    endif()
+else()
+    message(WARNING "FFmpeg directory not found at ${FFmpeg_ROOT}")
+endif()
+
 # 查找 Python
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 message(STATUS "Python version: ${Python_VERSION}")

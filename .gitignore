@@ -1,7 +1,8 @@
 # ==================== Project Specific ====================
 Reference/
 docs/implementation_report.md
-.agent/
+packages
+.cache
 
 # ==================== Build Directories ====================
 build/

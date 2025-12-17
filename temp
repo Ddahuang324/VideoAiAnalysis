@@ -1,0 +1,1593 @@
+ 
+	## .1 采集器架构设计文档
+	> 本文档详细设计屏幕录制引擎的采集器架构,包括 IScreenGrabber 接口和 FFmpegWrapper 类的完整设计方案。___
+	### 目录
+	1. 架构概览
+	2. IScreenGrabber 接口设计
+	3. FFmpegWrapper 类设计
+	4. 平台实现类设计
+	5. 工厂模式设计
+	6. 错误处理策略
+	7. 性能优化考虑
+	### 一、架构概览
+	#### 1.1 设计目标
+	采集器架构的核心目标:
+	1. 跨平台抽象: 统一 Windows (DXGI) 和 Linux (X11/Wayland) 的屏幕捕获接口
+	2. 资源安全: 使用 RAII 模式自动管理 FFmpeg 和平台 API 资源
+	3. 高性能: 支持零拷贝、硬件加速等优化
+	4. 可扩展: 易于添加新的捕获源(如窗口捕获、摄像头)
+	#### 1.2 整体架构图
+	#### 1.3 模块职责划分
+				模块
+				职责
+				依赖
+				IScreenGrabber
+				定义屏幕捕获接口契约
+				无
+				DXGIGrabber
+				Windows 平台屏幕捕获实现
+				DirectX 11, DXGI
+				X11Grabber
+				Linux 平台屏幕捕获实现
+				X11, XShm
+				GrabberFactory
+				创建平台特定的采集器
+				平台检测
+				FFmpegWrapper
+				FFmpeg 资源管理和编码
+				FFmpeg 库
+				ScreenRecorder
+				协调采集器和编码器
+				上述所有
+	### 二、IScreenGrabber 接口设计
+	#### 2.1 接口定义
+	```
+#pragma once
+
+#include <cstdint>
+
+#include <memory>
+
+#include <string>
+
+/**
+
+ * @brief 帧数据结构
+
+ */
+
+struct FrameData {
+
+    uint8_t* data;           // 像素数据指针
+
+    int width;               // 帧宽度
+
+    int height;              // 帧高度
+
+    int stride;              // 行字节数 (可能包含填充)
+
+    PixelFormat format;      // 像素格式 (BGRA, RGBA, YUV420P 等)
+
+    int64_t timestamp_us;    // 时间戳 (微秒)
+
+
+
+    // RAII 管理内存
+
+    std::shared_ptr<uint8_t> data_holder;
+
+
+
+    FrameData() : data(nullptr), width(0), height(0),
+
+                  stride(0), format(PixelFormat::UNKNOWN),
+
+                  timestamp_us(0) {}
+
+};
+
+/**
+
+ * @brief 像素格式枚举
+
+ */
+
+enum class PixelFormat {
+
+    UNKNOWN,
+
+    BGRA,      // Windows DXGI 常用
+
+    RGBA,      // OpenGL 常用
+
+    RGB24,     // 24 位 RGB
+
+    YUV420P,   // FFmpeg 编码常用
+
+};
+
+/**
+
+ * @brief 屏幕采集器接口
+
+ *
+
+ * 定义了屏幕捕获的标准契约,所有平台实现必须遵守此接口
+
+ */
+
+class IScreenGrabber {
+
+public:
+
+    virtual ~IScreenGrabber() = default;
+
+
+
+    /**
+
+     * @brief 启动采集器
+
+     * @return 成功返回 true,失败返回 false
+
+     */
+
+    virtual bool start() = 0;
+
+
+
+    /**
+
+     * @brief 停止采集器
+
+     */
+
+    virtual void stop() = 0;
+
+
+
+    /**
+
+     * @brief 暂停采集
+
+     */
+
+    virtual void pause() = 0;
+
+
+
+    /**
+
+     * @brief 恢复采集
+
+     */
+
+    virtual void resume() = 0;
+
+
+
+    /**
+
+     * @brief 捕获一帧
+
+     * @param timeout_ms 超时时间(毫秒),0 表示非阻塞
+
+     * @return 帧数据,失败返回空的 FrameData
+
+     */
+
+    virtual FrameData captureFrame(int timeout_ms = 100) = 0;
+
+
+
+    /**
+
+     * @brief 获取捕获区域宽度
+
+     */
+
+    virtual int getWidth() const = 0;
+
+
+
+    /**
+
+     * @brief 获取捕获区域高度
+
+     */
+
+    virtual int getHeight() const = 0;
+
+
+
+    /**
+
+     * @brief 获取目标帧率
+
+     */
+
+    virtual int getFrameRate() const = 0;
+
+
+
+    /**
+
+     * @brief 获取像素格式
+
+     */
+
+    virtual PixelFormat getPixelFormat() const = 0;
+
+
+
+    /**
+
+     * @brief 检查是否正在运行
+
+     */
+
+    virtual bool isRunning() const = 0;
+
+
+
+    /**
+
+     * @brief 检查是否已暂停
+
+     */
+
+    virtual bool isPaused() const = 0;
+
+
+
+    /**
+
+     * @brief 获取最后一次错误信息
+
+     */
+
+    virtual std::string getLastError() const = 0;
+
+};
+```
+	#### 2.2 接口设计原则
+	#### 原则 1: 单一职责 (Single Responsibility)
+	IScreenGrabber 只负责屏幕捕获,不涉及编码、文件写入等其他功能。
+	#### 原则 2: 依赖倒置 (Dependency Inversion)
+	高层模块 ( ScreenRecorder) 依赖抽象接口 ( IScreenGrabber),而不依赖具体实现 ( DXGIGrabber)。
+	#### 原则 3: 接口隔离 (Interface Segregation)
+	不强迫客户端依赖它不使用的方法。如果未来需要音频捕获,应创建新接口 IAudioGrabber,而不是在 IScreenGrabber 中添加音频方法。
+	#### 2.3 FrameData 设计细节
+	#### 为什么使用 shared_ptr?
+	```
+struct FrameData {
+
+    std::shared_ptr<uint8_t> data_holder;  // 自动管理内存
+
+    uint8_t* data;  // 原始指针,方便访问
+
+};
+
+// 使用示例
+
+FrameData createFrame(int width, int height) {
+
+    FrameData frame;
+
+    frame.width = width;
+
+    frame.height = height;
+
+
+
+    // 分配内存,使用自定义删除器
+
+    size_t size = width * height * 4;  // BGRA
+
+    frame.data_holder = std::shared_ptr<uint8_t>(
+
+        new uint8_t[size],
+
+        [](uint8_t* p) { delete[] p; }
+
+    );
+
+    frame.data = frame.data_holder.get();
+
+
+
+    return frame;  // 可以安全地拷贝和移动
+
+}
+```
+	优势:
+	- ✅ 自动内存管理,防止泄漏
+	- ✅ 支持多个对象共享同一帧数据
+	- ✅ 线程安全的引用计数
+	### 三、FFmpegWrapper 类设计
+	#### 3.1 类定义
+	```
+#pragma once
+
+#include <memory>
+
+#include <string>
+
+extern "C" {
+
+#include <libavcodec/avcodec.h>
+
+#include <libavformat/avformat.h>
+
+#include <libswscale/swscale.h>
+
+}
+
+/**
+
+ * @brief 编码器配置
+
+ */
+
+struct EncoderConfig {
+
+    std::string output_path;     // 输出文件路径
+
+    int width = 1920;            // 视频宽度
+
+    int height = 1080;           // 视频高度
+
+    int fps = 60;                // 帧率
+
+    int64_t bit_rate = 5000000;  // 码率 (5 Mbps)
+
+    std::string codec = "h264";  // 编码器 (h264, hevc)
+
+    std::string preset = "ultrafast";  // 编码预设
+
+    int gop_size = 60;           // GOP 大小
+
+
+
+    // 高级选项
+
+    bool use_hardware = false;   // 是否使用硬件编码
+
+    std::string hw_device = "";  // 硬件设备 (cuda, qsv, vaapi)
+
+};
+
+/**
+
+ * @brief FFmpeg 资源 RAII 封装
+
+ *
+
+ * 负责管理 FFmpeg 的所有资源,确保正确释放
+
+ */
+
+class FFmpegWrapper {
+
+public:
+
+    FFmpegWrapper();
+
+    ~FFmpegWrapper();
+
+
+
+    // 禁止拷贝
+
+    FFmpegWrapper(const FFmpegWrapper&) = delete;
+
+    FFmpegWrapper& operator=(const FFmpegWrapper&) = delete;
+
+
+
+    // 允许移动
+
+    FFmpegWrapper(FFmpegWrapper&&) noexcept;
+
+    FFmpegWrapper& operator=(FFmpegWrapper&&) noexcept;
+
+
+
+    /**
+
+     * @brief 初始化编码器
+
+     * @param config 编码器配置
+
+     * @return 成功返回 true
+
+     */
+
+    bool initialize(const EncoderConfig& config);
+
+
+
+    /**
+
+     * @brief 编码一帧
+
+     * @param frame_data 帧数据
+
+     * @return 成功返回 true
+
+     */
+
+    bool encodeFrame(const FrameData& frame_data);
+
+
+
+    /**
+
+     * @brief 完成编码,写入文件尾
+
+     */
+
+    void finalize();
+
+
+
+    /**
+
+     * @brief 获取已编码帧数
+
+     */
+
+    int64_t getEncodedFrameCount() const { return frame_count_; }
+
+
+
+    /**
+
+     * @brief 获取输出文件大小 (字节)
+
+     */
+
+    int64_t getOutputFileSize() const;
+
+
+
+    /**
+
+     * @brief 获取最后一次错误
+
+     */
+
+    std::string getLastError() const { return last_error_; }
+
+
+
+private:
+
+    /**
+
+     * @brief 配置编码器参数
+
+     */
+
+    bool configureEncoder(const EncoderConfig& config);
+
+
+
+    /**
+
+     * @brief 写入文件头
+
+     */
+
+    bool writeHeader();
+
+
+
+    /**
+
+     * @brief 冲刷编码器缓冲区
+
+     */
+
+    void flushEncoder();
+
+
+
+    /**
+
+     * @brief 转换像素格式
+
+     */
+
+    bool convertPixelFormat(const FrameData& src, AVFrame* dst);
+
+
+
+    // FFmpeg 资源 (使用智能指针管理)
+
+    struct AVFormatContextDeleter {
+
+        void operator()(AVFormatContext* ctx) {
+
+            if (ctx) {
+
+                if (ctx->pb) avio_closep(&ctx->pb);
+
+                avformat_free_context(ctx);
+
+            }
+
+        }
+
+    };
+
+
+
+    struct AVCodecContextDeleter {
+
+        void operator()(AVCodecContext* ctx) {
+
+            if (ctx) avcodec_free_context(&ctx);
+
+        }
+
+    };
+
+
+
+    struct AVFrameDeleter {
+
+        void operator()(AVFrame* frame) {
+
+            if (frame) av_frame_free(&frame);
+
+        }
+
+    };
+
+
+
+    struct AVPacketDeleter {
+
+        void operator()(AVPacket* pkt) {
+
+            if (pkt) av_packet_free(&pkt);
+
+        }
+
+    };
+
+
+
+    struct SwsContextDeleter {
+
+        void operator()(SwsContext* ctx) {
+
+            if (ctx) sws_freeContext(ctx);
+
+        }
+
+    };
+
+
+
+    using AVFormatContextPtr = std::unique_ptr<AVFormatContext, AVFormatContextDeleter>;
+
+    using AVCodecContextPtr = std::unique_ptr<AVCodecContext, AVCodecContextDeleter>;
+
+    using AVFramePtr = std::unique_ptr<AVFrame, AVFrameDeleter>;
+
+    using AVPacketPtr = std::unique_ptr<AVPacket, AVPacketDeleter>;
+
+    using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
+
+
+
+    AVFormatContextPtr format_ctx_;
+
+    AVCodecContextPtr codec_ctx_;
+
+    AVFramePtr yuv_frame_;      // YUV420P 格式帧
+
+    AVPacketPtr packet_;
+
+    SwsContextPtr sws_ctx_;     // 像素格式转换上下文
+
+
+
+    AVStream* video_stream_ = nullptr;
+
+    int64_t frame_count_ = 0;
+
+    std::string last_error_;
+
+    bool initialized_ = false;
+
+};
+```
+	#### 3.2 RAII 资源管理详解
+	#### 自定义删除器设计
+	```
+// 为每种 FFmpeg 资源定义专门的删除器
+
+struct AVFormatContextDeleter {
+
+    void operator()(AVFormatContext* ctx) {
+
+        if (ctx) {
+
+            // 关键: 先关闭 I/O,再释放上下文
+
+            if (ctx->pb) {
+
+                avio_closep(&ctx->pb);
+
+            }
+
+            avformat_free_context(ctx);
+
+        }
+
+    }
+
+};
+```
+	IMPORTANT
+	资源释放顺序很重要!
+	1. 先关闭 I/O ( avio_closep)
+	2. 再释放格式上下文 ( avformat_free_context)
+	顺序错误会导致文件损坏或内存泄漏!
+	#### 移动语义实现
+	```
+FFmpegWrapper::FFmpegWrapper(FFmpegWrapper&& other) noexcept
+
+    : format_ctx_(std::move(other.format_ctx_)),
+
+      codec_ctx_(std::move(other.codec_ctx_)),
+
+      yuv_frame_(std::move(other.yuv_frame_)),
+
+      packet_(std::move(other.packet_)),
+
+      sws_ctx_(std::move(other.sws_ctx_)),
+
+      video_stream_(other.video_stream_),
+
+      frame_count_(other.frame_count_),
+
+      initialized_(other.initialized_) {
+
+
+
+    // 重置源对象
+
+    other.video_stream_ = nullptr;
+
+    other.frame_count_ = 0;
+
+    other.initialized_ = false;
+
+}
+```
+	为什么需要移动语义?
+	```
+// 允许在容器中存储 FFmpegWrapper
+
+std::vector<FFmpegWrapper> encoders;
+
+encoders.push_back(FFmpegWrapper());  // 需要移动构造
+
+// 允许从函数返回
+
+FFmpegWrapper createEncoder() {
+
+    FFmpegWrapper encoder;
+
+    encoder.initialize(config);
+
+    return encoder;  // 返回值优化 (RVO) 或移动
+
+}
+```
+	#### 3.3 初始化流程
+	 
+	#### 3.4 编码流程
+	```
+bool FFmpegWrapper::encodeFrame(const FrameData& frame_data) {
+
+    if (!initialized_) {
+
+        last_error_ = "编码器未初始化";
+
+        return false;
+
+    }
+
+
+
+    // 1. 转换像素格式 (BGRA → YUV420P)
+
+    if (!convertPixelFormat(frame_data, yuv_frame_.get())) {
+
+        return false;
+
+    }
+
+
+
+    // 2. 设置时间戳
+
+    yuv_frame_->pts = frame_count_;
+
+
+
+    // 3. 发送帧到编码器
+
+    int ret = avcodec_send_frame(codec_ctx_.get(), yuv_frame_.get());
+
+    if (ret < 0) {
+
+        last_error_ = "发送帧到编码器失败";
+
+        return false;
+
+    }
+
+
+
+    // 4. 接收编码后的数据包
+
+    while (ret >= 0) {
+
+        ret = avcodec_receive_packet(codec_ctx_.get(), packet_.get());
+
+
+
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+
+            break;  // 需要更多输入或已结束
+
+        }
+
+
+
+        if (ret < 0) {
+
+            last_error_ = "接收数据包失败";
+
+            return false;
+
+        }
+
+
+
+        // 5. 重新计算时间戳
+
+        av_packet_rescale_ts(packet_.get(),
+
+                            codec_ctx_->time_base,
+
+                            video_stream_->time_base);
+
+
+
+        packet_->stream_index = video_stream_->index;
+
+
+
+        // 6. 写入文件
+
+        ret = av_interleaved_write_frame(format_ctx_.get(), packet_.get());
+
+        if (ret < 0) {
+
+            last_error_ = "写入帧失败";
+
+            return false;
+
+        }
+
+
+
+        av_packet_unref(packet_.get());
+
+    }
+
+
+
+    frame_count_++;
+
+    return true;
+
+}
+```
+	### 四、平台实现类设计
+	#### 4.1 DXGIGrabber 实现
+	```
+#ifdef _WIN32
+
+#include <d3d11.h>
+
+#include <dxgi1_2.h>
+
+#include <wrl/client.h>  // Microsoft::WRL::ComPtr
+
+using Microsoft::WRL::ComPtr;
+
+class DXGIGrabber : public IScreenGrabber {
+
+public:
+
+    DXGIGrabber(int monitor_index = 0);
+
+    ~DXGIGrabber() override;
+
+
+
+    bool start() override;
+
+    void stop() override;
+
+    void pause() override;
+
+    void resume() override;
+
+
+
+    FrameData captureFrame(int timeout_ms = 100) override;
+
+
+
+    int getWidth() const override { return width_; }
+
+    int getHeight() const override { return height_; }
+
+    int getFrameRate() const override { return frame_rate_; }
+
+    PixelFormat getPixelFormat() const override { return PixelFormat::BGRA; }
+
+
+
+    bool isRunning() const override { return running_; }
+
+    bool isPaused() const override { return paused_; }
+
+    std::string getLastError() const override { return last_error_; }
+
+
+
+private:
+
+    bool initializeD3D11();
+
+    bool createDuplication();
+
+    void cleanup();
+
+
+
+    ComPtr<ID3D11Device> device_;
+
+    ComPtr<ID3D11DeviceContext> context_;
+
+    ComPtr<IDXGIOutputDuplication> duplication_;
+
+
+
+    int monitor_index_;
+
+    int width_ = 0;
+
+    int height_ = 0;
+
+    int frame_rate_ = 60;
+
+
+
+    bool running_ = false;
+
+    bool paused_ = false;
+
+    std::string last_error_;
+
+};
+
+#endif  // _WIN32
+```
+	#### DXGIGrabber::start() 实现
+	```
+bool DXGIGrabber::start() {
+
+    if (running_) {
+
+        return true;  // 已经在运行
+
+    }
+
+
+
+    // 1. 初始化 D3D11
+
+    if (!initializeD3D11()) {
+
+        last_error_ = "初始化 D3D11 失败";
+
+        return false;
+
+    }
+
+
+
+    // 2. 创建桌面复制接口
+
+    if (!createDuplication()) {
+
+        last_error_ = "创建桌面复制接口失败";
+
+        cleanup();
+
+        return false;
+
+    }
+
+
+
+    running_ = true;
+
+    return true;
+
+}
+```
+	#### 4.2 X11Grabber 实现
+	```
+#ifdef __linux__
+
+#include <X11/Xlib.h>
+
+#include <X11/extensions/XShm.h>
+
+#include <sys/shm.h>
+
+class X11Grabber : public IScreenGrabber {
+
+public:
+
+    X11Grabber();
+
+    ~X11Grabber() override;
+
+
+
+    bool start() override;
+
+    void stop() override;
+
+    void pause() override;
+
+    void resume() override;
+
+
+
+    FrameData captureFrame(int timeout_ms = 100) override;
+
+
+
+    int getWidth() const override { return width_; }
+
+    int getHeight() const override { return height_; }
+
+    int getFrameRate() const override { return frame_rate_; }
+
+    PixelFormat getPixelFormat() const override { return PixelFormat::BGRA; }
+
+
+
+    bool isRunning() const override { return running_; }
+
+    bool isPaused() const override { return paused_; }
+
+    std::string getLastError() const override { return last_error_; }
+
+
+
+private:
+
+    bool initializeShm();
+
+    void cleanup();
+
+
+
+    Display* display_ = nullptr;
+
+    Window root_;
+
+    XImage* image_ = nullptr;
+
+    XShmSegmentInfo shminfo_;
+
+
+
+    int width_ = 0;
+
+    int height_ = 0;
+
+    int frame_rate_ = 60;
+
+
+
+    bool running_ = false;
+
+    bool paused_ = false;
+
+    std::string last_error_;
+
+};
+
+#endif  // __linux__
+```
+	### 五、工厂模式设计
+	#### 5.1 GrabberFactory 实现
+	```
+enum class GrabberType {
+
+    AUTO,      // 自动检测最佳方案
+
+    DXGI,      // Windows DXGI
+
+    GDI,       // Windows GDI (备选)
+
+    X11,       // Linux X11
+
+    PIPEWIRE,  // Linux Wayland (PipeWire)
+
+};
+
+class GrabberFactory {
+
+public:
+
+    /**
+
+     * @brief 创建屏幕采集器
+
+     * @param type 采集器类型,AUTO 表示自动选择
+
+     * @return 采集器智能指针,失败返回 nullptr
+
+     */
+
+    static std::unique_ptr<IScreenGrabber> create(GrabberType type = GrabberType::AUTO) {
+
+        if (type == GrabberType::AUTO) {
+
+            type = detectBestGrabber();
+
+        }
+
+
+
+        switch (type) {
+
+#ifdef _WIN32
+
+            case GrabberType::DXGI:
+
+                return std::make_unique<DXGIGrabber>();
+
+            case GrabberType::GDI:
+
+                return std::make_unique<GDIGrabber>();
+
+#endif
+
+
+
+#ifdef __linux__
+
+            case GrabberType::X11:
+
+                return std::make_unique<X11Grabber>();
+
+            case GrabberType::PIPEWIRE:
+
+                return std::make_unique<PipeWireGrabber>();
+
+#endif
+
+
+
+            default:
+
+                return nullptr;
+
+        }
+
+    }
+
+
+
+    /**
+
+     * @brief 获取当前平台可用的采集器列表
+
+     */
+
+    static std::vector<GrabberType> getAvailableGrabbers() {
+
+        std::vector<GrabberType> result;
+
+
+
+#ifdef _WIN32
+
+        if (isDXGIAvailable()) {
+
+            result.push_back(GrabberType::DXGI);
+
+        }
+
+        result.push_back(GrabberType::GDI);  // GDI 总是可用
+
+#endif
+
+
+
+#ifdef __linux__
+
+        if (isX11Available()) {
+
+            result.push_back(GrabberType::X11);
+
+        }
+
+        if (isPipeWireAvailable()) {
+
+            result.push_back(GrabberType::PIPEWIRE);
+
+        }
+
+#endif
+
+
+
+        return result;
+
+    }
+
+
+
+private:
+
+    static GrabberType detectBestGrabber() {
+
+#ifdef _WIN32
+
+        // Windows: 优先 DXGI (Win8+),否则 GDI
+
+        return isDXGIAvailable() ? GrabberType::DXGI : GrabberType::GDI;
+
+#elif defined(__linux__)
+
+        // Linux: 优先 PipeWire (Wayland),否则 X11
+
+        return isPipeWireAvailable() ? GrabberType::PIPEWIRE : GrabberType::X11;
+
+#else
+
+        return GrabberType::AUTO;
+
+#endif
+
+    }
+
+
+
+    static bool isDXGIAvailable() {
+
+        // 检查 Windows 版本 >= 8
+
+        return true;  // 简化实现
+
+    }
+
+
+
+    static bool isX11Available() {
+
+        Display* display = XOpenDisplay(nullptr);
+
+        if (display) {
+
+            XCloseDisplay(display);
+
+            return true;
+
+        }
+
+        return false;
+
+    }
+
+
+
+    static bool isPipeWireAvailable() {
+
+        // 检查 PipeWire 是否安装
+
+        return false;  // 简化实现
+
+    }
+
+};
+```
+	### 六、错误处理策略
+	#### 6.1 错误分类
+				错误类型
+				严重程度
+				处理策略
+				初始化失败
+				致命
+				返回 false,记录错误,清理资源
+				帧捕获超时
+				警告
+				返回空帧,继续运行
+				编码失败
+				严重
+				记录错误,尝试恢复或停止录制
+				磁盘空间不足
+				致命
+				停止录制,通知用户
+	#### 6.2 错误恢复机制
+	```
+class ScreenRecorder {
+
+public:
+
+    bool startRecording(const std::string& output_path) {
+
+        int retry_count = 0;
+
+        const int MAX_RETRIES = 3;
+
+
+
+        while (retry_count < MAX_RETRIES) {
+
+            if (tryStartRecording(output_path)) {
+
+                return true;
+
+            }
+
+
+
+            // 等待后重试
+
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            retry_count++;
+
+        }
+
+
+
+        // 所有重试都失败
+
+        emit errorOccurred("启动录制失败,已重试 " + std::to_string(MAX_RETRIES) + " 次");
+
+        return false;
+
+    }
+
+
+
+private:
+
+    bool tryStartRecording(const std::string& output_path) {
+
+        // 尝试启动采集器
+
+        if (!grabber_->start()) {
+
+            last_error_ = "采集器启动失败: " + grabber_->getLastError();
+
+            return false;
+
+        }
+
+
+
+        // 尝试初始化编码器
+
+        EncoderConfig config;
+
+        config.output_path = output_path;
+
+        config.width = grabber_->getWidth();
+
+        config.height = grabber_->getHeight();
+
+
+
+        if (!encoder_->initialize(config)) {
+
+            last_error_ = "编码器初始化失败: " + encoder_->getLastError();
+
+            grabber_->stop();
+
+            return false;
+
+        }
+
+
+
+        return true;
+
+    }
+
+};
+```
+	### 七、性能优化考虑
+	#### 7.1 零拷贝优化
+	```
+// ❌ 低效: 多次内存拷贝
+
+FrameData DXGIGrabber::captureFrame(int timeout_ms) {
+
+    // GPU → CPU (拷贝 1)
+
+    uint8_t* temp_buffer = new uint8_t[width_ * height_ * 4];
+
+    copyFromGPU(temp_buffer);
+
+
+
+    // CPU → FrameData (拷贝 2)
+
+    FrameData frame;
+
+    frame.data = new uint8_t[width_ * height_ * 4];
+
+    memcpy(frame.data, temp_buffer, width_ * height_ * 4);
+
+
+
+    delete[] temp_buffer;
+
+    return frame;
+
+}
+
+// ✅ 高效: 零拷贝
+
+FrameData DXGIGrabber::captureFrame(int timeout_ms) {
+
+    FrameData frame;
+
+
+
+    // 直接分配最终内存
+
+    size_t size = width_ * height_ * 4;
+
+    frame.data_holder = std::shared_ptr<uint8_t>(
+
+        new uint8_t[size],
+
+        [](uint8_t* p) { delete[] p; }
+
+    );
+
+    frame.data = frame.data_holder.get();
+
+
+
+    // GPU → CPU (只拷贝一次)
+
+    copyFromGPU(frame.data);
+
+
+
+    return frame;
+
+}
+```
+	#### 7.2 内存池优化
+	```
+class FramePool {
+
+public:
+
+    FramePool(int width, int height, int pool_size = 10) {
+
+        for (int i = 0; i < pool_size; i++) {
+
+            FrameData frame;
+
+            frame.width = width;
+
+            frame.height = height;
+
+
+
+            size_t size = width * height * 4;
+
+            frame.data_holder = std::shared_ptr<uint8_t>(
+
+                new uint8_t[size],
+
+                [](uint8_t* p) { delete[] p; }
+
+            );
+
+            frame.data = frame.data_holder.get();
+
+
+
+            pool_.push(frame);
+
+        }
+
+    }
+
+
+
+    FrameData acquire() {
+
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (pool_.empty()) {
+
+            // 池为空,创建新帧
+
+            return createNewFrame();
+
+        }
+
+
+
+        FrameData frame = pool_.front();
+
+        pool_.pop();
+
+        return frame;
+
+    }
+
+
+
+    void release(FrameData frame) {
+
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        pool_.push(frame);
+
+    }
+
+
+
+private:
+
+    std::queue<FrameData> pool_;
+
+    std::mutex mutex_;
+
+    int width_, height_;
+
+};
+```
+	### 八、使用示例
+	#### 8.1 基本使用
+	```
+#include "IScreenGrabber.h"
+
+#include "GrabberFactory.h"
+
+#include "FFmpegWrapper.h"
+
+int main() {
+
+    // 1. 创建采集器
+
+    auto grabber = GrabberFactory::create(GrabberType::AUTO);
+
+    if (!grabber) {
+
+        std::cerr << "创建采集器失败" << std::endl;
+
+        return 1;
+
+    }
+
+
+
+    // 2. 启动采集器
+
+    if (!grabber->start()) {
+
+        std::cerr << "启动采集器失败: " << grabber->getLastError() << std::endl;
+
+        return 1;
+
+    }
+
+
+
+    // 3. 创建编码器
+
+    FFmpegWrapper encoder;
+
+    EncoderConfig config;
+
+    config.output_path = "output.mp4";
+
+    config.width = grabber->getWidth();
+
+    config.height = grabber->getHeight();
+
+    config.fps = grabber->getFrameRate();
+
+
+
+    if (!encoder.initialize(config)) {
+
+        std::cerr << "初始化编码器失败: " << encoder.getLastError() << std::endl;
+
+        return 1;
+
+    }
+
+
+
+    // 4. 录制 10 秒 (600 帧 @ 60fps)
+
+    for (int i = 0; i < 600; i++) {
+
+        FrameData frame = grabber->captureFrame(100);
+
+
+
+        if (frame.data) {
+
+            encoder.encodeFrame(frame);
+
+        }
+
+    }
+
+
+
+    // 5. 完成录制
+
+    encoder.finalize();
+
+    grabber->stop();
+
+
+
+    std::cout << "录制完成,共 " << encoder.getEncodedFrameCount() << " 帧" << std::endl;
+
+
+
+    return 0;
+
+}
+```
+	### 九、总结
+	#### 9.1 设计要点
+	1. 接口抽象: IScreenGrabber 定义统一契约
+	2. RAII 管理: 所有资源自动释放,防止泄漏
+	3. 工厂模式: 自动选择最佳平台实现
+	4. 错误处理: 分类处理,支持重试和恢复
+	5. 性能优化: 零拷贝、内存池等技术
+	#### 9.2 下一步
+	完成 3.1 采集器架构设计后,下一步将进入:
+	- 3.2 视频流处理: 设计 FrameGrabberThread 和 FrameEncoder
+	- 3.3 写入控制: 设计 MediaWriter 和分片逻辑
+	### 附录: 类图总览
+	
+	
+	
+	
+	

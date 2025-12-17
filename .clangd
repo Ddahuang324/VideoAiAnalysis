@@ -1,61 +1,18 @@
-# Clangd 配置文件 - 跨平台通用配置
-# 平台特定配置请在 .clangd.local 中设置 (该文件不会被提交到 Git)
-
-# 注意: clangd 会自动合并 .clangd 和 .clangd.local 的配置
-# 优先级: .clangd.local > .clangd
-
-# clangd 会自动从 build/compile_commands.json 读取编译信息
-# 如果需要额外的编译标志,请在 .clangd.local 中添加
 CompileFlags:
-  # 编译数据库路径 (CMake 自动生成)
   CompilationDatabase: build
   Add:
-    # 强制 Clang 使用 CL 驱动模式 (模拟 MSVC)
-    - "--driver-mode=cl"
-    # 禁用一些常见的安全警告
-    - "-D_CRT_SECURE_NO_WARNINGS"
-    # MSVC 标准库路径 (Version 14.44.35207)
-    - "-imsvc"
-    - "D:/Visual Studio/VC/Tools/MSVC/14.44.35207/include"
-    # Windows SDK Include 路径 (Version 10.0.26100.0)
-    - "-imsvc"
-    - "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/ucrt"
-    - "-imsvc"
-    - "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um"
-    - "-imsvc"
-    - "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared"
+    - -ID:/编程/项目/AiVideoAnalsysSystem/cpp/include
+    - -ID:/Visual Studio/VC/Tools/MSVC/14.44.35207/include
+    - -ID:/Visual Studio/VC/Tools/MSVC/14.44.35207/ATLMFC/include
+    - -ID:/Visual Studio/VC/Auxiliary/VS/include
+    - -IC:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/ucrt
+    - -IC:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/um
+    - -IC:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/shared
+    - -IC:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/winrt
+    - -IC:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/cppwinrt
+    - -ID:/LLVM/lib/clang/20/include
+    - --driver-mode=cl
 
 Diagnostics:
-  ClangTidy:
-    Add:
-      - modernize-*
-      - performance-*
-      - readability-*
-      - bugprone-*
-    Remove:
-      - modernize-use-trailing-return-type
-      - readability-identifier-length
-      - readability-magic-numbers
-      - cppcoreguidelines-avoid-magic-numbers
-      - readability-redundant-string-init
-  Suppress:
-    - "*-c++98-compat*"
-    - "pre-c++*"
-  UnusedIncludes: Strict
+  UnusedIncludes: None
   MissingIncludes: Strict
-
-Index:
-  Background: Build
-  StandardLibrary: Yes
-
-InlayHints:
-  Enabled: Yes
-  ParameterNames: Yes
-  DeducedTypes: Yes
-  Designators: Yes
-
-Hover:
-  ShowAKA: Yes
-
-Completion:
-  AllScopes: Yes

@@ -1,0 +1,1090 @@
+# 3.2 视频流处理架构设计
+
+> 本文档详细设计视频流处理模块,包括 `FrameGrabberThread`(帧采集线程)和 `FrameEncoder`(帧编码器)的完整架构。
+
+---
+
+## 目录
+
+1. [架构概览](#一架构概览)
+2. [线程安全队列设计](#二线程安全队列设计)
+3. [FrameGrabberThread 设计](#三framegrabberthread-设计)
+4. [FrameEncoder 设计](#四frameencoder-设计)
+5. [生产者-消费者协作](#五生产者-消费者协作)
+6. [性能优化策略](#六性能优化策略)
+7. [错误处理与恢复](#七错误处理与恢复)
+
+---
+
+## 一、架构概览
+
+### 1.1 设计目标
+
+视频流处理模块的核心目标:
+
+1. **异步处理**: 采集和编码在独立线程运行,不阻塞 UI
+2. **高吞吐量**: 支持 60fps 高帧率录制
+3. **低延迟**: 最小化采集到编码的延迟
+4. **资源可控**: 队列大小可配置,防止内存溢出
+
+### 1.2 整体架构图
+
+```mermaid
+graph TB
+    subgraph "UI 线程"
+        UI[RecordingController]
+    end
+    
+    subgraph "采集线程"
+        Grabber[FrameGrabberThread]
+        ScreenAPI[IScreenGrabber]
+    end
+    
+    subgraph "共享队列"
+        Queue[ThreadSafeQueue<br/>容量: 30 帧]
+    end
+    
+    subgraph "编码线程"
+        Encoder[FrameEncoder]
+        FFmpeg[FFmpegWrapper]
+    end
+    
+    subgraph "写入线程 (可选)"
+        Writer[MediaWriter]
+    end
+    
+    UI -->|start/stop| Grabber
+    UI -->|start/stop| Encoder
+    
+    Grabber -->|captureFrame| ScreenAPI
+    ScreenAPI -->|FrameData| Grabber
+    Grabber -->|push| Queue
+    
+    Queue -->|pop| Encoder
+    Encoder -->|encode| FFmpeg
+    FFmpeg -->|AVPacket| Writer
+    
+    Encoder -.进度信号.-> UI
+    Grabber -.状态信号.-> UI
+    
+    style UI fill:#FFD700
+    style Grabber fill:#87CEEB
+    style Encoder fill:#90EE90
+    style Queue fill:#FFA500
+```
+
+### 1.3 数据流转
+
+```mermaid
+sequenceDiagram
+    participant UI as UI 线程
+    participant GT as FrameGrabberThread
+    participant Q as ThreadSafeQueue
+    participant ET as FrameEncoder
+    participant File as 输出文件
+    
+    UI->>GT: start()
+    UI->>ET: start()
+    
+    activate GT
+    activate ET
+    
+    loop 每 16ms (60fps)
+        GT->>GT: captureFrame()
+        GT->>Q: push(frame)
+        
+        alt 队列已满
+            Q-->>GT: 阻塞等待
+        else 队列有空间
+            Q-->>GT: 成功
+        end
+    end
+    
+    loop 持续运行
+        ET->>Q: pop(frame, timeout)
+        
+        alt 队列非空
+            Q-->>ET: 返回帧
+            ET->>ET: convertPixelFormat()
+            ET->>ET: encodeFrame()
+            ET->>File: write(packet)
+        else 队列为空
+            Q-->>ET: 超时
+            Note over ET: 等待新帧
+        end
+    end
+    
+    UI->>GT: stop()
+    UI->>ET: stop()
+    
+    deactivate GT
+    deactivate ET
+```
+
+---
+
+## 二、线程安全队列设计
+
+### 2.1 ThreadSafeQueue 类定义
+
+```cpp
+#pragma once
+
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <optional>
+
+/**
+ * @brief 线程安全的有界队列
+ * 
+ * 支持阻塞式 push/pop,适用于生产者-消费者模式
+ */
+template<typename T>
+class ThreadSafeQueue {
+public:
+    /**
+     * @brief 构造函数
+     * @param max_size 队列最大容量,0 表示无限制
+     */
+    explicit ThreadSafeQueue(size_t max_size = 0) 
+        : max_size_(max_size) {}
+    
+    /**
+     * @brief 向队列尾部添加元素
+     * @param value 要添加的元素
+     * @param timeout 超时时间,如果队列已满则等待
+     * @return 成功返回 true,超时返回 false
+     */
+    bool push(T value, std::chrono::milliseconds timeout = std::chrono::milliseconds::max()) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        
+        // 等待队列有空间
+        if (max_size_ > 0) {
+            if (!not_full_.wait_for(lock, timeout, [this] { 
+                return queue_.size() < max_size_ || stopped_; 
+            })) {
+                return false;  // 超时
+            }
+        }
+        
+        if (stopped_) {
+            return false;  // 队列已停止
+        }
+        
+        queue_.push(std::move(value));
+        not_empty_.notify_one();
+        return true;
+    }
+    
+    /**
+     * @brief 从队列头部取出元素
+     * @param value 输出参数,存储取出的元素
+     * @param timeout 超时时间
+     * @return 成功返回 true,超时或队列为空返回 false
+     */
+    bool pop(T& value, std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        
+        // 等待队列非空
+        if (!not_empty_.wait_for(lock, timeout, [this] { 
+            return !queue_.empty() || stopped_; 
+        })) {
+            return false;  // 超时
+        }
+        
+        if (stopped_ && queue_.empty()) {
+            return false;  // 队列已停止且为空
+        }
+        
+        value = std::move(queue_.front());
+        queue_.pop();
+        not_full_.notify_one();
+        return true;
+    }
+    
+    /**
+     * @brief 尝试取出元素(非阻塞)
+     */
+    std::optional<T> tryPop() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (queue_.empty()) {
+            return std::nullopt;
+        }
+        
+        T value = std::move(queue_.front());
+        queue_.pop();
+        not_full_.notify_one();
+        return value;
+    }
+    
+    /**
+     * @brief 获取队列当前大小
+     */
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.size();
+    }
+    
+    /**
+     * @brief 检查队列是否为空
+     */
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.empty();
+    }
+    
+    /**
+     * @brief 清空队列
+     */
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::queue<T> empty;
+        std::swap(queue_, empty);
+        not_full_.notify_all();
+    }
+    
+    /**
+     * @brief 停止队列,唤醒所有等待线程
+     */
+    void stop() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped_ = true;
+        not_empty_.notify_all();
+        not_full_.notify_all();
+    }
+    
+    /**
+     * @brief 重新启动队列
+     */
+    void reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped_ = false;
+        clear();
+    }
+    
+private:
+    std::queue<T> queue_;
+    mutable std::mutex mutex_;
+    std::condition_variable not_empty_;  // 队列非空条件
+    std::condition_variable not_full_;   // 队列未满条件
+    size_t max_size_;
+    bool stopped_ = false;
+};
+```
+
+### 2.2 队列容量设计
+
+**问题**: 队列应该设置多大?
+
+```mermaid
+graph LR
+    A[队列容量选择] --> B[太小<br/>< 10 帧]
+    A --> C[适中<br/>20-30 帧]
+    A --> D[太大<br/>> 100 帧]
+    
+    B --> B1[优点: 低延迟]
+    B --> B2[缺点: 容易丢帧]
+    
+    C --> C1[优点: 平衡性能和延迟]
+    C --> C2[缺点: 需要调优]
+    
+    D --> D1[优点: 不易丢帧]
+    D --> D2[缺点: 高延迟, 高内存]
+    
+    style C fill:#90EE90
+    style C1 fill:#90EE90
+```
+
+> [!TIP]
+> **推荐配置**: 30 帧 (0.5 秒 @ 60fps)
+> 
+> - 1920×1080 BGRA: 每帧 ~8MB
+> - 30 帧总内存: ~240MB
+> - 延迟: 最大 0.5 秒
+> 
+> 这个配置在性能和延迟之间取得了良好平衡。
+
+---
+
+## 三、FrameGrabberThread 设计
+
+### 3.1 类定义
+
+```cpp
+#pragma once
+
+#include <QObject>
+#include <QThread>
+#include <atomic>
+#include <memory>
+#include <chrono>
+
+#include "IScreenGrabber.h"
+#include "ThreadSafeQueue.h"
+
+/**
+ * @brief 帧采集线程
+ * 
+ * 在独立线程中持续捕获屏幕帧,并推送到队列
+ */
+class FrameGrabberThread : public QObject {
+    Q_OBJECT
+    
+public:
+    /**
+     * @brief 构造函数
+     * @param grabber 屏幕采集器
+     * @param queue 帧队列
+     * @param target_fps 目标帧率
+     */
+    FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber,
+                       std::shared_ptr<ThreadSafeQueue<FrameData>> queue,
+                       int target_fps = 60);
+    
+    ~FrameGrabberThread();
+    
+public slots:
+    /**
+     * @brief 启动采集
+     */
+    void start();
+    
+    /**
+     * @brief 停止采集
+     */
+    void stop();
+    
+    /**
+     * @brief 暂停采集
+     */
+    void pause();
+    
+    /**
+     * @brief 恢复采集
+     */
+    void resume();
+    
+signals:
+    /**
+     * @brief 采集开始信号
+     */
+    void started();
+    
+    /**
+     * @brief 采集停止信号
+     */
+    void stopped();
+    
+    /**
+     * @brief 帧已捕获信号
+     * @param frame_count 已捕获帧数
+     * @param queue_size 当前队列大小
+     * @param fps 实际帧率
+     */
+    void frameCaptured(int64_t frame_count, int queue_size, double fps);
+    
+    /**
+     * @brief 丢帧警告信号
+     * @param dropped_count 丢帧数
+     */
+    void framesDropped(int dropped_count);
+    
+    /**
+     * @brief 错误信号
+     */
+    void errorOccurred(const QString& error);
+    
+private:
+    /**
+     * @brief 采集循环
+     */
+    void captureLoop();
+    
+    /**
+     * @brief 计算实际帧率
+     */
+    void updateFPS();
+    
+    /**
+     * @brief 帧率控制 (精确定时)
+     */
+    void waitForNextFrame();
+    
+    std::shared_ptr<IScreenGrabber> grabber_;
+    std::shared_ptr<ThreadSafeQueue<FrameData>> queue_;
+    
+    int target_fps_;
+    std::chrono::microseconds frame_interval_;  // 帧间隔
+    
+    std::atomic<bool> running_{false};
+    std::atomic<bool> paused_{false};
+    
+    // 统计信息
+    int64_t frame_count_ = 0;
+    int64_t dropped_count_ = 0;
+    std::chrono::steady_clock::time_point start_time_;
+    std::chrono::steady_clock::time_point last_frame_time_;
+    
+    // FPS 计算
+    static constexpr int FPS_SAMPLE_SIZE = 60;
+    std::deque<std::chrono::steady_clock::time_point> fps_samples_;
+    double current_fps_ = 0.0;
+};
+```
+
+### 3.2 核心实现
+
+#### 采集循环
+
+```cpp
+void FrameGrabberThread::captureLoop() {
+    start_time_ = std::chrono::steady_clock::now();
+    last_frame_time_ = start_time_;
+    
+    emit started();
+    
+    while (running_) {
+        // 检查暂停状态
+        if (paused_) {
+            QThread::msleep(10);
+            continue;
+        }
+        
+        // 捕获帧
+        auto capture_start = std::chrono::steady_clock::now();
+        FrameData frame = grabber_->captureFrame(100);
+        
+        if (!frame.data) {
+            // 捕获失败,可能是超时
+            continue;
+        }
+        
+        // 设置时间戳
+        frame.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            capture_start - start_time_
+        ).count();
+        
+        // 推送到队列
+        if (!queue_->push(std::move(frame), std::chrono::milliseconds(100))) {
+            // 队列已满,丢帧
+            dropped_count_++;
+            emit framesDropped(dropped_count_);
+        } else {
+            frame_count_++;
+            
+            // 更新 FPS
+            updateFPS();
+            
+            // 发送进度信号 (每 30 帧发送一次,减少信号开销)
+            if (frame_count_ % 30 == 0) {
+                emit frameCaptured(frame_count_, queue_->size(), current_fps_);
+            }
+        }
+        
+        // 帧率控制
+        waitForNextFrame();
+    }
+    
+    emit stopped();
+}
+```
+
+#### 精确帧率控制
+
+```cpp
+void FrameGrabberThread::waitForNextFrame() {
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = now - last_frame_time_;
+    
+    if (elapsed < frame_interval_) {
+        // 需要等待
+        auto sleep_duration = frame_interval_ - elapsed;
+        
+        // 使用高精度睡眠
+        std::this_thread::sleep_for(sleep_duration);
+    }
+    
+    last_frame_time_ = std::chrono::steady_clock::now();
+}
+```
+
+> [!IMPORTANT]
+> **帧率控制的重要性**
+> 
+> 如果不控制帧率,采集线程会以最快速度运行:
+> - CPU 占用 100%
+> - 队列快速填满
+> - 编码器跟不上,大量丢帧
+> 
+> 精确的帧率控制确保稳定的 60fps 输出。
+
+#### FPS 计算
+
+```cpp
+void FrameGrabberThread::updateFPS() {
+    auto now = std::chrono::steady_clock::now();
+    fps_samples_.push_back(now);
+    
+    // 保持最近 60 帧的时间戳
+    if (fps_samples_.size() > FPS_SAMPLE_SIZE) {
+        fps_samples_.pop_front();
+    }
+    
+    // 计算平均 FPS
+    if (fps_samples_.size() >= 2) {
+        auto duration = fps_samples_.back() - fps_samples_.front();
+        auto seconds = std::chrono::duration<double>(duration).count();
+        current_fps_ = (fps_samples_.size() - 1) / seconds;
+    }
+}
+```
+
+---
+
+## 四、FrameEncoder 设计
+
+### 4.1 类定义
+
+```cpp
+#pragma once
+
+#include <QObject>
+#include <memory>
+#include <atomic>
+
+#include "ThreadSafeQueue.h"
+#include "FFmpegWrapper.h"
+
+/**
+ * @brief 帧编码器
+ * 
+ * 从队列中取出帧,进行像素格式转换和编码
+ */
+class FrameEncoder : public QObject {
+    Q_OBJECT
+    
+public:
+    /**
+     * @brief 构造函数
+     * @param queue 帧队列
+     * @param config 编码器配置
+     */
+    FrameEncoder(std::shared_ptr<ThreadSafeQueue<FrameData>> queue,
+                 const EncoderConfig& config);
+    
+    ~FrameEncoder();
+    
+public slots:
+    /**
+     * @brief 启动编码
+     */
+    void start();
+    
+    /**
+     * @brief 停止编码
+     */
+    void stop();
+    
+signals:
+    /**
+     * @brief 编码开始信号
+     */
+    void started();
+    
+    /**
+     * @brief 编码停止信号
+     */
+    void stopped();
+    
+    /**
+     * @brief 帧已编码信号
+     * @param encoded_count 已编码帧数
+     * @param file_size 输出文件大小(字节)
+     */
+    void frameEncoded(int64_t encoded_count, int64_t file_size);
+    
+    /**
+     * @brief 编码完成信号
+     * @param total_frames 总帧数
+     * @param output_path 输出文件路径
+     */
+    void encodingFinished(int64_t total_frames, const QString& output_path);
+    
+    /**
+     * @brief 错误信号
+     */
+    void errorOccurred(const QString& error);
+    
+private:
+    /**
+     * @brief 编码循环
+     */
+    void encodeLoop();
+    
+    /**
+     * @brief 处理一帧
+     */
+    bool processFrame(const FrameData& frame);
+    
+    std::shared_ptr<ThreadSafeQueue<FrameData>> queue_;
+    std::unique_ptr<FFmpegWrapper> encoder_;
+    EncoderConfig config_;
+    
+    std::atomic<bool> running_{false};
+    int64_t encoded_count_ = 0;
+};
+```
+
+### 4.2 核心实现
+
+#### 编码循环
+
+```cpp
+void FrameEncoder::encodeLoop() {
+    // 初始化编码器
+    if (!encoder_->initialize(config_)) {
+        emit errorOccurred(QString::fromStdString(encoder_->getLastError()));
+        return;
+    }
+    
+    emit started();
+    
+    while (running_) {
+        FrameData frame;
+        
+        // 从队列取帧 (超时 100ms)
+        if (!queue_->pop(frame, std::chrono::milliseconds(100))) {
+            // 超时,继续等待
+            continue;
+        }
+        
+        // 处理帧
+        if (!processFrame(frame)) {
+            emit errorOccurred(QString::fromStdString(encoder_->getLastError()));
+            break;
+        }
+        
+        encoded_count_++;
+        
+        // 发送进度信号 (每 30 帧发送一次)
+        if (encoded_count_ % 30 == 0) {
+            emit frameEncoded(encoded_count_, encoder_->getOutputFileSize());
+        }
+    }
+    
+    // 完成编码
+    encoder_->finalize();
+    
+    emit encodingFinished(encoded_count_, QString::fromStdString(config_.output_path));
+    emit stopped();
+}
+```
+
+#### 帧处理
+
+```cpp
+bool FrameEncoder::processFrame(const FrameData& frame) {
+    // 编码帧
+    if (!encoder_->encodeFrame(frame)) {
+        return false;
+    }
+    
+    return true;
+}
+```
+
+### 4.3 像素格式转换优化
+
+在 `FFmpegWrapper::encodeFrame()` 中实现:
+
+```cpp
+bool FFmpegWrapper::encodeFrame(const FrameData& frame_data) {
+    // 1. 转换像素格式 (BGRA → YUV420P)
+    if (!convertPixelFormat(frame_data, yuv_frame_.get())) {
+        return false;
+    }
+    
+    // 2. 设置时间戳
+    yuv_frame_->pts = frame_count_;
+    
+    // 3. 编码
+    // ... (见 3.1 文档)
+}
+
+bool FFmpegWrapper::convertPixelFormat(const FrameData& src, AVFrame* dst) {
+    // 源数据
+    const uint8_t* src_data[1] = { src.data };
+    int src_linesize[1] = { src.stride > 0 ? src.stride : src.width * 4 };
+    
+    // 转换
+    int ret = sws_scale(
+        sws_ctx_.get(),
+        src_data,
+        src_linesize,
+        0,
+        src.height,
+        dst->data,
+        dst->linesize
+    );
+    
+    return ret > 0;
+}
+```
+
+---
+
+## 五、生产者-消费者协作
+
+### 5.1 完整交互流程
+
+```mermaid
+sequenceDiagram
+    participant UI as RecordingController
+    participant GT as FrameGrabberThread
+    participant Q as ThreadSafeQueue
+    participant ET as FrameEncoder
+    
+    UI->>GT: moveToThread(grabberThread)
+    UI->>ET: moveToThread(encoderThread)
+    
+    UI->>GT: start()
+    UI->>ET: start()
+    
+    activate GT
+    activate ET
+    
+    par 采集线程
+        loop 每 16.67ms (60fps)
+            GT->>GT: captureFrame()
+            GT->>Q: push(frame)
+            
+            alt 队列已满
+                Note over GT,Q: 阻塞等待或丢帧
+            end
+            
+            GT->>GT: waitForNextFrame()
+        end
+    and 编码线程
+        loop 持续运行
+            ET->>Q: pop(frame, 100ms)
+            
+            alt 队列非空
+                Q-->>ET: 返回帧
+                ET->>ET: convertPixelFormat()
+                ET->>ET: encodeFrame()
+                ET-->>UI: frameEncoded(count, size)
+            else 超时
+                Note over ET: 继续等待
+            end
+        end
+    end
+    
+    UI->>GT: stop()
+    UI->>ET: stop()
+    
+    deactivate GT
+    deactivate ET
+    
+    ET-->>UI: encodingFinished()
+```
+
+### 5.2 Qt 线程集成
+
+```cpp
+class RecordingController : public QObject {
+    Q_OBJECT
+    
+public:
+    RecordingController() {
+        // 创建共享队列
+        frame_queue_ = std::make_shared<ThreadSafeQueue<FrameData>>(30);
+        
+        // 创建采集器
+        auto grabber = GrabberFactory::create();
+        grabber_ = std::shared_ptr<IScreenGrabber>(std::move(grabber));
+        
+        // 创建线程
+        grabber_thread_ = new QThread(this);
+        encoder_thread_ = new QThread(this);
+        
+        // 创建工作对象
+        frame_grabber_ = new FrameGrabberThread(grabber_, frame_queue_, 60);
+        
+        EncoderConfig config;
+        config.output_path = "output.mp4";
+        config.width = grabber_->getWidth();
+        config.height = grabber_->getHeight();
+        frame_encoder_ = new FrameEncoder(frame_queue_, config);
+        
+        // 移动到线程
+        frame_grabber_->moveToThread(grabber_thread_);
+        frame_encoder_->moveToThread(encoder_thread_);
+        
+        // 连接信号
+        connect(grabber_thread_, &QThread::started, frame_grabber_, &FrameGrabberThread::start);
+        connect(encoder_thread_, &QThread::started, frame_encoder_, &FrameEncoder::start);
+        
+        connect(frame_grabber_, &FrameGrabberThread::frameCaptured,
+                this, &RecordingController::onFrameCaptured);
+        connect(frame_encoder_, &FrameEncoder::frameEncoded,
+                this, &RecordingController::onFrameEncoded);
+    }
+    
+    void startRecording() {
+        grabber_->start();
+        grabber_thread_->start();
+        encoder_thread_->start();
+    }
+    
+    void stopRecording() {
+        frame_grabber_->stop();
+        frame_encoder_->stop();
+        
+        grabber_thread_->quit();
+        encoder_thread_->quit();
+        
+        grabber_thread_->wait();
+        encoder_thread_->wait();
+        
+        grabber_->stop();
+    }
+    
+private slots:
+    void onFrameCaptured(int64_t count, int queue_size, double fps) {
+        qDebug() << "已捕获:" << count << "帧, 队列:" << queue_size << ", FPS:" << fps;
+    }
+    
+    void onFrameEncoded(int64_t count, int64_t size) {
+        qDebug() << "已编码:" << count << "帧, 文件大小:" << size << "字节";
+    }
+    
+private:
+    std::shared_ptr<IScreenGrabber> grabber_;
+    std::shared_ptr<ThreadSafeQueue<FrameData>> frame_queue_;
+    
+    QThread* grabber_thread_;
+    QThread* encoder_thread_;
+    
+    FrameGrabberThread* frame_grabber_;
+    FrameEncoder* frame_encoder_;
+};
+```
+
+---
+
+## 六、性能优化策略
+
+### 6.1 自适应帧率
+
+**问题**: 静态场景下 60fps 浪费资源
+
+**解决方案**: 帧差检测 + 动态帧率
+
+```cpp
+class AdaptiveFrameRateController {
+public:
+    AdaptiveFrameRateController(int max_fps = 60, int min_fps = 10)
+        : max_fps_(max_fps), min_fps_(min_fps) {}
+    
+    bool shouldCaptureFrame(const FrameData& current_frame) {
+        if (!last_frame_.data) {
+            last_frame_ = current_frame;
+            return true;
+        }
+        
+        // 计算帧差
+        double diff = calculateFrameDifference(last_frame_, current_frame);
+        
+        if (diff < STATIC_THRESHOLD) {
+            // 静态场景,降低帧率
+            frame_skip_counter_++;
+            int skip_interval = max_fps_ / min_fps_;
+            
+            if (frame_skip_counter_ >= skip_interval) {
+                frame_skip_counter_ = 0;
+                last_frame_ = current_frame;
+                return true;
+            }
+            return false;
+        } else {
+            // 动态场景,保持高帧率
+            frame_skip_counter_ = 0;
+            last_frame_ = current_frame;
+            return true;
+        }
+    }
+    
+private:
+    double calculateFrameDifference(const FrameData& a, const FrameData& b) {
+        // 简化实现: 采样比较
+        int sample_count = 100;
+        int diff_count = 0;
+        
+        for (int i = 0; i < sample_count; i++) {
+            int offset = (i * a.width * a.height * 4) / sample_count;
+            if (std::abs(a.data[offset] - b.data[offset]) > 10) {
+                diff_count++;
+            }
+        }
+        
+        return static_cast<double>(diff_count) / sample_count;
+    }
+    
+    static constexpr double STATIC_THRESHOLD = 0.05;  // 5% 像素变化
+    
+    int max_fps_;
+    int min_fps_;
+    int frame_skip_counter_ = 0;
+    FrameData last_frame_;
+};
+```
+
+### 6.2 编码器预设优化
+
+```cpp
+EncoderConfig createOptimizedConfig(const std::string& scenario) {
+    EncoderConfig config;
+    
+    if (scenario == "screen_recording") {
+        // 屏幕录制优化
+        config.preset = "ultrafast";     // 最快编码
+        config.codec = "h264";
+        config.bit_rate = 5000000;       // 5 Mbps
+        config.gop_size = 60;            // 每秒一个关键帧
+        
+        // x264 特定参数
+        config.encoder_params["tune"] = "zerolatency";
+        config.encoder_params["crf"] = "23";  // 质量优先
+        
+    } else if (scenario == "gaming") {
+        // 游戏录制优化
+        config.preset = "veryfast";
+        config.codec = "h264";
+        config.bit_rate = 10000000;      // 10 Mbps (高码率)
+        config.gop_size = 120;           // 2 秒一个关键帧
+        
+    } else if (scenario == "tutorial") {
+        // 教程录制优化 (文件大小优先)
+        config.preset = "medium";
+        config.codec = "h264";
+        config.bit_rate = 2000000;       // 2 Mbps
+        config.gop_size = 300;           // 5 秒一个关键帧
+    }
+    
+    return config;
+}
+```
+
+---
+
+## 七、错误处理与恢复
+
+### 7.1 错误场景
+
+| 错误场景 | 检测方式 | 恢复策略 |
+|----------|----------|----------|
+| **采集超时** | `captureFrame()` 返回空帧 | 跳过该帧,继续采集 |
+| **队列阻塞** | `push()` 超时 | 丢帧并记录警告 |
+| **编码失败** | `encodeFrame()` 返回 false | 停止录制,保存已编码部分 |
+| **磁盘满** | `av_interleaved_write_frame()` 失败 | 停止录制,通知用户 |
+
+### 7.2 优雅停止
+
+```cpp
+void RecordingController::stopRecording() {
+    // 1. 停止采集线程 (不再产生新帧)
+    frame_grabber_->stop();
+    grabber_thread_->quit();
+    grabber_thread_->wait();
+    
+    // 2. 等待队列清空
+    while (!frame_queue_->empty()) {
+        QThread::msleep(10);
+    }
+    
+    // 3. 停止编码线程
+    frame_encoder_->stop();
+    encoder_thread_->quit();
+    encoder_thread_->wait();
+    
+    // 4. 清理资源
+    grabber_->stop();
+    frame_queue_->clear();
+}
+```
+
+---
+
+## 八、总结
+
+### 8.1 设计要点
+
+1. **线程安全队列**: 使用条件变量实现阻塞式 push/pop
+2. **精确帧率控制**: 使用高精度定时器确保稳定 60fps
+3. **异步编码**: 采集和编码在独立线程,不阻塞 UI
+4. **性能优化**: 自适应帧率、编码器预设优化
+5. **错误恢复**: 分类处理,优雅停止
+
+### 8.2 关键指标
+
+| 指标 | 目标值 | 实现方式 |
+|------|--------|----------|
+| **帧率稳定性** | ±2 fps | 精确定时器 + 帧率控制 |
+| **延迟** | < 0.5 秒 | 队列容量 30 帧 |
+| **CPU 占用** | < 30% | ultrafast 预设 + 自适应帧率 |
+| **内存占用** | < 500MB | 有界队列 + 及时释放 |
+
+---
+
+## 附录: 完整类图
+
+```mermaid
+classDiagram
+    class ThreadSafeQueue~T~ {
+        -queue~T~ queue_
+        -mutex mutex_
+        -condition_variable not_empty_
+        -condition_variable not_full_
+        +push(value, timeout) bool
+        +pop(value, timeout) bool
+        +size() size_t
+        +clear() void
+    }
+    
+    class FrameGrabberThread {
+        -shared_ptr~IScreenGrabber~ grabber_
+        -shared_ptr~ThreadSafeQueue~ queue_
+        -atomic~bool~ running_
+        +start() void
+        +stop() void
+        -captureLoop() void
+        -waitForNextFrame() void
+    }
+    
+    class FrameEncoder {
+        -shared_ptr~ThreadSafeQueue~ queue_
+        -unique_ptr~FFmpegWrapper~ encoder_
+        -atomic~bool~ running_
+        +start() void
+        +stop() void
+        -encodeLoop() void
+        -processFrame() bool
+    }
+    
+    class RecordingController {
+        -shared_ptr~IScreenGrabber~ grabber_
+        -shared_ptr~ThreadSafeQueue~ queue_
+        -FrameGrabberThread* frame_grabber_
+        -FrameEncoder* frame_encoder_
+        +startRecording() void
+        +stopRecording() void
+    }
+    
+    FrameGrabberThread --> ThreadSafeQueue : uses
+    FrameEncoder --> ThreadSafeQueue : uses
+    RecordingController --> FrameGrabberThread : manages
+    RecordingController --> FrameEncoder : manages
+    RecordingController --> ThreadSafeQueue : creates
+```

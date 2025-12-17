@@ -1,0 +1,14 @@
+[
+    {
+        "directory": "D:/编程/项目/AiVideoAnalsysSystem/build",
+        "command": "D:\\LLVM\\bin\\clang-cl.exe  /nologo -TP -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include -IC:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\include -ID:\\编程\\项目\\AiVideoAnalsysSystem\\.venv\\Lib\\site-packages\\pybind11\\include -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include\\Infra -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include\\core -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include\\core\\ScreenRecorder -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include\\core\\ScreenRecorder\\CaptureLayer /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd /W3 /EHsc /Od /Zi /Focpp\\CMakeFiles\\ai_video_core.dir\\src\\core\\ScreenRecorder\\CaptureLayer\\GrabberFactory.cpp.obj /Fdcpp\\CMakeFiles\\ai_video_core.dir\\ai_video_core.pdb -c -- D:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\src\\core\\ScreenRecorder\\CaptureLayer\\GrabberFactory.cpp",
+        "file": "D:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\src\\core\\ScreenRecorder\\CaptureLayer\\GrabberFactory.cpp",
+        "output": "cpp\\CMakeFiles\\ai_video_core.dir\\src\\core\\ScreenRecorder\\CaptureLayer\\GrabberFactory.cpp.obj"
+    },
+    {
+        "directory": "D:/编程/项目/AiVideoAnalsysSystem/build",
+        "command": "D:\\LLVM\\bin\\clang-cl.exe  /nologo -TP -Dvideo_analysis_cpp_EXPORTS -ID:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\include -imsvcC:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\include -imsvcD:\\编程\\项目\\AiVideoAnalsysSystem\\.venv\\Lib\\site-packages\\pybind11\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd /W3 /EHsc /Od /Zi /bigobj /Focpp\\bindings\\CMakeFiles\\video_analysis_cpp.dir\\bindings.cpp.obj /Fdcpp\\bindings\\CMakeFiles\\video_analysis_cpp.dir\\ -c -- D:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\bindings\\bindings.cpp",
+        "file": "D:\\编程\\项目\\AiVideoAnalsysSystem\\cpp\\bindings\\bindings.cpp",
+        "output": "cpp\\bindings\\CMakeFiles\\video_analysis_cpp.dir\\bindings.cpp.obj"
+    }
+]
