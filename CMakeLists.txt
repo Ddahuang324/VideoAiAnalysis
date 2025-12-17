@@ -186,7 +186,7 @@ install(TARGETS ai_video_core
 
 # ==================== 测试 ====================
 enable_testing()
-# add_subdirectory(tests)
+add_subdirectory(tests)
 
 # ==================== 打印配置信息 ====================
 message(STATUS "")

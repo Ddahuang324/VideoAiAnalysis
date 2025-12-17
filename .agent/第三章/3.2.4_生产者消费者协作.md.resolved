@@ -1,0 +1,954 @@
+# 3.2.4 生产者-消费者协作机制
+
+> **系统集成核心**  
+> 本文档详解 `FrameGrabberThread` (生产者) 和 `FrameEncoder` (消费者) 如何通过 `ThreadSafeQueue` 协作,以及如何通过 Pybind11 与 Python 层通信,最终在 QML UI 中展示。这是整个视频流处理系统的集成设计。
+
+---
+
+## 📋 目录
+
+1. [模块概述与定位](#模块概述与定位)
+2. [整体架构设计](#整体架构设计)
+3. [C++层多线程协作](#c层多线程协作)
+4. [Pybind11跨语言通信](#pybind11跨语言通信)
+5. [Python服务层封装](#python服务层封装)
+6. [QML UI集成](#qml-ui集成)
+7. [完整数据流](#完整数据流)
+8. [错误处理与恢复](#错误处理与恢复)
+9. [实战集成示例](#实战集成示例)
+
+---
+
+## 模块概述与定位
+
+### 三层架构全景
+
+```mermaid
+graph TB
+    subgraph "QML UI层"
+        UI[RecordingPage.qml<br/>录制界面]
+        Display[实时显示<br/>FPS/帧数/进度]
+    end
+    
+    subgraph "Python业务层"
+        VM[VideoViewModel<br/>PySide6 QObject]
+        Service[VideoService<br/>业务逻辑]
+    end
+    
+    subgraph "C++核心层"
+        Recorder[ScreenRecorder<br/>录制控制器]
+        Grabber[FrameGrabberThread<br/>采集线程]
+        Queue[ThreadSafeQueue<br/>帧队列]
+        Encoder[FrameEncoder<br/>编码线程]
+        FFmpeg[FFmpegWrapper<br/>编码器]
+    end
+    
+    subgraph "系统层"
+        Screen[屏幕<br/>DXGI/GDI/X11]
+        File[视频文件<br/>output.mp4]
+    end
+    
+    UI <-->|Signal/Slot| VM
+    VM <--> Service
+    Service <-->|Pybind11| Recorder
+    Recorder --> Grabber
+    Recorder --> Encoder
+    Grabber -->|push| Queue
+    Queue -->|pop| Encoder
+    Grabber <--> Screen
+    Encoder --> FFmpeg
+    FFmpeg --> File
+    
+    Grabber -.回调.-> Service
+    Encoder -.回调.-> Service
+    
+    style Recorder fill:#FFB6C1,stroke:#333,stroke-width:3px
+    style Service fill:#90EE90
+    style UI fill:#FFD700
+```
+
+### 核心协作关系
+
+| 组件 | 角色 | 通信方式 | 职责 |
+|------|------|---------|------|
+| **FrameGrabberThread** | 生产者 | push → Queue | 捕获屏幕帧 |
+| **ThreadSafeQueue** | 缓冲区 | 线程安全 | 解耦生产/消费 |
+| **FrameEncoder** | 消费者 | pop ← Queue | 编码并写入文件 |
+| **Pybind11** | 桥梁 | C++ ↔ Python | 跨语言调用 |
+| **VideoService** | 封装层 | Python API | 业务逻辑 |
+| **VideoViewModel** | 展示层 | Qt Signal/Slot | UI数据绑定 |
+
+---
+
+## 整体架构设计
+
+### ScreenRecorder - 顶层控制器
+
+```cpp
+#pragma once
+
+#include <memory>
+#include <string>
+#include "IScreenGrabber.h"
+#include "FrameGrabberThread.h"
+#include "FrameEncoder.h"
+#include "ThreadSafeQueue.h"
+
+/**
+ * @brief 屏幕录制器 - 顶层控制器
+ * 
+ * 协调采集线程和编码线程,提供统一的录制接口
+ */
+class ScreenRecorder {
+public:
+    ScreenRecorder();
+    ~ScreenRecorder();
+    
+    /**
+     * @brief 开始录制
+     * @param output_path 输出文件路径
+     * @param width 视频宽度
+     * @param height 视频高度
+     * @param fps 帧率
+     * @return 成功返回true
+     */
+    bool startRecording(
+        const std::string& output_path,
+        int width = 1920,
+        int height = 1080,
+        int fps = 60
+    );
+    
+    /**
+     * @brief 停止录制
+     */
+    void stopRecording();
+    
+    /**
+     * @brief 暂停录制
+     */
+    void pauseRecording();
+    
+    /**
+     * @brief 恢复录制
+     */
+    void resumeRecording();
+    
+    /**
+     * @brief 获取统计信息
+     */
+    int64_t getFrameCount() const;
+    int64_t getEncodedCount() const;
+    int64_t getDroppedCount() const;
+    double getCurrentFPS() const;
+    bool isRecording() const;
+    
+    // Pybind11回调
+    using ProgressCallback = std::function<void(int64_t, double, int64_t)>;
+    using ErrorCallback = std::function<void(const std::string&)>;
+    
+    void setProgressCallback(ProgressCallback callback);
+    void setErrorCallback(ErrorCallback callback);
+    
+private:
+    std::shared_ptr<IScreenGrabber> grabber_;
+    std::shared_ptr<ThreadSafeQueue<FrameData>> queue_;
+    std::shared_ptr<FrameGrabberThread> grabber_thread_;
+    std::shared_ptr<FrameEncoder> encoder_;
+    
+    bool recording_ = false;
+};
+```
+
+### 协作时序图
+
+```mermaid
+sequenceDiagram
+    participant Python as VideoService
+    participant Recorder as ScreenRecorder
+    participant Grabber as FrameGrabberThread
+    participant Queue as ThreadSafeQueue
+    participant Encoder as FrameEncoder
+    
+    Note over Python: 用户点击"开始录制"
+    Python->>Recorder: startRecording("output.mp4")
+    
+    activate Recorder
+    Recorder->>Recorder: 创建采集器/队列/线程
+    Recorder->>Grabber: start()
+    Recorder->>Encoder: start()
+    Recorder-->>Python: true (成功)
+    deactivate Recorder
+    
+    activate Grabber
+    activate Encoder
+    
+    par 采集线程
+        loop 每16.67ms (60fps)
+            Grabber->>Grabber: captureFrame()
+            Grabber->>Queue: push(frame)
+            
+            alt 每30帧
+                Grabber->>Python: 进度回调(帧数, FPS)
+                Python->>Python: 发送Qt信号
+            end
+        end
+    and 编码线程
+        loop 持续运行
+            Encoder->>Queue: pop(frame, 100ms)
+            alt 队列非空
+                Encoder->>Encoder: convertPixelFormat()
+                Encoder->>Encoder: encodeFrame()
+                
+                alt 每30帧
+                    Encoder->>Python: 进度回调(已编码, 文件大小)
+                    Python->>Python: 发送Qt信号
+                end
+            end
+        end
+    end
+    
+    Note over Python: 用户点击"停止录制"
+    Python->>Recorder: stopRecording()
+    
+    Recorder->>Grabber: stop()
+    Recorder->>Queue: stop()
+    Recorder->>Encoder: stop()
+    
+    deactivate Grabber
+    deactivate Encoder
+    
+    Encoder->>Python: 完成回调(总帧数, 文件路径)
+    Python->>Python: 发送Qt信号
+```
+
+---
+
+## C++层多线程协作
+
+### startRecording() 实现
+
+```cpp
+bool ScreenRecorder::startRecording(
+    const std::string& output_path,
+    int width, int height, int fps
+) {
+    if (recording_) {
+        return false;  // 已在录制
+    }
+    
+    // 1️⃣ 创建屏幕采集器
+    grabber_ = GrabberFactory::createGrabber(GrabberType::DXGI);
+    if (!grabber_) {
+        notifyError("Failed to create screen grabber");
+        return false;
+    }
+    
+    // 2️⃣ 创建线程安全队列 (容量30帧)
+    queue_ = std::make_shared<ThreadSafeQueue<FrameData>>(30);
+    
+    // 3️⃣ 创建采集线程
+    grabber_thread_ = std::make_shared<FrameGrabberThread>(
+        grabber_, queue_, fps
+    );
+    
+    // 4️⃣ 设置采集线程回调
+    grabber_thread_->setProgressCallback([this](int64_t frames, int queue_size, double fps) {
+        // 转发到Python层
+        if (on_progress_) {
+            on_progress_(frames, fps, queue_size);
+        }
+    });
+    
+    grabber_thread_->setErrorCallback([this](const std::string& error) {
+        if (on_error_) {
+            on_error_("Grabber error: " + error);
+        }
+    });
+    
+    // 5️⃣ 创建编码器配置
+    EncoderConfig config;
+    config.output_path = output_path;
+    config.width = width;
+    config.height = height;
+    config.fps = fps;
+    config.bitrate = 8000000;  // 8Mbps
+    config.crf = 23;
+    config.preset = "fast";
+    config.codec = "libx264";
+    
+    // 6️⃣ 创建编码器
+    encoder_ = std::make_shared<FrameEncoder>(queue_, config);
+    
+    // 7️⃣ 设置编码器回调
+    encoder_->setProgressCallback([this](int64_t encoded, int64_t file_size) {
+        // 可以在这里添加编码进度通知
+    });
+    
+    encoder_->setFinishedCallback([this](int64_t total_frames, const std::string& path) {
+        std::cout << "Recording finished: " << total_frames << " frames" << std::endl;
+    });
+    
+    // 8️⃣ 启动线程
+    grabber_thread_->start();
+    encoder_->start();
+    
+    recording_ = true;
+    
+    std::cout << "[ScreenRecorder] Recording started: " << output_path << std::endl;
+    return true;
+}
+```
+
+### stopRecording() 实现
+
+```cpp
+void ScreenRecorder::stopRecording() {
+    if (!recording_) {
+        return;
+    }
+    
+    std::cout << "[ScreenRecorder] Stopping recording..." << std::endl;
+    
+    // 1️⃣ 停止采集线程
+    if (grabber_thread_) {
+        grabber_thread_->stop();
+    }
+    
+    // 2️⃣ 停止队列 (唤醒编码线程)
+    if (queue_) {
+        queue_->stop();
+    }
+    
+    // 3️⃣ 停止编码线程
+    if (encoder_) {
+        encoder_->stop();
+    }
+    
+    // 4️⃣ 等待线程结束 (在析构函数中自动完成)
+    
+    recording_ = false;
+    
+    std::cout << "[ScreenRecorder] Recording stopped" << std::endl;
+}
+```
+
+### 线程生命周期管理
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: 构造函数
+    Idle --> Starting: startRecording()
+    
+    state Starting {
+        [*] --> CreateGrabber
+        CreateGrabber --> CreateQueue
+        CreateQueue --> CreateThreads
+        CreateThreads --> StartThreads
+        StartThreads --> [*]
+    }
+    
+    Starting --> Recording: 启动成功
+    Starting --> Idle: 启动失败
+    
+    state Recording {
+        [*] --> Capturing
+        Capturing --> Encoding: 通过队列
+        
+        state Capturing {
+            [*] --> GrabFrame
+            GrabFrame --> PushQueue
+            PushQueue --> GrabFrame
+        }
+        
+        state Encoding {
+            [*] --> PopQueue
+            PopQueue --> Convert
+            Convert --> Encode
+            Encode --> Write
+            Write --> PopQueue
+        }
+    }
+    
+    Recording --> Stopping: stopRecording()
+    
+    state Stopping {
+        [*] --> StopGrabber
+        StopGrabber --> StopQueue
+        StopQueue --> StopEncoder
+        StopEncoder --> WaitThreads
+        WaitThreads --> [*]
+    }
+    
+    Stopping --> Idle: 停止完成
+    Idle --> [*]: 析构函数
+```
+
+---
+
+## Pybind11跨语言通信
+
+### C++端绑定
+
+```cpp
+#include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
+#include <pybind11/stl.h>
+
+namespace py = pybind11;
+
+PYBIND11_MODULE(video_analysis_cpp, m) {
+    m.doc() = "AI Video Analysis System - C++ Core Module";
+    
+    // ScreenRecorder类
+    py::class_<ScreenRecorder, std::shared_ptr<ScreenRecorder>>(m, "ScreenRecorder")
+        .def(py::init<>())
+        .def("start_recording", &ScreenRecorder::startRecording,
+             py::arg("output_path"),
+             py::arg("width") = 1920,
+             py::arg("height") = 1080,
+             py::arg("fps") = 60,
+             "开始录制屏幕")
+        .def("stop_recording", &ScreenRecorder::stopRecording,
+             "停止录制")
+        .def("pause_recording", &ScreenRecorder::pauseRecording,
+             "暂停录制")
+        .def("resume_recording", &ScreenRecorder::resumeRecording,
+             "恢复录制")
+        .def("get_frame_count", &ScreenRecorder::getFrameCount,
+             "获取已捕获帧数")
+        .def("get_encoded_count", &ScreenRecorder::getEncodedCount,
+             "获取已编码帧数")
+        .def("get_dropped_count", &ScreenRecorder::getDroppedCount,
+             "获取丢帧数")
+        .def("get_current_fps", &ScreenRecorder::getCurrentFPS,
+             "获取当前FPS")
+        .def("is_recording", &ScreenRecorder::isRecording,
+             "是否正在录制")
+        
+        // 回调函数
+        .def("set_progress_callback", &ScreenRecorder::setProgressCallback,
+             "设置进度回调: callback(frames, fps, queue_size)")
+        .def("set_error_callback", &ScreenRecorder::setErrorCallback,
+             "设置错误回调: callback(error_message)");
+}
+```
+
+### Python GIL处理
+
+> [!IMPORTANT]
+> **Python GIL (Global Interpreter Lock) 管理**
+> 
+> 从C++线程调用Python函数时,必须获取GIL!
+
+```cpp
+// C++端回调实现
+void ScreenRecorder::notifyProgress(int64_t frames, double fps, int64_t queue_size) {
+    if (!on_progress_) {
+        return;
+    }
+    
+    try {
+        // 🔒 获取Python GIL
+        py::gil_scoped_acquire acquire;
+        
+        // 调用Python回调
+        on_progress_(frames, fps, queue_size);
+        
+        // 🔓 GIL自动释放 (RAII)
+    } catch (const py::error_already_set& e) {
+        std::cerr << "[ScreenRecorder] Python callback error: " << e.what() << std::endl;
+    }
+}
+```
+
+### 异常传播
+
+```mermaid
+graph LR
+    subgraph "C++层"
+        A[C++异常<br/>std::exception]
+        B[捕获异常]
+        C[转换为字符串]
+    end
+    
+    subgraph "Pybind11"
+        D[py::error_already_set]
+        E[异常转换]
+    end
+    
+    subgraph "Python层"
+        F[Python异常<br/>RuntimeError]
+        G[try/except捕获]
+        H[错误处理]
+    end
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    
+    style D fill:#FFA500
+    style E fill:#FFA500
+```
+
+---
+
+## Python服务层封装
+
+### VideoService 完整实现
+
+```python
+"""
+视频服务 - 封装C++录制功能
+"""
+import sys
+from pathlib import Path
+from PySide6.QtCore import QObject, Signal
+
+# 导入C++模块
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "build" / "python"))
+import video_analysis_cpp as vac
+
+
+class VideoService(QObject):
+    """视频服务 - 业务逻辑层"""
+    
+    # Qt信号定义
+    progress_updated = Signal(int, float, int)  # frames, fps, queue_size
+    recording_finished = Signal(str)  # output_path
+    error_occurred = Signal(str)  # error_message
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # 创建C++录制器
+        self.recorder = vac.ScreenRecorder()
+        
+        # 设置C++回调
+        self.recorder.set_progress_callback(self._on_progress)
+        self.recorder.set_error_callback(self._on_error)
+        
+        print("[VideoService] Initialized")
+    
+    def _on_progress(self, frames: int, fps: float, queue_size: int):
+        """
+        C++进度回调 (在C++线程中调用)
+        
+        注意: 此函数在C++线程中执行,需要通过Qt信号传递到主线程
+        """
+        # 发送Qt信号到主线程
+        self.progress_updated.emit(frames, fps, queue_size)
+    
+    def _on_error(self, error: str):
+        """C++错误回调"""
+        self.error_occurred.emit(error)
+    
+    def start_recording(self, output_path: str, width: int = 1920, 
+                       height: int = 1080, fps: int = 60) -> bool:
+        """
+        开始录制
+        
+        Args:
+            output_path: 输出文件路径
+            width: 视频宽度
+            height: 视频高度
+            fps: 帧率
+            
+        Returns:
+            成功返回True
+        """
+        try:
+            success = self.recorder.start_recording(output_path, width, height, fps)
+            if success:
+                print(f"[VideoService] Recording started: {output_path}")
+            else:
+                print("[VideoService] Failed to start recording")
+            return success
+        except Exception as e:
+            print(f"[VideoService] Error: {e}")
+            self.error_occurred.emit(str(e))
+            return False
+    
+    def stop_recording(self):
+        """停止录制"""
+        try:
+            self.recorder.stop_recording()
+            print("[VideoService] Recording stopped")
+        except Exception as e:
+            print(f"[VideoService] Error: {e}")
+            self.error_occurred.emit(str(e))
+    
+    def pause_recording(self):
+        """暂停录制"""
+        self.recorder.pause_recording()
+    
+    def resume_recording(self):
+        """恢复录制"""
+        self.recorder.resume_recording()
+    
+    def get_stats(self) -> dict:
+        """获取统计信息"""
+        return {
+            'frame_count': self.recorder.get_frame_count(),
+            'encoded_count': self.recorder.get_encoded_count(),
+            'dropped_count': self.recorder.get_dropped_count(),
+            'current_fps': self.recorder.get_current_fps(),
+            'is_recording': self.recorder.is_recording()
+        }
+```
+
+---
+
+## QML UI集成
+
+### VideoViewModel
+
+```python
+"""
+视频ViewModel - 连接服务层和UI层
+"""
+from PySide6.QtCore import QObject, Signal, Slot, Property
+
+
+class VideoViewModel(QObject):
+    """视频ViewModel - MVVM模式"""
+    
+    # 信号定义
+    frameCountChanged = Signal(int)
+    currentFpsChanged = Signal(float)
+    queueSizeChanged = Signal(int)
+    droppedCountChanged = Signal(int)
+    isRecordingChanged = Signal(bool)
+    errorOccurred = Signal(str)
+    
+    def __init__(self, video_service, parent=None):
+        super().__init__(parent)
+        self.service = video_service
+        
+        # 状态
+        self._frame_count = 0
+        self._current_fps = 0.0
+        self._queue_size = 0
+        self._dropped_count = 0
+        self._is_recording = False
+        
+        # 连接服务层信号
+        self.service.progress_updated.connect(self._on_progress)
+        self.service.error_occurred.connect(self._on_error)
+    
+    def _on_progress(self, frames: int, fps: float, queue_size: int):
+        """处理进度更新"""
+        self._frame_count = frames
+        self._current_fps = fps
+        self._queue_size = queue_size
+        
+        self.frameCountChanged.emit(frames)
+        self.currentFpsChanged.emit(fps)
+        self.queueSizeChanged.emit(queue_size)
+    
+    def _on_error(self, error: str):
+        """处理错误"""
+        self.errorOccurred.emit(error)
+    
+    @Slot(str, int, int, int)
+    def startRecording(self, output_path: str, width: int, height: int, fps: int):
+        """开始录制 (从QML调用)"""
+        success = self.service.start_recording(output_path, width, height, fps)
+        if success:
+            self._is_recording = True
+            self.isRecordingChanged.emit(True)
+    
+    @Slot()
+    def stopRecording(self):
+        """停止录制 (从QML调用)"""
+        self.service.stop_recording()
+        self._is_recording = False
+        self.isRecordingChanged.emit(False)
+    
+    # Properties
+    @Property(int, notify=frameCountChanged)
+    def frameCount(self):
+        return self._frame_count
+    
+    @Property(float, notify=currentFpsChanged)
+    def currentFps(self):
+        return self._current_fps
+    
+    @Property(int, notify=queueSizeChanged)
+    def queueSize(self):
+        return self._queue_size
+    
+    @Property(bool, notify=isRecordingChanged)
+    def isRecording(self):
+        return self._is_recording
+```
+
+### QML界面
+
+```qml
+// RecordingPage.qml
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+
+Rectangle {
+    id: root
+    color: "#1e1e1e"
+    
+    ColumnLayout {
+        anchors.centerIn: parent
+        spacing: 20
+        
+        // FPS显示
+        Text {
+            text: "FPS: " + videoViewModel.currentFps.toFixed(1)
+            font.pixelSize: 48
+            font.bold: true
+            color: videoViewModel.currentFps >= 59 ? "#00ff00" : "#ff9900"
+        }
+        
+        // 帧数显示
+        Text {
+            text: "Frames: " + videoViewModel.frameCount
+            font.pixelSize: 24
+            color: "#ffffff"
+        }
+        
+        // 队列深度
+        RowLayout {
+            Text {
+                text: "Queue: "
+                color: "#ffffff"
+            }
+            ProgressBar {
+                Layout.preferredWidth: 200
+                value: videoViewModel.queueSize / 30.0
+                
+                background: Rectangle {
+                    color: "#333333"
+                    radius: 3
+                }
+                
+                contentItem: Rectangle {
+                    width: parent.visualPosition * parent.width
+                    color: videoViewModel.queueSize > 25 ? "#ff0000" : "#00ff00"
+                    radius: 3
+                }
+            }
+            Text {
+                text: videoViewModel.queueSize + " / 30"
+                color: "#ffffff"
+            }
+        }
+        
+        // 控制按钮
+        RowLayout {
+            spacing: 10
+            
+            Button {
+                text: videoViewModel.isRecording ? "停止录制" : "开始录制"
+                onClicked: {
+                    if (videoViewModel.isRecording) {
+                        videoViewModel.stopRecording()
+                    } else {
+                        videoViewModel.startRecording(
+                            "recording.mp4",
+                            1920, 1080, 60
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    // 错误提示
+    Connections {
+        target: videoViewModel
+        function onErrorOccurred(error) {
+            errorDialog.text = error
+            errorDialog.open()
+        }
+    }
+}
+```
+
+---
+
+## 完整数据流
+
+### 端到端流程
+
+```mermaid
+graph TB
+    subgraph "用户操作"
+        A[点击"开始录制"]
+    end
+    
+    subgraph "QML层"
+        B[RecordingPage.qml]
+        C[Button.onClicked]
+    end
+    
+    subgraph "Python ViewModel"
+        D[VideoViewModel<br/>startRecording]
+    end
+    
+    subgraph "Python Service"
+        E[VideoService<br/>start_recording]
+    end
+    
+    subgraph "Pybind11"
+        F[跨语言调用]
+    end
+    
+    subgraph "C++ ScreenRecorder"
+        G[startRecording]
+        H[创建线程]
+    end
+    
+    subgraph "C++ 采集线程"
+        I[FrameGrabberThread]
+        J[captureFrame]
+        K[push to queue]
+    end
+    
+    subgraph "C++ 编码线程"
+        L[FrameEncoder]
+        M[pop from queue]
+        N[encode & write]
+    end
+    
+    subgraph "回调通知"
+        O[C++回调]
+        P[Python信号]
+        Q[QML更新]
+    end
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    H --> L
+    I --> J
+    J --> K
+    K --> M
+    M --> N
+    
+    I -.进度.-> O
+    L -.进度.-> O
+    O --> P
+    P --> Q
+    Q --> B
+    
+    style F fill:#FFA500
+    style O fill:#87CEEB
+```
+
+---
+
+## 错误处理与恢复
+
+### 错误类型与处理
+
+| 错误类型 | 发生位置 | 处理策略 |
+|---------|---------|---------|
+| **采集器初始化失败** | ScreenRecorder::startRecording | 返回false,通知Python |
+| **队列满丢帧** | FrameGrabberThread | 记录丢帧数,回调通知 |
+| **编码失败** | FrameEncoder | 停止录制,回调错误 |
+| **Python回调异常** | C++回调函数 | 捕获并打印,不影响C++线程 |
+| **磁盘空间不足** | MediaWriter | 停止录制,保存已有数据 |
+
+### 异常安全保证
+
+```cpp
+// ✅ RAII保证资源释放
+class ScreenRecorder {
+public:
+    ~ScreenRecorder() {
+        // 自动停止录制
+        if (recording_) {
+            stopRecording();
+        }
+        // 智能指针自动释放资源
+    }
+};
+
+// ✅ 异常捕获
+void ScreenRecorder::notifyProgress(...) {
+    try {
+        py::gil_scoped_acquire acquire;
+        on_progress_(...);
+    } catch (const std::exception& e) {
+        // 不让异常传播到C++线程
+        std::cerr << "Callback error: " << e.what() << std::endl;
+    }
+}
+```
+
+---
+
+## 实战集成示例
+
+### 完整应用启动
+
+```python
+# main.py
+import sys
+from pathlib import Path
+from PySide6.QtWidgets import QApplication
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtCore import QUrl
+
+from services.video_service import VideoService
+from viewmodels.video_viewmodel import VideoViewModel
+
+
+def main():
+    app = QApplication(sys.argv)
+    engine = QQmlApplicationEngine()
+    
+    # 1️⃣ 创建服务层
+    video_service = VideoService()
+    
+    # 2️⃣ 创建ViewModel
+    video_viewmodel = VideoViewModel(video_service)
+    
+    # 3️⃣ 注入到QML上下文
+    context = engine.rootContext()
+    context.setContextProperty("videoViewModel", video_viewmodel)
+    
+    # 4️⃣ 加载QML
+    qml_file = Path(__file__).parent / "views" / "main.qml"
+    engine.load(QUrl.fromLocalFile(str(qml_file)))
+    
+    if not engine.rootObjects():
+        return -1
+    
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+---
+
+## 总结
+
+生产者-消费者协作机制是整个视频流处理系统的集成核心:
+
+✅ **C++多线程**: FrameGrabberThread + FrameEncoder 通过 ThreadSafeQueue 协作  
+✅ **Pybind11通信**: C++ ↔ Python 跨语言调用 + GIL管理  
+✅ **三层架构**: C++ (核心) → Python (业务) → QML (UI)  
+✅ **异步通知**: 回调函数 + Qt信号槽  
+✅ **错误处理**: 异常安全 + 优雅降级
+
+**下一步**: 性能优化 [3.2.5 性能优化与调优](file:///d:/编程/项目/AiVideoAnalsysSystem/.agent/第三章/3.2.5_性能优化调优.md)
