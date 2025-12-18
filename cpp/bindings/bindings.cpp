@@ -11,6 +11,7 @@ PYBIND11_MODULE(Cpp_video_core, m) {
 
     // 注册各个子模块的绑定
     bind_frame_grabber(m);
+    bind_encoder(m);
     // bind_screen_recorder(m);  // 未来添加
     // bind_video_processor(m);  // 未来添加
 }

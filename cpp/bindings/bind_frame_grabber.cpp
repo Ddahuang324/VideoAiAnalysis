@@ -1,9 +1,14 @@
 #include <pybind11/cast.h>
 #include <pybind11/functional.h>
+#include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
 #include <pybind11/stl.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <string>
 
 #include "FrameGrabberThread.h"
 #include "IScreenGrabber.h"
@@ -36,13 +41,38 @@ void bind_frame_grabber(py::module& m) {
         .def("get_current_fps", &FrameGrabberThread::getCurrentFps,
              "Get current capture frame rate")
 
-        // 回调函数设置
-        .def("set_progress_callback", &FrameGrabberThread::setProgressCallback, py::arg("callback"),
-             "Set progress callback: callback(captured_count, queue_size, fps)")
-        .def("set_error_callback", &FrameGrabberThread::setErrorCallback, py::arg("callback"),
-             "Set error callback: callback(error_message)")
-        .def("set_dropped_callback", &FrameGrabberThread::setDroppedCallback, py::arg("callback"),
-             "Set dropped frames callback: callback(dropped_count)");
+        // 回调函数设置(支持 GIL 安全的 Python 回调)
+        .def(
+            "set_progress_callback",
+            [](FrameGrabberThread& self, py::function callback) {
+                // 包装 Python 回调,在调用时自动获取 GIL
+                self.setProgressCallback(
+                    [callback](int64_t captured_count, size_t queue_size, double fps) {
+                        py::gil_scoped_acquire gil;
+                        callback(captured_count, queue_size, fps);
+                    });
+            },
+            py::arg("callback"), "Set progress callback: callback(captured_count, queue_size, fps)")
+        .def(
+            "set_error_callback",
+            [](FrameGrabberThread& self, py::function callback) {
+                // 包装 Python 回调,在调用时自动获取 GIL
+                self.setErrorCallback([callback](const std::string& error_message) {
+                    py::gil_scoped_acquire gil;
+                    callback(error_message);
+                });
+            },
+            py::arg("callback"), "Set error callback: callback(error_message)")
+        .def(
+            "set_dropped_callback",
+            [](FrameGrabberThread& self, py::function callback) {
+                // 包装 Python 回调,在调用时自动获取 GIL
+                self.setDroppedCallback([callback](int64_t dropped_count) {
+                    py::gil_scoped_acquire gil;
+                    callback(dropped_count);
+                });
+            },
+            py::arg("callback"), "Set dropped frames callback: callback(dropped_count)");
 
     // 可以在这里添加相关的辅助类或函数
 }

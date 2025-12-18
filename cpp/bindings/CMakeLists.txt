@@ -6,6 +6,7 @@ if(pybind11_FOUND)
     pybind11_add_module(video_analysis_cpp
         bindings.cpp
         bind_frame_grabber.cpp
+        bind_encoder.cpp
         # 未来可以添加更多绑定文件
         # bind_screen_recorder.cpp
         # bind_video_processor.cpp
