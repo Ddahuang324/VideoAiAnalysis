@@ -3,8 +3,10 @@
 #include <pybind11/pybind11.h>
 
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -93,6 +95,26 @@ void FrameGrabberThread::resume() {
     LOG_INFO("FrameGrabberThread resumed");
 }
 
+int64_t FrameGrabberThread::getCapturedFrameCount() const {
+    return captured_frame_count_.load();
+}
+
+int64_t FrameGrabberThread::getDroppedFrameCount() const {
+    return dropped_frame_count_.load();
+}
+
+double FrameGrabberThread::getCurrentFps() const {
+    return current_fps_.load();
+}
+
+bool FrameGrabberThread::isRunning() const {
+    return running_.load();
+}
+
+bool FrameGrabberThread::isPaused() const {
+    return paused_.load();
+}
+
 void FrameGrabberThread::captureLoop() {
     start_time_ = std::chrono::steady_clock::now();
     last_frame_time_ = start_time_;
@@ -145,7 +167,7 @@ void FrameGrabberThread::captureLoop() {
     LOG_INFO("Capture loop ended");
 }
 
-void FrameGrabberThread::waitForNextFrame() {  // confused ：关于时间戳 ，chrono库的使用
+void FrameGrabberThread::waitForNextFrame() {
     auto now = std::chrono::steady_clock::now();
     auto elapsed = now - last_frame_time_;
     auto frame_duration = std::chrono::milliseconds(1000 / target_fps_);
@@ -158,7 +180,7 @@ void FrameGrabberThread::waitForNextFrame() {  // confused ：关于时间戳 �
     last_frame_time_ = std::chrono::steady_clock::now();
 }
 
-void FrameGrabberThread::UpdateFps() {  // confused ：关于时间戳 ，chrono库的使用
+void FrameGrabberThread::UpdateFps() {
     auto now = std::chrono::steady_clock::now();
 
     // 线程安全：保护fps_samples的访问
@@ -184,7 +206,7 @@ void FrameGrabberThread::notifyProgress() {
     }
 
     try {
-        py::gil_scoped_acquire acquire;  // confused PythonGIL锁的相关知识不明白
+        py::gil_scoped_acquire acquire;
         progress_callback_(captured_frame_count_.load(), frame_queue_.size(), current_fps_.load());
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error in progress callback: ") + e.what());

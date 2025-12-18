@@ -10,7 +10,7 @@
 #include "ThreadSafetyQueue.h"
 #include "bindings.h"
 
-void bind_frame_grabber(py::module& m) {  // confused:关于 Pybind绑定的语法
+void bind_frame_grabber(py::module& m) {
     // 绑定 FrameGrabberThread 类
     py::class_<FrameGrabberThread>(m, "FrameGrabberThread",
                                    "Frame grabbing thread for screen capture")
@@ -33,7 +33,7 @@ void bind_frame_grabber(py::module& m) {  // confused:关于 Pybind绑定的语�
              "Get the number of captured frames")
         .def("get_dropped_frame_count", &FrameGrabberThread::getDroppedFrameCount,
              "Get the number of dropped frames")
-        .def("get_current_fps", &FrameGrabberThread::getCuttentFps,
+        .def("get_current_fps", &FrameGrabberThread::getCurrentFps,
              "Get current capture frame rate")
 
         // 回调函数设置

@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.20)
 # ==================== C++ 核心库 ====================
 add_library(ai_video_core STATIC
     src/core/ScreenRecorder/CaptureLayer/GrabberFactory.cpp
+    src/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/DXGI_Grabber.cpp
     src/core/ScreenRecorder/ProcessLayer/FrameEncoder.cpp
     src/core/ScreenRecorder/ProcessLayer/FrameGrabberThread.cpp
 )

@@ -32,7 +32,7 @@ public:
 
     int64_t getCapturedFrameCount() const;  // 获取已采集的帧数
     int64_t getDroppedFrameCount() const;   // 获取丢弃的帧数
-    double getCuttentFps() const;           // 获取当前采集的帧率
+    double getCurrentFps() const;           // 获取当前采集的帧率
     bool isRunning() const;                 // 采集线程是否在运行
     bool isPaused() const;                  // 采集是否已暂停
 

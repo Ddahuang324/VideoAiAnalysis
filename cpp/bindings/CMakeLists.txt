@@ -13,6 +13,8 @@ if(pybind11_FOUND)
     
     target_include_directories(video_analysis_cpp PRIVATE
         ${CMAKE_SOURCE_DIR}/cpp/include
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win
         ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/ProcessLayer
         ${CMAKE_SOURCE_DIR}/cpp/include/Infra
     )

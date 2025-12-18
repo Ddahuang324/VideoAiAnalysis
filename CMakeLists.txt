@@ -56,69 +56,44 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "G
 endif()
 
 # ==================== 查找依赖 ====================
-# 查找 FFmpeg (需要预编译版本，不是源代码)
-# 从 https://github.com/BtbN/FFmpeg-Builds/releases 下载预编译版本
-set(FFmpeg_ROOT "${CMAKE_SOURCE_DIR}/packages/ffmpeg")
-if(EXISTS "${FFmpeg_ROOT}")
-    message(STATUS "FFmpeg root: ${FFmpeg_ROOT}")
-    # 自定义查找 FFmpeg
-    find_path(FFmpeg_INCLUDE_DIR
-        NAMES libavutil/avutil.h libavformat/avformat.h libavcodec/avcodec.h
-        PATHS "${FFmpeg_ROOT}/include"
-        NO_DEFAULT_PATH
-    )
+# ==================== FFmpeg (FetchContent Prebuilt) ====================
+include(FetchContent)
+
+# 设置 FetchContent 策略以避免警告
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)  # 允许使用 FetchContent_Populate 进行手动配置
+endif()
+
+FetchContent_Declare(
+    ffmpeg_prebuilt
+    URL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE  # 使用提取时间戳而不是归档时间戳
+)
+
+if(NOT ffmpeg_prebuilt_POPULATED)
+    message(STATUS "Downloading/Extracting FFmpeg prebuilt binaries...")
+    FetchContent_Populate(ffmpeg_prebuilt)
     
-    find_library(FFmpeg_avutil_LIBRARY
-        NAMES avutil avutil-60 libavutil
-        PATHS
-            "${FFmpeg_ROOT}/lib/x64"
-            "${FFmpeg_ROOT}/lib"
-            "${FFmpeg_ROOT}/lib64"
-        NO_DEFAULT_PATH
-    )
+    set(FFmpeg_ROOT "${ffmpeg_prebuilt_SOURCE_DIR}")
+    set(FFmpeg_INCLUDE_DIR "${FFmpeg_ROOT}/include")
     
-    find_library(FFmpeg_avformat_LIBRARY
-        NAMES avformat avformat-62 libavformat
-        PATHS
-            "${FFmpeg_ROOT}/lib/x64"
-            "${FFmpeg_ROOT}/lib"
-            "${FFmpeg_ROOT}/lib64"
-        NO_DEFAULT_PATH
-    )
+    # 查找并配置库
+    find_library(FFmpeg_avutil_LIBRARY NAMES avutil PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(FFmpeg_avformat_LIBRARY NAMES avformat PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(FFmpeg_avcodec_LIBRARY NAMES avcodec PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(FFmpeg_swscale_LIBRARY NAMES swscale PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
     
-    find_library(FFmpeg_avcodec_LIBRARY
-        NAMES avcodec avcodec-62 libavcodec
-        PATHS
-            "${FFmpeg_ROOT}/lib/x64"
-            "${FFmpeg_ROOT}/lib"
-            "${FFmpeg_ROOT}/lib64"
-        NO_DEFAULT_PATH
-    )
+    # 查找 DLLs (用于后续安装或运行时拷贝)
+    file(GLOB FFmpeg_DLLS "${FFmpeg_ROOT}/bin/*.dll")
     
-    find_library(FFmpeg_swscale_LIBRARY
-        NAMES swscale swscale-9 libswscale
-        PATHS
-            "${FFmpeg_ROOT}/lib/x64"
-            "${FFmpeg_ROOT}/lib"
-            "${FFmpeg_ROOT}/lib64"
-        NO_DEFAULT_PATH
-    )
-    
-    if(FFmpeg_INCLUDE_DIR AND FFmpeg_avutil_LIBRARY AND FFmpeg_avformat_LIBRARY AND FFmpeg_avcodec_LIBRARY)
+    if(FFmpeg_avutil_LIBRARY AND FFmpeg_avformat_LIBRARY AND FFmpeg_avcodec_LIBRARY)
         set(FFmpeg_FOUND TRUE)
-        message(STATUS "✓ FFmpeg found")
+        message(STATUS "✓ FFmpeg prebuilt binaries initialized via FetchContent")
         message(STATUS "  Include: ${FFmpeg_INCLUDE_DIR}")
-        message(STATUS "  avutil: ${FFmpeg_avutil_LIBRARY}")
-        message(STATUS "  avformat: ${FFmpeg_avformat_LIBRARY}")
-        message(STATUS "  avcodec: ${FFmpeg_avcodec_LIBRARY}")
-        message(STATUS "  swscale: ${FFmpeg_swscale_LIBRARY}")
+        message(STATUS "  Libs found in: ${FFmpeg_ROOT}/lib")
     else()
-        message(WARNING "FFmpeg libraries not found. Please place FFmpeg headers and libraries in ${FFmpeg_ROOT}")
-        message(STATUS "  Expected header location: ${FFmpeg_ROOT}/include/libavutil/avutil.h")
-        message(STATUS "  Expected lib location: ${FFmpeg_ROOT}/lib/x64/")
+        message(FATAL_ERROR "Failed to find FFmpeg libraries in downloaded archive")
     endif()
-else()
-    message(WARNING "FFmpeg directory not found at ${FFmpeg_ROOT}")
 endif()
 
 # 查找 Python
@@ -183,6 +158,22 @@ install(TARGETS ai_video_core
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
+
+# ==================== Google Test (FetchContent) ====================
+include(FetchContent)
+
+# 解决 CMP0135 警告：设置下载文件的提取时间戳
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
 # ==================== 测试 ====================
 enable_testing()
