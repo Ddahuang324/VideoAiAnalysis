@@ -4,28 +4,34 @@
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import "../styles" as Styles
+import "../components" as Components
 
 Rectangle {
     id: root
+    anchors.fill: parent
     color: Styles.ThemeManager.bgPrimary
 
+    // ==================== 内容布局 ====================
     ColumnLayout {
         anchors.centerIn: parent
         spacing: Styles.ThemeManager.spacingLg
 
-        // 欢迎标题
+        // 欢迎标题 (Minimalist)
         Text {
-            text: "🎬 AI Video Analysis System"
+            text: "VideoSys"
             color: Styles.ThemeManager.textPrimary
-            font.pixelSize: Styles.ThemeManager.fontSizeH1
-            font.weight: Font.Bold
+            font.pixelSize: 32
+            font.weight: Font.ExtraBold
+            font.family: Styles.ThemeManager.fontFamily
+            font.letterSpacing: -1
             Layout.alignment: Qt.AlignHCenter
         }
 
         Text {
-            text: "欢迎回来！选择左侧菜单开始使用"
+            text: "Minimalist Video Analysis"
             color: Styles.ThemeManager.textSecondary
             font.pixelSize: Styles.ThemeManager.fontSizeBody
+            font.family: Styles.ThemeManager.fontFamily
             Layout.alignment: Qt.AlignHCenter
         }
 
@@ -36,41 +42,63 @@ Rectangle {
             Layout.topMargin: Styles.ThemeManager.spacingXl
 
             // 开始录制卡片
+            Components.GlassButton {
+                Layout.preferredWidth: 220
+                Layout.preferredHeight: 140
+
+                // Content Override? No, GlassButton logic is inside.
+                // Using Rectangle for custom card instead of abusing GlassButton if it's meant for simple clicks.
+            }
+            // Actually, let's keep the Rectangle approach but style it properly.
+
+            // Card 1: Record
             Rectangle {
-                width: 200
-                height: 150
+                width: 220
+                height: 140
                 radius: Styles.ThemeManager.radiusLg
-                color: Styles.ThemeManager.bgCard
+                color: mouseArea1.containsMouse ? Styles.ThemeManager.surfaceHover : Styles.ThemeManager.bgCard
                 border.width: 1
                 border.color: Styles.ThemeManager.border
 
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 200
+                    }
+                }
+
                 ColumnLayout {
                     anchors.centerIn: parent
-                    spacing: Styles.ThemeManager.spacingSm
+                    spacing: 12
 
-                    Text {
-                        text: "🎥"
-                        font.pixelSize: 40
+                    // Icon (Red Dot)
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 12
+                        color: Styles.ThemeManager.primary
                         Layout.alignment: Qt.AlignHCenter
                     }
 
                     Text {
-                        text: "开始录制"
+                        text: "Start Recording"
                         color: Styles.ThemeManager.textPrimary
-                        font.pixelSize: Styles.ThemeManager.fontSizeH3
-                        font.weight: Font.Medium
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                        font.family: Styles.ThemeManager.fontFamily
                         Layout.alignment: Qt.AlignHCenter
                     }
 
                     Text {
-                        text: "录制屏幕并分析"
-                        color: Styles.ThemeManager.textSecondary
-                        font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                        text: "Capture & Analyze"
+                        color: Styles.ThemeManager.textMuted
+                        font.pixelSize: 12
+                        font.family: Styles.ThemeManager.fontFamily
                         Layout.alignment: Qt.AlignHCenter
                     }
                 }
 
                 MouseArea {
+                    id: mouseArea1
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
@@ -78,42 +106,55 @@ Rectangle {
                 }
             }
 
-            // 历史记录卡片
+            // Card 2: History
             Rectangle {
-                width: 200
-                height: 150
+                width: 220
+                height: 140
                 radius: Styles.ThemeManager.radiusLg
-                color: Styles.ThemeManager.bgCard
+                color: mouseArea2.containsMouse ? Styles.ThemeManager.surfaceHover : Styles.ThemeManager.bgCard
                 border.width: 1
                 border.color: Styles.ThemeManager.border
 
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 200
+                    }
+                }
+
                 ColumnLayout {
                     anchors.centerIn: parent
-                    spacing: Styles.ThemeManager.spacingSm
+                    spacing: 12
 
-                    Text {
-                        text: "📁"
-                        font.pixelSize: 40
+                    // Icon (Square lines)
+                    Rectangle {
+                        width: 20
+                        height: 24
+                        color: "transparent"
+                        border.width: 2
+                        border.color: Styles.ThemeManager.textSecondary
                         Layout.alignment: Qt.AlignHCenter
                     }
 
                     Text {
-                        text: "历史记录"
+                        text: "History"
                         color: Styles.ThemeManager.textPrimary
-                        font.pixelSize: Styles.ThemeManager.fontSizeH3
-                        font.weight: Font.Medium
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                        font.family: Styles.ThemeManager.fontFamily
                         Layout.alignment: Qt.AlignHCenter
                     }
 
                     Text {
-                        text: "查看分析历史"
-                        color: Styles.ThemeManager.textSecondary
-                        font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                        text: "Review Archives"
+                        color: Styles.ThemeManager.textMuted
+                        font.pixelSize: 12
+                        font.family: Styles.ThemeManager.fontFamily
                         Layout.alignment: Qt.AlignHCenter
                     }
                 }
 
                 MouseArea {
+                    id: mouseArea2
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
@@ -127,63 +168,55 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Styles.ThemeManager.spacingXl
             width: 400
-            height: 60
+            height: 48
             radius: Styles.ThemeManager.radiusMd
-            color: Styles.ThemeManager.bgSecondary
+            color: "transparent" // Minimalist: no background if possible, or subtle
+            border.width: 1
+            border.color: Styles.ThemeManager.borderLight
 
             RowLayout {
                 anchors.centerIn: parent
                 spacing: Styles.ThemeManager.spacingMd
 
                 Text {
-                    text: "💡"
-                    font.pixelSize: 20
+                    text: "i" // Info icon
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
+                    color: Styles.ThemeManager.primary
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 18
+                        height: 18
+                        radius: 9
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Styles.ThemeManager.primary
+                    }
                 }
 
                 Text {
-                    text: "提示：使用快捷键 Ctrl+R 快速开始录制"
+                    text: "Quick Start: Press Ctrl+R"
                     color: Styles.ThemeManager.textSecondary
                     font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                    font.family: Styles.ThemeManager.fontFamily
                 }
             }
         }
 
-        // ==================== 测试 C++ 调用按钮 ====================
-        Rectangle {
+        // ==================== 测试 C++ 调用按钮 (Minimalist) ====================
+        Components.GlassButton {
             id: testButton
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Styles.ThemeManager.spacingLg
-            width: 200
-            height: 50
-            radius: Styles.ThemeManager.radiusMd
-            color: testButtonArea.containsMouse ? "#4CAF50" : "#388E3C"
-            border.width: 2
-            border.color: "#2E7D32"
+            Layout.preferredWidth: 200
+            Layout.preferredHeight: 40
+            text: "System Diagnostic" // More professional name
 
-            Text {
-                anchors.centerIn: parent
-                text: "🔧 测试 C++ 调用"
-                color: "white"
-                font.pixelSize: Styles.ThemeManager.fontSizeBody
-                font.weight: Font.Bold
-            }
-
-            MouseArea {
-                id: testButtonArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    console.log("点击测试按钮，调用 C++ 模块...");
-                    var result = videoViewModel.testCppCall();
-                    console.log("C++ 调用结果: " + result);
-                }
-            }
-
-            Behavior on color {
-                ColorAnimation {
-                    duration: 150
-                }
+            onClicked: {
+                console.log("点击测试按钮，调用 C++ 模块...");
+                var result = videoViewModel.testCppCall();
+                console.log("C++ 调用结果: " + result);
             }
         }
 
@@ -192,8 +225,9 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Styles.ThemeManager.spacingSm
             text: videoViewModel.result
-            color: Styles.ThemeManager.textSecondary
+            color: Styles.ThemeManager.textMuted
             font.pixelSize: Styles.ThemeManager.fontSizeSmall
+            font.family: Styles.ThemeManager.fontFamily
             visible: videoViewModel.result !== ""
         }
     }

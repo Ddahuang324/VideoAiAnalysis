@@ -7,6 +7,7 @@ import "../styles" as Styles
 
 Rectangle {
     id: root
+    anchors.fill: parent
     color: Styles.ThemeManager.bgPrimary
 
     // 模拟历史记录数据
@@ -14,19 +15,19 @@ Rectangle {
         id: historyModel
 
         ListElement {
-            title: "项目演示录制"
+            title: "Project Demo Recorder"
             date: "2025-12-10 14:30"
             duration: "05:23"
             status: "completed"
         }
         ListElement {
-            title: "代码 Review 会议"
+            title: "Code Review Session"
             date: "2025-12-09 10:15"
             duration: "12:45"
             status: "completed"
         }
         ListElement {
-            title: "产品设计讨论"
+            title: "Product Design Discussion"
             date: "2025-12-08 16:00"
             duration: "08:12"
             status: "analyzing"
@@ -43,10 +44,11 @@ Rectangle {
             Layout.fillWidth: true
 
             Text {
-                text: "📁 历史记录"
+                text: "Archives"
                 color: Styles.ThemeManager.textPrimary
                 font.pixelSize: Styles.ThemeManager.fontSizeH2
-                font.weight: Font.Bold
+                font.weight: Font.ExtraBold
+                font.family: Styles.ThemeManager.fontFamily
             }
 
             Item {
@@ -54,9 +56,10 @@ Rectangle {
             }
 
             Text {
-                text: historyModel.count + " 条记录"
+                text: historyModel.count + " Records"
                 color: Styles.ThemeManager.textSecondary
                 font.pixelSize: Styles.ThemeManager.fontSizeBody
+                font.family: Styles.ThemeManager.fontFamily
             }
         }
 
@@ -66,75 +69,93 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             model: historyModel
-            spacing: Styles.ThemeManager.spacingSm
+            spacing: 8
             clip: true
 
             delegate: Rectangle {
                 width: listView.width
-                height: 80
+                height: 72
                 radius: Styles.ThemeManager.radiusMd
-                color: mouseArea.containsMouse ? Styles.ThemeManager.bgSecondary : Styles.ThemeManager.bgCard
+                color: mouseArea.containsMouse ? Styles.ThemeManager.surfaceHover : Styles.ThemeManager.bgCard
                 border.width: 1
                 border.color: Styles.ThemeManager.border
 
                 Behavior on color {
                     ColorAnimation {
-                        duration: Styles.ThemeManager.animFast
+                        duration: 200
                     }
                 }
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: Styles.ThemeManager.spacingMd
-                    spacing: Styles.ThemeManager.spacingMd
+                    anchors.margins: 12
+                    spacing: 16
 
-                    // 缩略图占位
+                    // Thumbnail / Icon Placeholder
                     Rectangle {
-                        width: 100
-                        height: 56
-                        radius: Styles.ThemeManager.radiusSm
+                        width: 48
+                        height: 48
+                        radius: 8
                         color: Styles.ThemeManager.bgTertiary
 
                         Text {
                             anchors.centerIn: parent
-                            text: "🎬"
-                            font.pixelSize: 24
+                            text: "V"
+                            font.family: Styles.ThemeManager.fontFamily
+                            font.weight: Font.Bold
+                            color: Styles.ThemeManager.textMuted
                         }
                     }
 
-                    // 信息列
+                    // Info Column
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Styles.ThemeManager.spacingXs
+                        spacing: 4
 
                         Text {
                             text: model.title
                             color: Styles.ThemeManager.textPrimary
-                            font.pixelSize: Styles.ThemeManager.fontSizeBody
-                            font.weight: Font.Medium
+                            font.pixelSize: 14 // Body size
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
                         }
 
                         Text {
                             text: model.date + " · " + model.duration
                             color: Styles.ThemeManager.textSecondary
-                            font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                            font.pixelSize: 12
+                            font.family: Styles.ThemeManager.fontFamily
                         }
                     }
 
-                    // 状态标签
+                    // Status Badge
                     Rectangle {
                         width: statusText.width + 16
                         height: 24
-                        radius: Styles.ThemeManager.radiusSm
-                        color: model.status === "completed" ? Styles.ThemeManager.success + "20" : Styles.ThemeManager.warning + "20"
+                        radius: 12
+                        color: model.status === "completed" ? "transparent" : Styles.ThemeManager.warning
+                        border.width: model.status === "completed" ? 1 : 0
+                        border.color: model.status === "completed" ? Styles.ThemeManager.success : "transparent"
 
-                        Text {
-                            id: statusText
-                            anchors.centerIn: parent
-                            text: model.status === "completed" ? "已完成" : "分析中"
-                            color: model.status === "completed" ? Styles.ThemeManager.success : Styles.ThemeManager.warning
-                            font.pixelSize: Styles.ThemeManager.fontSizeSmall
-                        }
+                        // Lower opacity for background fill only? simpler to just use full colors or transparent borders
+                        // Minimalist: transparent bg with colored border for finished, filled for active.
+
+                        // Let's refine:
+                        // Completed: Success text, no border/bg or subtle.
+                        // Analyzing: Warning bg.
+
+                    }
+
+                    Text {
+                        id: statusText
+                        text: model.status === "completed" ? "Done" : "Processing"
+                        color: model.status === "completed" ? Styles.ThemeManager.success : "#111111" // Dark text on warning
+                        font.pixelSize: 12
+                        font.family: Styles.ThemeManager.fontFamily
+                        font.weight: Font.Medium
+
+                        // Manual positioning next to the badge if badge is used as dot, or inside.
+                        // Let's simplify: Just text on the right.
                     }
                 }
 
@@ -158,16 +179,19 @@ Rectangle {
                 anchors.centerIn: parent
                 spacing: Styles.ThemeManager.spacingMd
 
-                Text {
-                    text: "📭"
-                    font.pixelSize: 60
+                Rectangle {
+                    width: 64
+                    height: 64
+                    radius: 32
+                    color: Styles.ThemeManager.bgTertiary
                     Layout.alignment: Qt.AlignHCenter
                 }
 
                 Text {
-                    text: "暂无历史记录"
+                    text: "No Archives"
                     color: Styles.ThemeManager.textSecondary
                     font.pixelSize: Styles.ThemeManager.fontSizeBody
+                    font.family: Styles.ThemeManager.fontFamily
                     Layout.alignment: Qt.AlignHCenter
                 }
             }

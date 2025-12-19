@@ -8,6 +8,7 @@ import "../styles" as Styles
 
 Rectangle {
     id: root
+    anchors.fill: parent
     color: Styles.ThemeManager.bgPrimary
 
     // ==================== 设置数据 ====================
@@ -22,10 +23,11 @@ Rectangle {
 
         // 标题
         Text {
-            text: "⚙️ 设置"
+            text: "Settings"
             color: Styles.ThemeManager.textPrimary
             font.pixelSize: Styles.ThemeManager.fontSizeH2
-            font.weight: Font.Bold
+            font.weight: Font.ExtraBold
+            font.family: Styles.ThemeManager.fontFamily
         }
 
         // 设置卡片容器
@@ -42,7 +44,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: apiSection.height + Styles.ThemeManager.spacingLg * 2
+                    Layout.preferredHeight: apiSection.implicitHeight + Styles.ThemeManager.spacingLg * 2
                     radius: Styles.ThemeManager.radiusLg
                     color: Styles.ThemeManager.bgCard
                     border.width: 1
@@ -50,15 +52,18 @@ Rectangle {
 
                     ColumnLayout {
                         id: apiSection
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: Styles.ThemeManager.spacingLg
                         spacing: Styles.ThemeManager.spacingMd
 
                         Text {
-                            text: "🔑 API 配置"
+                            text: "API Configuration"
                             color: Styles.ThemeManager.textPrimary
                             font.pixelSize: Styles.ThemeManager.fontSizeH3
-                            font.weight: Font.Medium
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
                         }
 
                         // API Key 输入
@@ -70,6 +75,7 @@ Rectangle {
                                 text: "Google Gemini API Key"
                                 color: Styles.ThemeManager.textSecondary
                                 font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                                font.family: Styles.ThemeManager.fontFamily
                             }
 
                             Rectangle {
@@ -86,6 +92,7 @@ Rectangle {
                                     anchors.margins: Styles.ThemeManager.spacingSm
                                     color: Styles.ThemeManager.textPrimary
                                     font.pixelSize: Styles.ThemeManager.fontSizeBody
+                                    font.family: Styles.ThemeManager.fontFamily
                                     echoMode: TextInput.Password
                                     verticalAlignment: TextInput.AlignVCenter
                                     text: root.apiKey
@@ -95,9 +102,10 @@ Rectangle {
                                         anchors.fill: parent
                                         anchors.leftMargin: 0
                                         verticalAlignment: Text.AlignVCenter
-                                        text: "请输入 API Key..."
+                                        text: "Enter your API Key..."
                                         color: Styles.ThemeManager.textMuted
                                         font.pixelSize: Styles.ThemeManager.fontSizeBody
+                                        font.family: Styles.ThemeManager.fontFamily
                                         visible: !parent.text && !parent.activeFocus
                                     }
                                 }
@@ -110,7 +118,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: themeSection.height + Styles.ThemeManager.spacingLg * 2
+                    Layout.preferredHeight: themeSection.implicitHeight + Styles.ThemeManager.spacingLg * 2
                     radius: Styles.ThemeManager.radiusLg
                     color: Styles.ThemeManager.bgCard
                     border.width: 1
@@ -118,15 +126,18 @@ Rectangle {
 
                     ColumnLayout {
                         id: themeSection
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: Styles.ThemeManager.spacingLg
                         spacing: Styles.ThemeManager.spacingMd
 
                         Text {
-                            text: "🎨 外观"
+                            text: "Appearance"
                             color: Styles.ThemeManager.textPrimary
                             font.pixelSize: Styles.ThemeManager.fontSizeH3
-                            font.weight: Font.Medium
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
                         }
 
                         // 主题切换
@@ -134,9 +145,10 @@ Rectangle {
                             Layout.fillWidth: true
 
                             Text {
-                                text: "深色主题"
+                                text: "Dark Mode"
                                 color: Styles.ThemeManager.textPrimary
                                 font.pixelSize: Styles.ThemeManager.fontSizeBody
+                                font.family: Styles.ThemeManager.fontFamily
                             }
 
                             Item {
@@ -186,7 +198,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: recordSection.height + Styles.ThemeManager.spacingLg * 2
+                    Layout.preferredHeight: recordSection.implicitHeight + Styles.ThemeManager.spacingLg * 2
                     radius: Styles.ThemeManager.radiusLg
                     color: Styles.ThemeManager.bgCard
                     border.width: 1
@@ -194,15 +206,18 @@ Rectangle {
 
                     ColumnLayout {
                         id: recordSection
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: Styles.ThemeManager.spacingLg
                         spacing: Styles.ThemeManager.spacingMd
 
                         Text {
-                            text: "🎥 录制"
+                            text: "Recording"
                             color: Styles.ThemeManager.textPrimary
                             font.pixelSize: Styles.ThemeManager.fontSizeH3
-                            font.weight: Font.Medium
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
                         }
 
                         // 自动保存开关
@@ -213,15 +228,17 @@ Rectangle {
                                 spacing: 2
 
                                 Text {
-                                    text: "自动保存录制"
+                                    text: "Auto-Save Recordings"
                                     color: Styles.ThemeManager.textPrimary
                                     font.pixelSize: Styles.ThemeManager.fontSizeBody
+                                    font.family: Styles.ThemeManager.fontFamily
                                 }
 
                                 Text {
-                                    text: "录制结束后自动保存到本地"
+                                    text: "Automatically save files when recording stops"
                                     color: Styles.ThemeManager.textSecondary
                                     font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                                    font.family: Styles.ThemeManager.fontFamily
                                 }
                             }
 

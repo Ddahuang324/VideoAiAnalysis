@@ -2,6 +2,7 @@
 // 半透明背景 + 边框高光效果
 
 import QtQuick 2.15
+import QtQuick.Layouts 1.15
 import "../styles" as Styles
 
 Item {
@@ -14,10 +15,11 @@ Item {
     property string text: "Button"
     property bool enabled: true
     property color accentColor: Styles.ThemeManager.primary
+    property string iconSource: "" // Added icon capability
 
     signal clicked
 
-    // ==================== 背景层 ====================
+    // ==================== 容器 / 背景 ====================
 
     Rectangle {
         id: background
@@ -27,18 +29,21 @@ Item {
             if (!root.enabled)
                 return Styles.ThemeManager.bgTertiary;
             if (mouseArea.pressed)
-                return accentColor + "40";
+                return Styles.ThemeManager.textMuted + "20"; // Very subtle press
             if (mouseArea.containsMouse)
-                return accentColor + "30";
-            return Styles.ThemeManager.isDark ? "#30ffffff" : "#30000000";
+                return Styles.ThemeManager.surfaceHover; // Wait, need to check if surfaceHover exists, if not use a calculated color
+            // Fallback if surfaceHover not defined in ThemeManager (it wasn't in my last edit, so I'll use a local calculation or standard color)
+            if (mouseArea.containsMouse)
+                return Styles.ThemeManager.isDark ? "#22FFFFFF" : "#11000000";
+            return "transparent"; // Default transparent
         }
+
+        // No borders by default for "Clean" look, or very subtle
         border.width: 1
         border.color: {
-            if (!root.enabled)
-                return Styles.ThemeManager.border;
             if (mouseArea.containsMouse)
-                return accentColor;
-            return Styles.ThemeManager.isDark ? "#40ffffff" : "#20000000";
+                return Styles.ThemeManager.borderLight;
+            return Styles.ThemeManager.border;
         }
 
         Behavior on color {
@@ -46,7 +51,6 @@ Item {
                 duration: Styles.ThemeManager.animFast
             }
         }
-
         Behavior on border.color {
             ColorAnimation {
                 duration: Styles.ThemeManager.animFast
@@ -54,36 +58,60 @@ Item {
         }
     }
 
-    // ==================== 光泽层 ====================
+    // ==================== 内容布局 (Asymmetrical) ====================
 
-    Rectangle {
+    RowLayout {
         anchors.fill: parent
-        anchors.margins: 1
-        radius: Styles.ThemeManager.radiusMd - 1
-        gradient: Gradient {
-            GradientStop {
-                position: 0.0
-                color: Styles.ThemeManager.isDark ? "#15ffffff" : "#10ffffff"
-            }
-            GradientStop {
-                position: 0.5
-                color: "#00ffffff"
+        anchors.leftMargin: Styles.ThemeManager.spacingMd
+        anchors.rightMargin: Styles.ThemeManager.spacingSm
+        spacing: Styles.ThemeManager.spacingSm
+
+        // 文本 (Left Aligned - Asymmetry)
+        Text {
+            Layout.fillWidth: true
+            text: root.text
+            color: root.enabled ? Styles.ThemeManager.textPrimary : Styles.ThemeManager.textMuted
+            font.pixelSize: Styles.ThemeManager.fontSizeBody
+            font.family: Styles.ThemeManager.fontFamily
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignLeft
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: Styles.ThemeManager.animFast
+                }
             }
         }
-    }
 
-    // ==================== 文本 ====================
+        // Optional Icon or Indicator on Right
+        Item {
+            Layout.preferredWidth: 20
+            Layout.preferredHeight: 20
+            visible: true // Always keep space for balance or specific asymmetrical indicator
 
-    Text {
-        anchors.centerIn: parent
-        text: root.text
-        color: root.enabled ? Styles.ThemeManager.textPrimary : Styles.ThemeManager.textMuted
-        font.pixelSize: Styles.ThemeManager.fontSizeBody
-        font.weight: Font.Medium
+            // Asymmetrical Dot Indicator on Hover
+            Rectangle {
+                anchors.centerIn: parent
+                width: 6
+                height: 6
+                radius: 3
+                color: root.accentColor
+                opacity: mouseArea.containsMouse ? 1 : 0
+                scale: mouseArea.containsMouse ? 1 : 0
 
-        Behavior on color {
-            ColorAnimation {
-                duration: Styles.ThemeManager.animFast
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Styles.ThemeManager.animFast
+                    }
+                }
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: Styles.ThemeManager.animFast
+                        easing.type: Easing.OutBack
+                    }
+                }
             }
         }
     }
@@ -101,8 +129,7 @@ Item {
 
     // ==================== 禁用状态 ====================
 
-    opacity: enabled ? 1.0 : 0.5
-
+    opacity: enabled ? 1.0 : 0.4
     Behavior on opacity {
         NumberAnimation {
             duration: Styles.ThemeManager.animFast

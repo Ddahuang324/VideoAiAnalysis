@@ -98,15 +98,10 @@ TEST(IntegrationTest, RecordScreenToMP4) {
 
     // 3. Initialize grabber to get screen dimensions
     ASSERT_TRUE(grabber->start());
-    int fps = 30;
 
     // 4. Setup Encoder (Consumer) - get dimensions after grabber is initialized
-    EncoderConfig config = defaultEncoderConfig();
-    config.width = grabber->getWidth();
-    config.height = grabber->getHeight();
-    config.fps = fps;
+    EncoderConfig config = encoderConfigFromGrabber(grabber.get());
     config.outputFilePath = "integration_test_record.mp4";
-    // Using default bitrate/codec/preset from defaultEncoderConfig
 
     // Stop grabber temporarily (FrameGrabberThread will manage it)
     grabber->stop();
@@ -117,7 +112,7 @@ TEST(IntegrationTest, RecordScreenToMP4) {
     }
 
     // 5. Create FrameGrabberThread (Producer) and FrameEncoder (Consumer)
-    FrameGrabberThread grabberThread(grabber, *queue, fps);
+    FrameGrabberThread grabberThread(grabber, *queue, config.fps);
     FrameEncoder encoder(queue, config);
 
     // 6. Start threads

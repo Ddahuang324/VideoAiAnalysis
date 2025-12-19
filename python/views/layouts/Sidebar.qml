@@ -37,26 +37,26 @@ Rectangle {
         color: Styles.ThemeManager.border
     }
 
-    // ==================== 导航数据模型 ====================
+    // ==================== 导航数据模型 (Minimalist) ====================
 
     ListModel {
         id: navigationModel
 
         ListElement {
-            icon: "🏠"
-            text: "首页"
+            icon: "⊞" // Overview / Dashboard
+            text: "Overview"
         }
         ListElement {
-            icon: "🎬"
-            text: "录制"
+            icon: "◉" // Record / Focus
+            text: "Record"
         }
         ListElement {
-            icon: "📁"
-            text: "历史"
+            icon: "▤" // History / Library
+            text: "Library"
         }
         ListElement {
-            icon: "⚙️"
-            text: "设置"
+            icon: "⚙" // Settings
+            text: "Settings"
         }
     }
 
@@ -67,34 +67,40 @@ Rectangle {
         anchors.margins: Styles.ThemeManager.spacingSm
         spacing: Styles.ThemeManager.spacingXs
 
-        // Logo 区域
+        // Header (Typography Based)
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 56
+            Layout.preferredHeight: 64 // Slightly taller header
+            Layout.leftMargin: 8
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Styles.ThemeManager.spacingSm
                 spacing: Styles.ThemeManager.spacingSm
 
+                // Abstract Logo Mark
                 Rectangle {
-                    width: 40
-                    height: 40
-                    radius: Styles.ThemeManager.radiusMd
+                    width: 24
+                    height: 24
                     color: Styles.ThemeManager.primary
+                    radius: 6 // Squircle
 
                     Text {
                         anchors.centerIn: parent
-                        text: "🎥"
-                        font.pixelSize: 20
+                        text: "V"
+                        color: "#FFFFFF"
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                        font.family: Styles.ThemeManager.fontFamily
                     }
                 }
 
                 Text {
-                    text: "AI Video"
+                    text: "VideoSys"
                     color: Styles.ThemeManager.textPrimary
-                    font.pixelSize: Styles.ThemeManager.fontSizeH3
+                    font.pixelSize: 16
                     font.weight: Font.Bold
+                    font.letterSpacing: 0.5
+                    font.family: Styles.ThemeManager.fontFamily
                     visible: root.expanded
                     opacity: root.expanded ? 1 : 0
 
@@ -107,21 +113,13 @@ Rectangle {
             }
         }
 
-        // 分隔线
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Styles.ThemeManager.border
-            Layout.topMargin: Styles.ThemeManager.spacingSm
-            Layout.bottomMargin: Styles.ThemeManager.spacingSm
-        }
-
         // 菜单项列表
         Repeater {
             model: navigationModel
 
             Components.SidebarItem {
                 Layout.fillWidth: true
+                Layout.preferredHeight: 48
                 icon: model.icon
                 text: model.text
                 isSelected: index === root.currentIndex
@@ -139,38 +137,33 @@ Rectangle {
             Layout.fillHeight: true
         }
 
-        // 底部主题切换按钮
+        // 底部主题切换 (Refined)
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 48
             radius: Styles.ThemeManager.radiusMd
-            color: themeMouseArea.containsMouse ? Styles.ThemeManager.sidebarItemHover : "transparent"
-
-            Behavior on color {
-                ColorAnimation {
-                    duration: Styles.ThemeManager.animFast
-                }
-            }
+            color: "transparent" // minimalist, no background unless hover
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: Styles.ThemeManager.spacingMd
-                anchors.rightMargin: Styles.ThemeManager.spacingMd
-                spacing: Styles.ThemeManager.spacingSm
 
                 Text {
-                    text: Styles.ThemeManager.isDark ? "🌙" : "☀️"
-                    font.pixelSize: 20
-                    Layout.preferredWidth: 28
-                    horizontalAlignment: Text.AlignHCenter
+                    text: Styles.ThemeManager.isDark ? "☾" : "☼" // Minimalist toggle icon
+                    color: Styles.ThemeManager.textSecondary
+                    font.pixelSize: 18
+                    Layout.preferredWidth: 24
                 }
 
                 Text {
-                    text: Styles.ThemeManager.isDark ? "暗色主题" : "亮色主题"
+                    text: Styles.ThemeManager.isDark ? "Dark Mode" : "Light Mode"
                     color: Styles.ThemeManager.textSecondary
-                    font.pixelSize: Styles.ThemeManager.fontSizeBody
+                    font.pixelSize: Styles.ThemeManager.fontSizeSmall
+                    font.weight: Font.Medium
+                    font.family: Styles.ThemeManager.fontFamily
                     visible: root.expanded
                     opacity: root.expanded ? 1 : 0
+                    Layout.leftMargin: 12
 
                     Behavior on opacity {
                         NumberAnimation {

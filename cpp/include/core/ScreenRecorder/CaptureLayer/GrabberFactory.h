@@ -15,7 +15,7 @@ enum class GrabberType {
 
 class GrabberFactory {
 public:
-    static std::unique_ptr<IScreenGrabber> createGrabber(GrabberType type);
+    static std::shared_ptr<IScreenGrabber> createGrabber(GrabberType type);
 
     static std::vector<GrabberType> getAvailableGrabbers();
 

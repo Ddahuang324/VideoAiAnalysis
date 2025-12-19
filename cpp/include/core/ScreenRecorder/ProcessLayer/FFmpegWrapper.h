@@ -95,11 +95,18 @@ public:
     int64_t getEncodedFrameCount() const { return encodedFrameCount_; }
 
 private:
-    bool createOutputFile(const std::string& path);
-    bool configureEncoder(const EncoderConfig& config);
+    // FFmpeg 视频编码流程的7个步骤
+    bool step1_allocateFormatContext();
+    bool step2_openOutputFile(const std::string& path);
+    bool step3_createVideoStreamAndEncoder(const EncoderConfig& config);
+    bool step4_writeFileHeader();
+    bool step5_encodeAndWriteFrame(const FrameData& frameData);
+    bool step6_flushEncoder();
+    bool step6_muxAndWritePacket(AVPacket* packet);
+    void step7_writeTrailerAndCleanup();
+
+    // 辅助函数
     bool convertPixelFormat(const FrameData& frameData, AVFrame* dstFrame);
-    bool writePacket(AVPacket* packet);
-    void flushEncoder();
     void cleanup();
 
     AVPacketPtr packet_;
@@ -135,15 +142,33 @@ struct EncoderConfig {
     std::string codec;   // 编码器名称
 };
 
-inline EncoderConfig defaultEncoderConfig() {
+// 默认配置（使用默认分辨率）
+inline EncoderConfig defaultEncoderConfig(int width = 1920, int height = 1080) {
     EncoderConfig config;
     config.outputFilePath = "output.mp4";
-    config.width = 1920;
-    config.height = 1080;
+    config.width = width;
+    config.height = height;
     config.fps = 30;
     config.bitrate = 4000000;  // 4 Mbps
     config.crf = 23;           // 默认质量
     config.preset = "fast";    // 默认预设
     config.codec = "libx264";  // 默认编码器
+    return config;
+}
+
+// 从屏幕采集器获取分辨率的配置
+inline EncoderConfig encoderConfigFromGrabber(const IScreenGrabber* grabber) {
+    if (!grabber) {
+        return defaultEncoderConfig();  // 回退到默认配置
+    }
+    EncoderConfig config;
+    config.outputFilePath = "output.mp4";
+    config.width = grabber->getWidth();
+    config.height = grabber->getHeight();
+    config.fps = grabber->getFps() > 0 ? grabber->getFps() : 30;  // 默认为 30 FPS
+    config.bitrate = 4000000;                                     // 4 Mbps
+    config.crf = 23;                                              // 默认质量
+    config.preset = "fast";                                       // 默认预设
+    config.codec = "libx264";                                     // 默认编码器
     return config;
 };

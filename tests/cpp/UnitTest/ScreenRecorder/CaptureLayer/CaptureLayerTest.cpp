@@ -21,7 +21,7 @@ protected:
         }
     }
 
-    std::unique_ptr<IScreenGrabber> grabber;
+    std::shared_ptr<IScreenGrabber> grabber;
 };
 
 TEST_F(CaptureTest, InitializeGrabber) {

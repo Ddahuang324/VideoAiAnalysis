@@ -10,18 +10,10 @@ Rectangle {
     id: root
     width: parent ? parent.width : 200
     height: 48
-    radius: Styles.ThemeManager.radiusMd
-    color: {
-        if (isSelected)
-            return Styles.ThemeManager.sidebarItemActive;
-        if (mouseArea.containsMouse)
-            return Styles.ThemeManager.sidebarItemHover;
-        return "transparent";
-    }
 
     // ==================== 公共 API ====================
 
-    property string icon: ""      // 图标文本 (emoji 或图标字体)
+    property string icon: ""      // 图标文本
     property string text: ""      // 菜单项文本
     property bool isSelected: false
     property bool showText: true  // 控制文本显示/隐藏
@@ -36,23 +28,46 @@ Rectangle {
         }
     }
 
-    // ==================== 选中指示器 ====================
+    // ==================== 主背景 (Asymmetrical Active State) ====================
+
+    // Active state uses a very subtle fill
+    color: {
+        if (isSelected)
+            return Styles.ThemeManager.surfaceHover; // Subtle active background
+        if (mouseArea.containsMouse)
+            return Styles.ThemeManager.surfaceHover;
+        return "transparent";
+    }
+
+    // Asymmetrical Radius: Sharp on left if selected? Or just standard soft.
+    // Let's keep it clean: Standard radius for now, but maybe left-aligned 0 padding?
+    // Actually, let's make it fully rounded for "Design" feel.
+    radius: Styles.ThemeManager.radiusMd
+
+    // ==================== 选中/不对称指示器 (Right Side) ====================
 
     Rectangle {
         id: indicator
-        width: 3
-        height: parent.height - 16
-        anchors.left: parent.left
-        anchors.leftMargin: 4
+        width: 6
+        height: 6
+        anchors.right: parent.right
+        anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
-        radius: 2
+        radius: 3
         color: Styles.ThemeManager.primary
         visible: isSelected
         opacity: isSelected ? 1 : 0
+        scale: isSelected ? 1 : 0
 
         Behavior on opacity {
             NumberAnimation {
                 duration: Styles.ThemeManager.animFast
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: Styles.ThemeManager.animFast
+                easing.type: Easing.OutBack
             }
         }
     }

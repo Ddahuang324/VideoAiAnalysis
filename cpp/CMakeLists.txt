@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # ==================== C++ 核心库 ====================
 add_library(ai_video_core STATIC
+    src/core/ScreenRecorder.cpp
     src/core/ScreenRecorder/CaptureLayer/GrabberFactory.cpp
     src/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.cpp
     src/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/DXGI_Grabber.cpp
@@ -12,6 +13,8 @@ add_library(ai_video_core STATIC
 
 target_include_directories(ai_video_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    # ScreenRecorder 核心头文件路径
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/ScreenRecorder
     # 让只写文件名即可找到核心抓屏接口与具体实现头文件
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/ScreenRecorder/CaptureLayer
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win

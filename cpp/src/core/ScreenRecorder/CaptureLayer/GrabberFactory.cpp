@@ -10,7 +10,7 @@
 #include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/DXGI_Grabber.h"
 #include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.h"
 
-std::unique_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) {
+std::shared_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) {
     if (type == GrabberType::AUTO) {
         type = detectBestGrabber();
     }
@@ -18,16 +18,16 @@ std::unique_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) 
     switch (type) {
 #ifdef _WIN32
         case GrabberType::GDI:
-            return std::make_unique<GDI_Grabber>();
+            return std::make_shared<GDI_Grabber>();
         case GrabberType::DXGI:
-            return std::make_unique<DXGI_Grabber>();
+            return std::make_shared<DXGI_Grabber>();
 #endif
 
 #ifdef __linux__
         case GrabberType::X11:
-            return std::make_unique<X11_Grabber>();
+            return std::make_shared<X11_Grabber>();
         case GrabberType::PIPEWIRE:
-            return std::make_unique<PipeWire_Grabber>();
+            return std::make_shared<PipeWire_Grabber>();
 #endif
 
 #ifdef __APPLE__

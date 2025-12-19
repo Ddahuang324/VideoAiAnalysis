@@ -17,7 +17,7 @@
 class FrameGrabberThread {
 public:
     FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber, ThreadSafetyQueue<FrameData>& queue,
-                       int target_fps = 60);
+                       int target_fps = 30);
 
     ~FrameGrabberThread();
 
