@@ -151,6 +151,10 @@ void FrameGrabberThread::captureLoop() {
             captured_frame_count_++;
             UpdateFps();
 
+            if (frame_callback_) {
+                frame_callback_(frame);
+            }
+
             if (captured_frame_count_ % target_fps_ == 0) {  // 减少回调频率
                 notifyProgress();
             }

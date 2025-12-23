@@ -28,6 +28,11 @@ class PixelFormat(IntEnum):
     RGB24 = 3
 
 
+class RecorderMode(IntEnum):
+    VIDEO = 0     # 视频模式 (高帧率, 如 30fps)
+    SNAPSHOT = 1  # 快照模式 (低帧率, 如 1fps)
+
+
 class EncoderPreset:
     """编码器预设"""
     ULTRAFAST = "ultrafast"
@@ -74,27 +79,41 @@ class ScreenRecorderService:
             self._recorder = vac.ScreenRecorder()
             print("[ScreenRecorderService] ScreenRecorder instance created")
     
-    def start_recording(self, output_path: str) -> bool:
+    def start_recording(
+        self, 
+        output_path: str,
+        mode: Optional[RecorderMode] = None
+    ) -> bool:
         """
         开始录制
         
         Args:
             output_path: 输出文件路径（如 'output.mp4'）
+            mode: 录制模式 (RecorderMode.VIDEO 或 RecorderMode.SNAPSHOT)
+                  默认为 None,使用当前设置的模式
             
         Returns:
             bool: 成功返回 True
         """
         self._ensure_recorder()
         
-        if self._recorder is None:
+        if self._recorder is None or vac is None:
             return False
         
         try:
-            success = self._recorder.start_recording(output_path)
+            # 如果指定了模式,传递给 C++ 层
+            if mode is not None:
+                # 将 Python 枚举转换为 C++ 枚举
+                cpp_mode = vac.RecorderMode.VIDEO if mode == RecorderMode.VIDEO else vac.RecorderMode.SNAPSHOT
+                success = self._recorder.start_recording(output_path, cpp_mode)
+            else:
+                success = self._recorder.start_recording(output_path)
+            
             if success:
                 self._is_recording = True
                 self._output_path = output_path
-                print(f"[ScreenRecorderService] Recording started: {output_path}")
+                mode_str = "VIDEO" if mode == RecorderMode.VIDEO else "SNAPSHOT" if mode == RecorderMode.SNAPSHOT else "DEFAULT"
+                print(f"[ScreenRecorderService] Recording started: {output_path} (Mode: {mode_str})")
             else:
                 print(f"[ScreenRecorderService] Failed to start recording")
             return success
@@ -148,12 +167,58 @@ class ScreenRecorderService:
             return False
         return self._recorder.is_recording
     
+    def set_recorder_mode(self, mode: RecorderMode):
+        """
+        设置录制模式
+        
+        Args:
+            mode: 录制模式 (RecorderMode.VIDEO 或 RecorderMode.SNAPSHOT)
+        
+        Note:
+            必须在开始录制前设置,录制过程中无法切换模式
+        """
+        self._ensure_recorder()
+        
+        if self._recorder is None or vac is None:
+            raise RuntimeError("Recorder not initialized or C++ module not available")
+        
+        if self.is_recording():
+            raise RuntimeError("Cannot change mode while recording")
+        
+        try:
+            # 将 Python 枚举转换为 C++ 枚举
+            cpp_mode = vac.RecorderMode.VIDEO if mode == RecorderMode.VIDEO else vac.RecorderMode.SNAPSHOT
+            self._recorder.recorder_mode = cpp_mode
+            mode_str = "VIDEO" if mode == RecorderMode.VIDEO else "SNAPSHOT"
+            print(f"[ScreenRecorderService] Recorder mode set to: {mode_str}")
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error setting recorder mode: {e}")
+            raise
+    
+    def get_recorder_mode(self) -> RecorderMode:
+        """
+        获取当前录制模式
+        
+        Returns:
+            RecorderMode: 当前录制模式
+        """
+        if not self._recorder or vac is None:
+            return RecorderMode.VIDEO  # 默认返回 VIDEO 模式
+        
+        try:
+            cpp_mode = self._recorder.recorder_mode
+            # 将 C++ 枚举转换为 Python 枚举
+            return RecorderMode.VIDEO if cpp_mode == vac.RecorderMode.VIDEO else RecorderMode.SNAPSHOT
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error getting recorder mode: {e}")
+            return RecorderMode.VIDEO
+    
     def get_stats(self) -> Dict[str, Any]:
         """
         获取录制统计信息
         
         Returns:
-            dict: 包含帧数、文件大小、帧率等信息
+            dict: 包含帧数、文件大小、帧率、录制模式等信息
         """
         if not self._recorder:
             return {
@@ -162,8 +227,13 @@ class ScreenRecorderService:
                 'dropped_count': 0,
                 'output_file_size': 0,
                 'current_fps': 0.0,
-                'is_recording': False
+                'is_recording': False,
+                'recorder_mode': 'VIDEO'
             }
+        
+        # 获取当前模式
+        current_mode = self.get_recorder_mode()
+        mode_str = 'VIDEO' if current_mode == RecorderMode.VIDEO else 'SNAPSHOT'
         
         return {
             'frame_count': self._recorder.frame_count,
@@ -171,7 +241,8 @@ class ScreenRecorderService:
             'dropped_count': self._recorder.dropped_count,
             'output_file_size': self._recorder.output_file_size,
             'current_fps': self._recorder.current_fps,
-            'is_recording': self._recorder.is_recording
+            'is_recording': self._recorder.is_recording,
+            'recorder_mode': mode_str
         }
     
     def set_progress_callback(self, callback: Callable[[int, int], None]):
@@ -301,7 +372,6 @@ class ScreenRecorderService:
                 f"frames={stats['frame_count']} "
                 f"encoded={stats['encoded_count']} "
                 f"fps={stats['current_fps']:.1f}>")
-
 
 class VideoService:
     """视频服务 - 兼容旧接口的包装器"""

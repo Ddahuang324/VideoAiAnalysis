@@ -31,6 +31,17 @@ if(pybind11_FOUND)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python
     )
     
+    # 复制 FFmpeg DLL 到 Python 模块目录 (解决运行时 DLL 加载问题)
+    if(FFmpeg_DLLS)
+        add_custom_command(TARGET Video_Recording_Moudle POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${FFmpeg_DLLS}
+                $<TARGET_FILE_DIR:Video_Recording_Moudle>
+            COMMENT "Copying FFmpeg DLLs to Python module directory..."
+        )
+        message(STATUS "✓ FFmpeg DLLs will be copied to: ${CMAKE_BINARY_DIR}/python")
+    endif()
+    
     message(STATUS "Python bindings module configured: Video_Recording_Moudle")
 else()
     message(WARNING "pybind11 not found, skipping Python bindings")

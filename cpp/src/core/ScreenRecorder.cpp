@@ -27,7 +27,10 @@ bool ScreenRecorder::startRecording(std::string& path) {
     // TODO: 实现录制逻辑
     m_isRecording.store(true);
 
-    m_grabber_ = GrabberFactory::createGrabber(GrabberType::AUTO);
+    // 根据模式选择采集器
+    GrabberType preferredType =
+        (m_mode == RecorderMode::SNAPSHOT) ? GrabberType::GDI : GrabberType::AUTO;
+    m_grabber_ = GrabberFactory::createGrabber(preferredType);
 
     if (!m_grabber_) {
         LastError = "Failed to create screen grabber";
@@ -46,8 +49,12 @@ bool ScreenRecorder::startRecording(std::string& path) {
         return false;
     }
 
-    grabber_thread_ =
-        std::make_shared<FrameGrabberThread>(m_grabber_, *m_frameQueue_, m_grabber_->getFps());
+    // 根据模式设定目标帧率
+    int target_fps = (m_mode == RecorderMode::SNAPSHOT) ? 1 : m_grabber_->getFps();
+    if (target_fps <= 0)
+        target_fps = 30;  // 后备方案
+
+    grabber_thread_ = std::make_shared<FrameGrabberThread>(m_grabber_, *m_frameQueue_, target_fps);
 
     grabber_thread_->setProgressCallback([this](int64_t frames, int queue_size, double fps) {
         LOG_INFO("Grabber progress - Frames: " + std::to_string(frames) +
@@ -63,6 +70,9 @@ bool ScreenRecorder::startRecording(std::string& path) {
     });
 
     EncoderConfig config = encoderConfigFromGrabber(m_grabber_.get());
+    if (m_mode == RecorderMode::SNAPSHOT) {
+        config.fps = 1;
+    }
     config.outputFilePath = path;
     m_encoder_ = std::make_unique<FrameEncoder>(m_frameQueue_, config);
 
@@ -168,4 +178,11 @@ void ScreenRecorder::setProgressCallback(ProgressCallback callback) {
 
 void ScreenRecorder::setErrorCallback(ErrorCallback callback) {
     m_errorCallback = callback;
+}
+void ScreenRecorder::setRecorderMode(RecorderMode mode) {
+    m_mode = mode;
+}
+
+RecorderMode ScreenRecorder::getRecorderMode() const {
+    return m_mode;
 }

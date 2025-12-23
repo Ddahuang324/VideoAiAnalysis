@@ -74,6 +74,89 @@ Rectangle {
                 Layout.fillWidth: true
             }
 
+            // 录制模式切换器 (Minimalist Toggle)
+            Rectangle {
+                width: 200
+                height: 36
+                radius: 18
+                color: Styles.ThemeManager.bgCard
+                border.width: 1
+                border.color: Styles.ThemeManager.border
+                visible: !isRecording  // 录制时隐藏
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 3
+                    spacing: 0
+
+                    // VIDEO 模式按钮
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 15
+                        color: videoViewModel.recorderMode === 0 ? Styles.ThemeManager.primary : "transparent"
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: 200
+                            }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "VIDEO"
+                            color: videoViewModel.recorderMode === 0 ? "#FFFFFF" : Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
+                            font.letterSpacing: 0.5
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                console.log("[RecordPage] Switching to VIDEO mode");
+                                videoViewModel.setRecorderMode(0);
+                            }
+                        }
+                    }
+
+                    // SNAPSHOT 模式按钮
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 15
+                        color: videoViewModel.recorderMode === 1 ? Styles.ThemeManager.primary : "transparent"
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: 200
+                            }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "SNAPSHOT"
+                            color: videoViewModel.recorderMode === 1 ? "#FFFFFF" : Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            font.family: Styles.ThemeManager.fontFamily
+                            font.letterSpacing: 0.5
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                console.log("[RecordPage] Switching to SNAPSHOT mode");
+                                videoViewModel.setRecorderMode(1);
+                            }
+                        }
+                    }
+                }
+            }
+
             // 录制状态指示 (Minimalist)
             Row {
                 spacing: Styles.ThemeManager.spacingSm
@@ -169,7 +252,11 @@ Rectangle {
                 }
 
                 Text {
-                    text: "System Audio: On | Mic: Off" // Mock status
+                    text: {
+                        var modeText = videoViewModel.getRecorderModeName();
+                        var modeDesc = modeText === "VIDEO" ? "30 FPS" : "1 FPS";
+                        return "Mode: " + modeText + " (" + modeDesc + ") | Audio: On";
+                    }
                     color: Styles.ThemeManager.textMuted
                     font.pixelSize: Styles.ThemeManager.fontSizeSmall
                     font.family: Styles.ThemeManager.fontFamily

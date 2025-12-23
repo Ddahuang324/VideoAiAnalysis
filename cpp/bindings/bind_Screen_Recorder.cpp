@@ -8,6 +8,7 @@
 #include <pyerrors.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "bindings.h"
@@ -75,6 +76,12 @@ void bind_Screen_Recorder(py::module& m) {
         .value("RGB24", PixelFormat::RGB24, "RGB24 格式")
         .export_values();
 
+    // 绑定 RecorderMode 枚举
+    py::enum_<RecorderMode>(m, "RecorderMode", "录制模式")
+        .value("VIDEO", RecorderMode::VIDEO, "视频模式 (高帧率)")
+        .value("SNAPSHOT", RecorderMode::SNAPSHOT, "快照模式 (1fps)")
+        .export_values();
+
     // 绑定 FrameData 结构体
     py::class_<FrameData>(m, "FrameData", "帧数据结构")
         .def(py::init<>(), "默认构造函数")
@@ -121,13 +128,23 @@ void bind_Screen_Recorder(py::module& m) {
         .def(py::init<>(), "构造函数")
 
         // 录制控制方法
-        .def("start_recording", &ScreenRecorder::startRecording, py::arg("path"),
-             py::call_guard<py::gil_scoped_release>(),
-             "开始录制\n\n"
-             "参数:\n"
-             "    path (str): 输出文件路径\n\n"
-             "返回:\n"
-             "    bool: 成功返回 True,失败返回 False")
+        .def(
+            "start_recording",
+            [](ScreenRecorder& recorder, const std::string& path,
+               std::optional<RecorderMode> mode) {
+                if (mode.has_value()) {
+                    recorder.setRecorderMode(mode.value());
+                }
+                std::string p = path;
+                return recorder.startRecording(p);
+            },
+            py::arg("path"), py::arg("mode") = py::none(), py::call_guard<py::gil_scoped_release>(),
+            "开始录制\n\n"
+            "参数:\n"
+            "    path (str): 输出文件路径\n"
+            "    mode (RecorderMode, optional): 录制模式 (VIDEO/SNAPSHOT)\n\n"
+            "返回:\n"
+            "    bool: 成功返回 True,失败返回 False")
 
         .def("stop_recording", &ScreenRecorder::stopRecording,
              py::call_guard<py::gil_scoped_release>(), "停止录制")
@@ -208,6 +225,9 @@ void bind_Screen_Recorder(py::module& m) {
         .def_property_readonly("current_fps", &ScreenRecorder::getCurrentFps, "当前帧率(只读属性)")
         .def_property_readonly("is_recording", &ScreenRecorder::is_Recording,
                                "是否正在录制(只读属性)")
+
+        .def_property("recorder_mode", &ScreenRecorder::getRecorderMode,
+                      &ScreenRecorder::setRecorderMode, "录制模式 (VIDEO/SNAPSHOT)")
 
         // 字符串表示
         .def("__repr__",

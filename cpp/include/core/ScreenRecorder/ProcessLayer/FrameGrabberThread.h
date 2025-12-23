@@ -39,16 +39,20 @@ public:
     using ProgressCallback = std::function<void(int64_t, int, double)>;  // Pybind回调
     using ErrorCallback = std::function<void(const std::string&)>;       // Pybind回调
     using DroppedCallback = std::function<void(int64_t)>;                // Pybind回调
+    using FrameCallback = std::function<void(const FrameData&)>;         // 新增：帧回调
 
     void setProgressCallback(ProgressCallback callback) {
         progress_callback_ = callback;
     }  // 设置进度回调,python绑定使用
     void setErrorCallback(ErrorCallback callback) {
         error_callback_ = callback;
-    };  // 设置错误回调,python绑定使用
+    }  // 设置错误回调,python绑定使用
     void setDroppedCallback(DroppedCallback callback) {
         dropped_callback_ = callback;
-    };  // 设置丢帧回调,python绑定使用
+    }  // 设置丢帧回调,python绑定使用
+    void setFrameCallback(FrameCallback callback) {
+        frame_callback_ = callback;
+    }  // 新增：设置帧回调
 
 private:
     void captureLoop();       // 采集线程主循环
@@ -93,4 +97,5 @@ private:
     ProgressCallback progress_callback_;
     ErrorCallback error_callback_;
     DroppedCallback dropped_callback_;
+    FrameCallback frame_callback_;
 };

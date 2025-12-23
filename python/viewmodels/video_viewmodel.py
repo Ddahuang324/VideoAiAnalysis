@@ -3,7 +3,7 @@
 负责视频处理相关的业务逻辑
 """
 from PySide6.QtCore import QObject, Signal, Slot, Property
-from services.video_service import VideoService
+from services.video_service import VideoService, ScreenRecorderService, RecorderMode
 from models.video_model import VideoModel, AnalysisResult
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +21,7 @@ class VideoViewModel(QObject):
     recordingStateChanged = Signal(bool)  # 录制状态改变
     recordingStatsChanged = Signal()     # 录制统计信息改变
     recordingError = Signal(str)         # 录制错误
+    recorderModeChanged = Signal(int)    # 录制模式改变
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -31,6 +32,7 @@ class VideoViewModel(QObject):
         
         # 录制相关状态
         self._is_recording = False
+        self._recorder_mode = RecorderMode.VIDEO  # 默认为 VIDEO 模式
         self._recording_stats = {
             'frame_count': 0,
             'encoded_count': 0,
@@ -270,3 +272,59 @@ class VideoViewModel(QObject):
     def outputFileSize(self):
         """输出文件大小（字节）"""
         return self._recording_stats.get('output_file_size', 0)
+    
+    # ==================== 录制模式功能 ====================
+    
+    @Property(int, notify=recorderModeChanged)
+    def recorderMode(self):
+        """
+        当前录制模式
+        返回: 0 = VIDEO, 1 = SNAPSHOT
+        """
+        return self._recorder_mode.value
+    
+    @Slot(int)
+    def setRecorderMode(self, mode: int):
+        """
+        设置录制模式
+        
+        Args:
+            mode: 0 = VIDEO (高帧率), 1 = SNAPSHOT (低帧率)
+        """
+        try:
+            if self._is_recording:
+                error_msg = "Cannot change mode while recording"
+                print(f"[VideoViewModel] ⚠️ {error_msg}")
+                self.recordingError.emit(error_msg)
+                return
+            
+            # 转换为 RecorderMode 枚举
+            new_mode = RecorderMode.VIDEO if mode == 0 else RecorderMode.SNAPSHOT
+            
+            if new_mode != self._recorder_mode:
+                self._recorder_mode = new_mode
+                
+                # 更新 C++ 层的模式
+                recorder = self._service.get_screen_recorder()
+                recorder.set_recorder_mode(new_mode)
+                
+                mode_name = "VIDEO" if new_mode == RecorderMode.VIDEO else "SNAPSHOT"
+                print(f"[VideoViewModel] 📹 Recorder mode set to: {mode_name}")
+                
+                self.recorderModeChanged.emit(mode)
+                self._status = f"Mode: {mode_name}"
+                self.statusChanged.emit(self._status)
+                
+        except Exception as e:
+            error_msg = f"设置录制模式失败: {e}"
+            print(f"[VideoViewModel] ❌ {error_msg}")
+            self.recordingError.emit(error_msg)
+    
+    @Slot(result=str)
+    def getRecorderModeName(self):
+        """
+        获取当前录制模式的名称
+        返回: "VIDEO" 或 "SNAPSHOT"
+        """
+        return "VIDEO" if self._recorder_mode == RecorderMode.VIDEO else "SNAPSHOT"
+
