@@ -11,10 +11,11 @@
 #include <optional>
 #include <string>
 
+#include "VideoGrabber.h"
 #include "bindings.h"
-#include "core/ScreenRecorder/CaptureLayer/IScreenGrabber.h"
 #include "core/ScreenRecorder/ProcessLayer/FFmpegWrapper.h"
 #include "core/ScreenRecorder/ScreenRecorder.h"
+
 
 namespace py = pybind11;
 

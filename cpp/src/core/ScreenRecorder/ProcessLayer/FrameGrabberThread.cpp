@@ -8,11 +8,12 @@
 #include <string>
 #include <thread>
 
-#include "IScreenGrabber.h"
 #include "Log.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
 
-FrameGrabberThread::FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber,
+
+FrameGrabberThread::FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber,
                                        ThreadSafetyQueue<FrameData>& queue, int target_fps)
     : grabber_(grabber), frame_queue_(queue), m_thread(nullptr), target_fps_(target_fps) {}
 

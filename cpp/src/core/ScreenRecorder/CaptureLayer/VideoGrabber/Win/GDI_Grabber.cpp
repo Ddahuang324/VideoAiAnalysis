@@ -1,4 +1,4 @@
-#include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.h"
+#include "GDI_Grabber.h"
 
 #include <chrono>
 #include <cstring>

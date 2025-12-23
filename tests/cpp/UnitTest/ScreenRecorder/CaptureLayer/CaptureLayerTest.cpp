@@ -8,12 +8,13 @@
 #include <string>
 #include <thread>
 
-#include "GrabberFactory.h"
-#include "IScreenGrabber.h"
+#include "VideoGrabber.h"
+#include "VideoGrabberFactory.h"
+
 
 class CaptureTest : public ::testing::Test {
 protected:
-    void SetUp() override { grabber = GrabberFactory::createGrabber(GrabberType::AUTO); }
+    void SetUp() override { grabber = VideoGrabberFactory::createGrabber(GrabberType::AUTO); }
 
     void TearDown() override {
         if (grabber) {
@@ -21,7 +22,7 @@ protected:
         }
     }
 
-    std::shared_ptr<IScreenGrabber> grabber;
+    std::shared_ptr<VideoGrabber> grabber;
 };
 
 TEST_F(CaptureTest, InitializeGrabber) {

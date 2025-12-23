@@ -9,12 +9,14 @@
 #include <utility>
 
 #include "FFmpegWrapper.h"
-#include "IScreenGrabber.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
+
 
 class FrameEncoder {
 public:
-    FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue, const EncoderConfig& config);
+    FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue,
+                 std::shared_ptr<FFmpegWrapper> encoder, const EncoderConfig& config);
 
     ~FrameEncoder();
 
@@ -55,7 +57,7 @@ private:
 
     // 成员变量
     std::shared_ptr<ThreadSafetyQueue<FrameData>> queue_;
-    std::unique_ptr<FFmpegWrapper> encoder_;
+    std::shared_ptr<FFmpegWrapper> encoder_;
     std::unique_ptr<std::thread> thread_;
     EncoderConfig config_;
 

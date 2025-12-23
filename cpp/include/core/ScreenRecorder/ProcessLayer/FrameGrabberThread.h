@@ -11,12 +11,12 @@
 #include <string>
 #include <thread>
 
-#include "IScreenGrabber.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
 
 class FrameGrabberThread {
 public:
-    FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber, ThreadSafetyQueue<FrameData>& queue,
+    FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber, ThreadSafetyQueue<FrameData>& queue,
                        int target_fps = 30);
 
     ~FrameGrabberThread();
@@ -64,7 +64,7 @@ private:
     void notifyDropped(int64_t dropped_count);       // 通知丢帧回调
 
     // 核心资源
-    std::shared_ptr<IScreenGrabber> grabber_;    // 屏幕采集器
+    std::shared_ptr<VideoGrabber> grabber_;      // 屏幕采集器
     ThreadSafetyQueue<FrameData>& frame_queue_;  // 帧数据队列
     std::unique_ptr<std::thread> m_thread;       // 采集线程
 

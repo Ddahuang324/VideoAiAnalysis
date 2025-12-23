@@ -3,7 +3,7 @@
 #include <memory>
 #include <vector>
 
-#include "IScreenGrabber.h"
+#include "VideoGrabber.h"
 
 enum class GrabberType {
     AUTO,
@@ -13,9 +13,9 @@ enum class GrabberType {
     PIPEWIRE,
 };
 
-class GrabberFactory {
+class VideoGrabberFactory {
 public:
-    static std::shared_ptr<IScreenGrabber> createGrabber(GrabberType type);
+    static std::shared_ptr<VideoGrabber> createGrabber(GrabberType type);
 
     static std::vector<GrabberType> getAvailableGrabbers();
 

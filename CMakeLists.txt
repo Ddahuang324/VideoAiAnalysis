@@ -82,6 +82,7 @@ if(NOT ffmpeg_prebuilt_POPULATED)
     find_library(FFmpeg_avformat_LIBRARY NAMES avformat PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
     find_library(FFmpeg_avcodec_LIBRARY NAMES avcodec PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
     find_library(FFmpeg_swscale_LIBRARY NAMES swscale PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(FFmpeg_swresample_LIBRARY NAMES swresample PATHS "${FFmpeg_ROOT}/lib" NO_DEFAULT_PATH)
     
     # 查找 DLLs (用于后续安装或运行时拷贝)
     file(GLOB FFmpeg_DLLS "${FFmpeg_ROOT}/bin/*.dll")

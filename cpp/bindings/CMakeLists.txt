@@ -12,8 +12,9 @@ if(pybind11_FOUND)
     
     target_include_directories(Video_Recording_Moudle PRIVATE
         ${CMAKE_SOURCE_DIR}/cpp/include
-        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer
-        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/VideoGrabber
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/AudioGrabber
         ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/ProcessLayer
         ${CMAKE_SOURCE_DIR}/cpp/include/Infra
     )

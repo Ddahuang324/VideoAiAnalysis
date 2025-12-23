@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/ScreenRecorder/CaptureLayer/IScreenGrabber.h"
+#include "../VideoGrabber.h"
 
-class DXGI_Grabber : public IScreenGrabber {
+class DXGI_Grabber : public VideoGrabber {
 public:
     DXGI_Grabber();
     ~DXGI_Grabber();

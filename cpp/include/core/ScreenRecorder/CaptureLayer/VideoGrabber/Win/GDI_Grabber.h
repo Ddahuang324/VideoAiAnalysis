@@ -6,8 +6,8 @@
 
 #include <memory>
 
+#include "../VideoGrabber.h"
 #include "Infra/Log.h"
-#include "core/ScreenRecorder/CaptureLayer/IScreenGrabber.h"
 
 class GDIResourceGuard {
 public:
@@ -74,7 +74,7 @@ private:
     void* m_memoryBits{};
 };
 
-class GDI_Grabber : public IScreenGrabber {
+class GDI_Grabber : public VideoGrabber {
 public:
     GDI_Grabber();
     ~GDI_Grabber();

@@ -1,16 +1,22 @@
 #include "ScreenRecorder.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
 
+#include "AudioData.h"
+#include "AudioEncoder.h"
+#include "AudioGrabber.h"
 #include "FFmpegWrapper.h"
 #include "FrameEncoder.h"
 #include "FrameGrabberThread.h"
-#include "GrabberFactory.h"
-#include "IScreenGrabber.h"
 #include "Log.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
+#include "VideoGrabberFactory.h"
+#include "WasapiAudioGrabber.h"
+
 
 ScreenRecorder::ScreenRecorder() = default;
 
@@ -30,11 +36,11 @@ bool ScreenRecorder::startRecording(std::string& path) {
     // 根据模式选择采集器
     GrabberType preferredType =
         (m_mode == RecorderMode::SNAPSHOT) ? GrabberType::GDI : GrabberType::AUTO;
-    m_grabber_ = GrabberFactory::createGrabber(preferredType);
+    m_grabber_ = VideoGrabberFactory::createGrabber(preferredType);
 
     if (!m_grabber_) {
-        LastError = "Failed to create screen grabber";
-        LOG_ERROR(LastError);
+        m_lastError = "Failed to create screen grabber";
+        LOG_ERROR(m_lastError);
         m_isRecording.store(false);
         return false;
     }
@@ -43,8 +49,8 @@ bool ScreenRecorder::startRecording(std::string& path) {
 
     // 在获取配置前先启动 Grabber，以确保能够获取到正确的分辨率和 FPS
     if (!m_grabber_->start()) {
-        LastError = "Failed to start screen grabber";
-        LOG_ERROR(LastError);
+        m_lastError = "Failed to start screen grabber";
+        LOG_ERROR(m_lastError);
         m_isRecording.store(false);
         return false;
     }
@@ -56,13 +62,13 @@ bool ScreenRecorder::startRecording(std::string& path) {
 
     grabber_thread_ = std::make_shared<FrameGrabberThread>(m_grabber_, *m_frameQueue_, target_fps);
 
-    grabber_thread_->setProgressCallback([this](int64_t frames, int queue_size, double fps) {
+    grabber_thread_->setProgressCallback([](int64_t frames, int queue_size, double fps) {
         LOG_INFO("Grabber progress - Frames: " + std::to_string(frames) +
                  ", Queue Size: " + std::to_string(queue_size) + ", FPS: " + std::to_string(fps));
     });
 
     grabber_thread_->setErrorCallback([this](const std::string& errorMessage) {
-        LastError = errorMessage;
+        m_lastError = errorMessage;
         LOG_ERROR("Grabber error: " + errorMessage);
         if (m_errorCallback) {
             m_errorCallback(errorMessage);
@@ -74,7 +80,36 @@ bool ScreenRecorder::startRecording(std::string& path) {
         config.fps = 1;
     }
     config.outputFilePath = path;
-    m_encoder_ = std::make_unique<FrameEncoder>(m_frameQueue_, config);
+
+    // 初始化 FFmpegWrapper
+    m_ffmpegWrapper_ = std::make_shared<FFmpegWrapper>();
+    if (!m_ffmpegWrapper_->initialize(config)) {
+        m_lastError = "Failed to initialize FFmpeg: " + m_ffmpegWrapper_->getLastError();
+        LOG_ERROR(m_lastError);
+        m_isRecording.store(false);
+        return false;
+    }
+
+    // 视频编码器
+    m_encoder_ = std::make_unique<FrameEncoder>(m_frameQueue_, m_ffmpegWrapper_, config);
+
+    // 音频采集与编码 (如果启用)
+    if (config.enableAudio) {
+        m_audioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
+        m_audioGrabber_ = std::make_shared<WasapiAudioGrabber>();
+        m_audioGrabber_->setCallback([this](const AudioData& data) {
+            if (m_audioQueue_) {
+                m_audioQueue_->push(data, std::chrono::milliseconds(100));
+            }
+        });
+
+        if (m_audioGrabber_->start()) {
+            m_audioEncoder_ = std::make_unique<AudioEncoder>(m_audioQueue_, m_ffmpegWrapper_);
+            m_audioEncoder_->start();
+        } else {
+            LOG_WARN("Failed to start audio grabber, recording video only");
+        }
+    }
 
     m_encoder_->setProgressCallback([this](int64_t frames, int64_t size) {
         LOG_INFO("Encoder progress - Frames: " + std::to_string(frames) +
@@ -85,7 +120,7 @@ bool ScreenRecorder::startRecording(std::string& path) {
     });
 
     m_encoder_->setErrorCallback([this](const std::string& errorMessage) {
-        LastError = errorMessage;
+        m_lastError = errorMessage;
         LOG_ERROR("Encoder error: " + errorMessage);
         if (m_errorCallback) {
             m_errorCallback(errorMessage);
@@ -109,12 +144,29 @@ void ScreenRecorder::stopRecording() {
         grabber_thread_->stop();
         grabber_thread_.reset();
     }
+
+    if (m_audioGrabber_) {
+        m_audioGrabber_->stop();
+        m_audioGrabber_.reset();
+    }
+
     if (m_encoder_) {
         m_encoder_->stop();
         m_encoder_.reset();
     }
 
+    if (m_audioEncoder_) {
+        m_audioEncoder_->stop();
+        m_audioEncoder_.reset();
+    }
+
+    if (m_ffmpegWrapper_) {
+        m_ffmpegWrapper_->finalize();
+        m_ffmpegWrapper_.reset();
+    }
+
     m_frameQueue_.reset();
+    m_audioQueue_.reset();
     m_grabber_.reset();
 
     m_isRecording.store(false);
@@ -155,8 +207,8 @@ int64_t ScreenRecorder::getDroppedCount() const {
 }
 
 int64_t ScreenRecorder::getOutputFileSize() const {
-    if (m_encoder_) {
-        return m_encoder_->getOutputFileSize();
+    if (m_ffmpegWrapper_) {
+        return m_ffmpegWrapper_->getOutputFileSize();
     }
     return 0;
 }

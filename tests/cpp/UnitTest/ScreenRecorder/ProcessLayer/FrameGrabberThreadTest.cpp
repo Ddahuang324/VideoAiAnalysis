@@ -10,16 +10,17 @@
 #include "FFmpegWrapper.h"
 #include "FrameEncoder.h"
 #include "FrameGrabberThread.h"
-#include "GrabberFactory.h"
-#include "IScreenGrabber.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
+#include "VideoGrabberFactory.h"
+
 
 // Test fixture for FrameGrabberThread
 class FrameGrabberThreadTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Use AUTO grabber (likely GDI or DXGI)
-        grabber = GrabberFactory::createGrabber(GrabberType::AUTO);
+        grabber = VideoGrabberFactory::createGrabber(GrabberType::AUTO);
         // Create a queue with reasonable capacity
         queue = std::make_shared<ThreadSafetyQueue<FrameData>>(30);
 
@@ -33,7 +34,7 @@ protected:
         }
     }
 
-    std::shared_ptr<IScreenGrabber> grabber;
+    std::shared_ptr<VideoGrabber> grabber;
     std::shared_ptr<ThreadSafetyQueue<FrameData>> queue;
     std::unique_ptr<FrameGrabberThread> grabberThread;
 };
@@ -90,7 +91,7 @@ TEST_F(FrameGrabberThreadTest, PauseResume) {
 // Integration Test: Record MP4 using Grabber + Encoder
 TEST(IntegrationTest, RecordScreenToMP4) {
     // 1. Setup Grabber
-    std::shared_ptr<IScreenGrabber> grabber = GrabberFactory::createGrabber(GrabberType::AUTO);
+    std::shared_ptr<VideoGrabber> grabber = VideoGrabberFactory::createGrabber(GrabberType::AUTO);
     ASSERT_NE(grabber, nullptr);
 
     // 2. Setup Shared Queue
@@ -113,7 +114,10 @@ TEST(IntegrationTest, RecordScreenToMP4) {
 
     // 5. Create FrameGrabberThread (Producer) and FrameEncoder (Consumer)
     FrameGrabberThread grabberThread(grabber, *queue, config.fps);
-    FrameEncoder encoder(queue, config);
+
+    auto ffmpeg = std::make_shared<FFmpegWrapper>();
+    ffmpeg->initialize(config);
+    FrameEncoder encoder(queue, ffmpeg, config);
 
     // 6. Start threads
     // Note: Start encoder first or grabber first doesn't matter much due to queue,

@@ -9,13 +9,14 @@
 #include <thread>
 
 #include "FFmpegWrapper.h"
-#include "IScreenGrabber.h"
 #include "Log.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
+
 
 FrameEncoder::FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue,
-                           const EncoderConfig& config)
-    : queue_(queue), encoder_(std::make_unique<FFmpegWrapper>()), config_(config) {
+                           std::shared_ptr<FFmpegWrapper> encoder, const EncoderConfig& config)
+    : queue_(queue), encoder_(encoder), config_(config) {
     LOG_INFO("FrameEncoder constructed with output path: " + config.outputFilePath);
 }
 
@@ -29,12 +30,6 @@ FrameEncoder::~FrameEncoder() {
 void FrameEncoder::start() {
     if (isRunning_.load()) {
         LOG_WARN("FrameEncoder is already running");
-        return;
-    }
-
-    // 初始化编码器
-    if (!encoder_->initialize(config_)) {
-        notifyError("Failed to initialize encoder: " + encoder_->getLastError());
         return;
     }
 
@@ -65,9 +60,6 @@ void FrameEncoder::stop() {
         thread_->join();
         thread_.reset();
     }
-
-    // 停止编码器
-    encoder_->finalize();
 
     LOG_INFO("FrameEncoder stopped. Total encoded frames: " +
              std::to_string(encodedFrameCount_.load()));
