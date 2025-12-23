@@ -1,7 +1,5 @@
 #include "FrameGrabberThread.h"
 
-#include <pybind11/pybind11.h>
-
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -10,14 +8,12 @@
 #include <string>
 #include <thread>
 
-#include "IScreenGrabber.h"
 #include "Log.h"
 #include "ThreadSafetyQueue.h"
-#include "pybind11/gil.h"
+#include "VideoGrabber.h"
 
-namespace py = pybind11;
 
-FrameGrabberThread::FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber,
+FrameGrabberThread::FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber,
                                        ThreadSafetyQueue<FrameData>& queue, int target_fps)
     : grabber_(grabber), frame_queue_(queue), m_thread(nullptr), target_fps_(target_fps) {}
 
@@ -156,6 +152,10 @@ void FrameGrabberThread::captureLoop() {
             captured_frame_count_++;
             UpdateFps();
 
+            if (frame_callback_) {
+                frame_callback_(frame);
+            }
+
             if (captured_frame_count_ % target_fps_ == 0) {  // 减少回调频率
                 notifyProgress();
             }
@@ -206,7 +206,6 @@ void FrameGrabberThread::notifyProgress() {
     }
 
     try {
-        py::gil_scoped_acquire acquire;
         progress_callback_(captured_frame_count_.load(), frame_queue_.size(), current_fps_.load());
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error in progress callback: ") + e.what());
@@ -219,7 +218,6 @@ void FrameGrabberThread::notifyError(const std::string& error_msg) {
     }
 
     try {
-        py::gil_scoped_acquire acquire;
         error_callback_(error_msg);
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error in error callback: ") + e.what());
@@ -232,7 +230,6 @@ void FrameGrabberThread::notifyDropped(int64_t dropped_count) {
     }
 
     try {
-        py::gil_scoped_acquire acquire;
         dropped_callback_(dropped_count);
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error in dropped callback: ") + e.what());

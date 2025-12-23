@@ -1,4 +1,4 @@
-#include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.h"
+#include "GDI_Grabber.h"
 
 #include <chrono>
 #include <cstring>
@@ -16,8 +16,23 @@ bool GDI_Grabber::start() {
     if (m_isRunning)
         return true;
 
-    m_width = GetSystemMetrics(SM_CXSCREEN);
-    m_height = GetSystemMetrics(SM_CYSCREEN);
+    // 尝试启用 DPI 感知，确保截取到物理像素分辨率
+    // 注意：SetProcessDPIAware 在较新 Windows 版本中建议使用 SetProcessDpiAwareness，
+    // 但为了兼容性和简便性，且作为 Demo/Test 这是一个快速方案。
+    // 如果已经设置过（如通过 Manifest），这行可能失败但无害。
+    SetProcessDPIAware();
+
+    HDC hdcScreen = GetDC(nullptr);
+    m_width = GetDeviceCaps(hdcScreen, DESKTOPHORZRES);
+    m_height = GetDeviceCaps(hdcScreen, DESKTOPVERTRES);
+    ReleaseDC(nullptr, hdcScreen);
+
+    // 如果获取失败（极少情况），回退到 SystemMetrics
+    if (m_width <= 0 || m_height <= 0) {
+        m_width = GetSystemMetrics(SM_CXSCREEN);
+        m_height = GetSystemMetrics(SM_CYSCREEN);
+    }
+    m_fps = 30;  // Default to 30 FPS for GDI
 
     try {
         m_guard = std::make_unique<GDIResourceGuard>(m_width, m_height);

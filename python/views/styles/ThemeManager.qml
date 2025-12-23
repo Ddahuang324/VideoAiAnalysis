@@ -12,48 +12,49 @@ QtObject {
 
     // ==================== 颜色系统 ====================
 
-    // 主色调
-    readonly property color primary: "#6366f1"
-    readonly property color primaryHover: "#4f46e5"
-    readonly property color primaryActive: "#4338ca"
+    // 主色调 (International Orange Accent)
+    readonly property color primary: "#FF4D00"
+    readonly property color primaryHover: "#E64500"
+    readonly property color primaryActive: "#CC3D00"
 
-    // 背景色
-    readonly property color bgPrimary: isDark ? "#0f0f23" : "#ffffff"
-    readonly property color bgSecondary: isDark ? "#1a1a2e" : "#f5f5f7"
-    readonly property color bgTertiary: isDark ? "#16213e" : "#eaeaec"
-    readonly property color bgCard: isDark ? "#1e1e32" : "#ffffff"
+    // 背景色 (Ultra Clean)
+    readonly property color bgPrimary: isDark ? "#0A0A0A" : "#FFFFFF"
+    readonly property color bgSecondary: isDark ? "#141414" : "#FAFAFA"
+    readonly property color bgTertiary: isDark ? "#1F1F1F" : "#F4F4F5"
+    readonly property color bgCard: isDark ? "#141414" : "#FFFFFF"
+    readonly property color surfaceHover: isDark ? "#1A1A1A" : "#F0F0F0"
 
-    // 文本色
-    readonly property color textPrimary: isDark ? "#ffffff" : "#1a1a2e"
-    readonly property color textSecondary: isDark ? "#a0a0b0" : "#6b7280"
-    readonly property color textMuted: isDark ? "#6b7280" : "#9ca3af"
+    // 文本色 (High Contrast)
+    readonly property color textPrimary: isDark ? "#FFFFFF" : "#111111"
+    readonly property color textSecondary: isDark ? "#888888" : "#666666"
+    readonly property color textMuted: isDark ? "#555555" : "#999999"
 
-    // 边框色
-    readonly property color border: isDark ? "#2d2d44" : "#e5e7eb"
-    readonly property color borderLight: isDark ? "#3d3d5c" : "#d1d5db"
+    // 边框色 (Subtle)
+    readonly property color border: isDark ? "#2A2A2A" : "#EBEBEB"
+    readonly property color borderLight: isDark ? "#333333" : "#F5F5F5"
 
     // 状态色
-    readonly property color success: "#22c55e"
-    readonly property color warning: "#f59e0b"
-    readonly property color error: "#ef4444"
-    readonly property color info: "#3b82f6"
+    readonly property color success: "#00C853"
+    readonly property color warning: "#FFAB00"
+    readonly property color error: "#FF1744"
+    readonly property color info: "#2979FF"
 
     // 侧边栏特定颜色
-    readonly property color sidebarBg: isDark ? "#1a1a2e" : "#f8f9fa"
-    readonly property color sidebarItemHover: isDark ? "#2d2d44" : "#e9ecef"
-    readonly property color sidebarItemActive: isDark ? "#6366f120" : "#6366f115"
+    readonly property color sidebarBg: isDark ? "#0A0A0A" : "#FAFAFA"
+    readonly property color sidebarItemHover: isDark ? "#1F1F1F" : "#F0F0F0"
+    readonly property color sidebarItemActive: isDark ? "#1F1F1F" : "#ffffff"
 
     // 标题栏颜色
-    readonly property color titleBarBg: isDark ? "#1e1e2e" : "#ffffff"
-    readonly property color titleBarBorder: isDark ? "#2d2d44" : "#e5e7eb"
+    readonly property color titleBarBg: isDark ? "#0A0A0A" : "#FFFFFF"
+    readonly property color titleBarBorder: isDark ? "#2A2A2A" : "transparent"
 
     // ==================== 字体系统 ====================
 
-    readonly property string fontFamily: "Inter, Segoe UI, sans-serif"
+    readonly property string fontFamily: "Inter, 'Segoe UI', Roboto, sans-serif"
 
-    readonly property int fontSizeH1: 32
-    readonly property int fontSizeH2: 24
-    readonly property int fontSizeH3: 18
+    readonly property int fontSizeH1: 48 // Bigger, Bolder
+    readonly property int fontSizeH2: 32
+    readonly property int fontSizeH3: 20
     readonly property int fontSizeBody: 14
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeTiny: 10
@@ -61,36 +62,36 @@ QtObject {
     // ==================== 间距系统 ====================
 
     readonly property int spacingXs: 4
-    readonly property int spacingSm: 8
-    readonly property int spacingMd: 16
-    readonly property int spacingLg: 24
-    readonly property int spacingXl: 32
+    readonly property int spacingSm: 12
+    readonly property int spacingMd: 24
+    readonly property int spacingLg: 40
+    readonly property int spacingXl: 64
 
-    // ==================== 圆角系统 ====================
+    // ==================== 圆角系统 (Asymmetrical Base) ====================
 
     readonly property int radiusSm: 4
-    readonly property int radiusMd: 8
-    readonly property int radiusLg: 12
-    readonly property int radiusXl: 16
+    readonly property int radiusMd: 12
+    readonly property int radiusLg: 24    // Much softer
+    readonly property int radiusXl: 32
     readonly property int radiusFull: 9999
 
     // ==================== 动画时长 ====================
 
-    readonly property int animFast: 150
-    readonly property int animNormal: 250
-    readonly property int animSlow: 400
+    readonly property int animFast: 200
+    readonly property int animNormal: 400 // Slower, smoother
+    readonly property int animSlow: 600
 
     // ==================== 尺寸规格 ====================
 
-    readonly property int sidebarExpandedWidth: 240
-    readonly property int sidebarCollapsedWidth: 64
-    readonly property int sidebarExpandThreshold: 960
-    readonly property int titleBarHeight: 48
+    readonly property int sidebarExpandedWidth: 260
+    readonly property int sidebarCollapsedWidth: 80
+    readonly property int sidebarExpandThreshold: 1000
+    readonly property int titleBarHeight: 60 // Taller for cleaner look
 
     // ==================== 阴影 ====================
 
-    readonly property color shadowColor: isDark ? "#80000000" : "#20000000"
-    readonly property int shadowRadius: 12
+    readonly property color shadowColor: isDark ? "#AA000000" : "#1A000000"
+    readonly property int shadowRadius: 30
 
     // ==================== 方法 ====================
 

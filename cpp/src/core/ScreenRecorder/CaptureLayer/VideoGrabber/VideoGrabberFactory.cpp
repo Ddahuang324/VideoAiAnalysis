@@ -1,16 +1,24 @@
-#include "core/ScreenRecorder/CaptureLayer/GrabberFactory.h"
+#include "VideoGrabberFactory.h"
 
 #include <memory>
 #include <vector>
 
 // 抓屏接口
-#include "core/ScreenRecorder/CaptureLayer/IScreenGrabber.h"
+#include "VideoGrabber.h"
 
 // Windows 平台具体抓屏实现
-#include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/DXGI_Grabber.h"
-#include "core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win/GDI_Grabber.h"
+#ifdef _WIN32
+#    include "Win/DXGI_Grabber.h"
+#    include "Win/GDI_Grabber.h"
+#endif
 
-std::unique_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) {
+// Linux 平台具体抓屏实现
+#ifdef __linux__
+#    include "Linux/PipeWire_Grabber.h"
+#    include "Linux/X11_Grabber.h"
+#endif
+
+std::shared_ptr<VideoGrabber> VideoGrabberFactory::createGrabber(GrabberType type) {
     if (type == GrabberType::AUTO) {
         type = detectBestGrabber();
     }
@@ -18,21 +26,16 @@ std::unique_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) 
     switch (type) {
 #ifdef _WIN32
         case GrabberType::GDI:
-            return std::make_unique<GDI_Grabber>();
+            return std::make_shared<GDI_Grabber>();
         case GrabberType::DXGI:
-            return std::make_unique<DXGI_Grabber>();
+            return std::make_shared<DXGI_Grabber>();
 #endif
 
 #ifdef __linux__
         case GrabberType::X11:
-            return std::make_unique<X11_Grabber>();
+            return std::make_shared<X11_Grabber>();
         case GrabberType::PIPEWIRE:
-            return std::make_unique<PipeWire_Grabber>();
-#endif
-
-#ifdef __APPLE__
-        case GrabberType::AUTO:
-
+            return std::make_shared<PipeWire_Grabber>();
 #endif
 
         default:
@@ -40,7 +43,7 @@ std::unique_ptr<IScreenGrabber> GrabberFactory::createGrabber(GrabberType type) 
     }
 }
 
-std::vector<GrabberType> GrabberFactory::getAvailableGrabbers() {
+std::vector<GrabberType> VideoGrabberFactory::getAvailableGrabbers() {
     std::vector<GrabberType> availableGrabbers;
 
 #ifdef _WIN32
@@ -56,7 +59,7 @@ std::vector<GrabberType> GrabberFactory::getAvailableGrabbers() {
     return availableGrabbers;
 }
 
-GrabberType GrabberFactory::detectBestGrabber() {
+GrabberType VideoGrabberFactory::detectBestGrabber() {
 #ifdef _WIN32
     return GrabberType::GDI;
 

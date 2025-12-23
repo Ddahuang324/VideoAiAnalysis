@@ -3,19 +3,50 @@ AI Video Analysis System - 主程序入口
 采用 MVVM 架构,Python 负责业务逻辑,C++ 负责底层功能
 """
 import sys
+import os
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import os
+# 添加 C++ Python 绑定目录
+build_python_path = project_root / "build" / "python"
+if build_python_path.exists():
+    sys.path.insert(0, str(build_python_path))
+
+# 添加 FFmpeg DLL 目录到 PATH (Windows)
+if sys.platform == 'win32':
+    bin_path = project_root / "build" / "bin"
+    ffmpeg_bin_path = project_root / "build" / "_deps" / "ffmpeg_prebuilt-src" / "bin"
+    
+    current_path = os.environ.get('PATH', '')
+    new_paths = []
+    
+    if bin_path.exists():
+        new_paths.append(str(bin_path))
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(str(bin_path))
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to add DLL directory {bin_path}: {e}")
+
+    if ffmpeg_bin_path.exists():
+        new_paths.append(str(ffmpeg_bin_path))
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(str(ffmpeg_bin_path))
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to add DLL directory {ffmpeg_bin_path}: {e}")
+    
+    if new_paths:
+        os.environ['PATH'] = os.pathsep.join(new_paths + [current_path])
+
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtCore import QUrl
 
-from viewmodels.main_viewmodel import MainViewModel
-from viewmodels.video_viewmodel import VideoViewModel
+# ViewModel 导入移到 main() 函数内部，确保 PATH 已设置
 
 
 def main():
@@ -24,6 +55,10 @@ def main():
     print("AI Video Analysis System - MVVM Architecture")
     print("Python: Business Logic | C++: Core Functions")
     print("=" * 70)
+    
+    # 延迟导入 ViewModels，确保 PATH 环境变量已经设置
+    from viewmodels.main_viewmodel import MainViewModel
+    from viewmodels.video_viewmodel import VideoViewModel
     
     # 1. 创建 Qt 应用
     app = QApplication(sys.argv)
@@ -83,7 +118,6 @@ def main():
     # 8. 预加载 C++ 模块（确保调试器可以附加）
     try:
         print("\n🔧 Initializing C++ module...")
-        video_viewmodel._service.initialize()
         version = video_viewmodel._service.get_version()
         print(f"✅ C++ module loaded successfully! Version: {version}")
     except Exception as e:

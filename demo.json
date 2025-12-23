@@ -1,0 +1,233 @@
+{
+    "fittencode.languagePreference.displayPreference": "zh-cn",
+    "fittencode.languagePreference.commentPreference": "zh-cn",
+    "github.copilot.nextEditSuggestions.enabled": true,
+    "git.autofetch": true,
+    "explorer.confirmDelete": false,
+    "security.workspace.trust.untrustedFiles": "open",
+    "fittencode.selection.showCodeLens": false,
+    "geminicodeassist.project": "spry-cyclist-xfgnf",
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "C_Cpp.default.intelliSenseMode": "windows-clang-x86",
+    "editor.wordWrap": "wordWrapColumn",
+    "editor.wordWrapColumn": 98,
+    "editor.rulers": [
+        80,
+        100,
+    ],
+    "editor.minimap.maxColumn": 120,
+    "custom-ui-style.electron": {
+        "frame": false, // ✅ 必须为 false 才能完美支持 Mica 
+        "backgroundColor": "#00000000",
+        "backgroundMaterial": "mica",
+        "visualEffectState": "active",
+    },
+    // ==================== 2. 界面扁平化与透明度覆盖 (CSS) ====================
+    "custom-ui-style.external.imports": [
+        "file:///d:/%E7%BC%96%E7%A8%8B/%E9%A1%B9%E7%9B%AE/AiVideoAnalsysSystem/resources/liquid_bg.css",
+        // 导入发光效果核心 CSS（请确保您已合并 gradient-theme CSS）
+        "file://c:/Users/Administrator/Desktop/gradient-theme-main/gradient-theme-main/src/gradient-bearded-theme-arc-woodfishhhh/index.css"
+    ],
+    "custom-ui-style.external.loadStrategy": "refetch",
+    "custom-ui-style.stylesheet": {
+        // 核心透明设置
+        "body > .monaco-workbench": "background-color: initial;",
+        // ==================== 窗口拖拽修复 ====================
+        // 在 frame: false 模式下，需要手动指定拖拽区域
+        ".monaco-workbench .part.titlebar": "-webkit-app-region: drag !important;",
+        // 确保窗口控制按钮（最小/最大/关闭）可点击（不被拖拽覆盖）
+        ".monaco-workbench .part.titlebar .window-controls-container": "-webkit-app-region: no-drag !important;",
+        ".monaco-workbench .part.titlebar .menubar": "-webkit-app-region: no-drag !important;",
+        // 侧边栏标题也可以拖拽
+        ".monaco-workbench .part.sidebar > .title": "-webkit-app-region: drag !important;",
+        ".monaco-workbench .part.sidebar > .title .title-actions": "-webkit-app-region: no-drag !important;",
+        // ==================== 透明化覆盖 ====================
+        // 侧边栏透明
+        ".monaco-workbench .part.sidebar": "background-color: transparent !important;",
+        ".monaco-workbench .part.sidebar > .content": "background-color: transparent !important;",
+        ".monaco-workbench .pane-header": "background-color: transparent !important;",
+        ".monaco-workbench .pane-body": "background-color: transparent !important;",
+        // 底部面板透明
+        ".monaco-workbench .part.panel": "background-color: transparent !important;",
+        ".monaco-workbench .part.panel > .content": "background-color: transparent !important;",
+        // 活动栏 & 状态栏透明
+        ".monaco-workbench .part.activitybar": "background-color: transparent !important;",
+        ".monaco-workbench .part.statusbar": "background-color: transparent !important;",
+        // ==================== UI 净化 (隐藏多余元素) ====================
+        ".notification-toast": "box-shadow: none !important",
+        ".quick-input-widget": "top: 25vh !important; box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; background-color: rgba(30, 30, 30, 0.9) !important; backdrop-filter: blur(20px) !important; border-radius: 12px !important; border: 1px solid rgba(255, 103, 129, 0.3) !important;",
+        ".quick-input-list .scrollbar": "display: none",
+        ".monaco-action-bar.quick-input-inline-action-bar": "display: none",
+        ".editor-widget.find-widget": "box-shadow: none; border-radius: 4px",
+        ".monaco-workbench .part.editor > .content .editor-group-container > .title.title-border-bottom:after": "display: none",
+        ".monaco-workbench .monaco-list:not(.element-focused):focus:before": "outline: none !important",
+        ".monaco-list-row.focused": "outline: none !important",
+        ".monaco-editor .scroll-decoration": "display: none",
+        // ==================== 分割线蓝光效果 ====================
+        ".monaco-split-view2>.sash-container>.monaco-sash": "background-color: rgba(100, 180, 255, 0.15) !important; box-shadow: 0 0 20px rgba(100, 180, 255, 0.4), 0 0 40px rgba(100, 180, 255, 0.2), 0 0 60px rgba(100, 180, 255, 0.1) !important; transition: all 0.3s ease !important;",
+        ".monaco-split-view2>.sash-container>.monaco-sash:hover": "background-color: rgba(100, 180, 255, 0.3) !important; box-shadow: 0 0 30px rgba(100, 180, 255, 0.6), 0 0 60px rgba(100, 180, 255, 0.3), 0 0 90px rgba(100, 180, 255, 0.15) !important;",
+        ".monaco-split-view2>.sash-container>.monaco-sash.vertical": "width: 2px !important;",
+        ".monaco-split-view2>.sash-container>.monaco-sash.horizontal": "height: 2px !important;",
+        ".monaco-editor .find-widget .monaco-sash.vertical": "display: none",
+        ".monaco-workbench .part>.title>.title-label": "padding-left: 5px",
+        // 隐藏不必要的滚动条和装饰
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.active.tab-border-top:not(:focus)>.tab-border-top-container": "display: none !important",
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.selected.tab-border-top:not(:focus)>.tab-border-top-container": "display: none !important",
+        ".monaco-workbench .pane-composite-part>.title>.composite-bar-container>.composite-bar>.monaco-action-bar .action-item .active-item-indicator": "display: none",
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title>.tabs-and-actions-container>.monaco-scrollable-element .scrollbar": "display: none;",
+        ".monaco-scrollable-element>.scrollbar>.slider": "display: none;",
+        // ==================== Minimap 美化 ====================
+        ".monaco-editor .minimap": "background-color: rgba(20, 30, 45, 0.25) !important; backdrop-filter: blur(20px) saturate(180%) !important; border-radius: 8px !important; border: 1px solid rgba(100, 180, 255, 0.15) !important; margin: 8px !important; box-shadow: 0 8px 32px rgba(100, 180, 255, 0.2), 0 0 48px rgba(100, 180, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;",
+        ".monaco-editor .minimap-slider": "background-color: rgba(100, 180, 255, 0.12) !important; border-radius: 4px !important; border: 1px solid rgba(100, 180, 255, 0.25) !important; box-shadow: 0 0 16px rgba(100, 180, 255, 0.3) !important;",
+        ".monaco-editor .minimap-slider:hover": "background-color: rgba(100, 180, 255, 0.2) !important; box-shadow: 0 0 24px rgba(100, 180, 255, 0.4) !important;",
+        ".monaco-editor .minimap-shadow-visible": "box-shadow: none !important;",
+        // ==================== 层级颜色分层 (渐变色版本 + 同级区分) ====================
+        // 第1层 - 根目录（蓝色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #00BFFF 0%, #1E90FF 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; text-shadow: 0 0 12px rgba(0, 191, 255, 0.5) !important;",
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+1) .folder-icon": "color: #00BFFF !important;",
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #1E90FF 0%, #4169E1 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; text-shadow: 0 0 12px rgba(30, 144, 255, 0.5) !important;",
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+2) .folder-icon": "color: #1E90FF !important;",
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #4169E1 0%, #5B9BD5 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; text-shadow: 0 0 12px rgba(65, 105, 225, 0.5) !important;",
+        ".monaco-list .monaco-list-row[aria-level='1']:nth-child(3n+3) .folder-icon": "color: #4169E1 !important;",
+        // 第2层 - 主要文件夹（黄色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 650 !important; text-shadow: 0 0 10px rgba(255, 215, 0, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+1) .folder-icon": "color: #FFD700 !important;",
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 650 !important; text-shadow: 0 0 10px rgba(255, 165, 0, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+2) .folder-icon": "color: #FFA500 !important;",
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FFCC00 0%, #FFB800 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 650 !important; text-shadow: 0 0 10px rgba(255, 204, 0, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='2']:nth-child(3n+3) .folder-icon": "color: #FFCC00 !important;",
+        // 第3层 - 子文件夹（橙色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FF8C00 0%, #FF6347 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 600 !important; text-shadow: 0 0 8px rgba(255, 140, 0, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+1) .folder-icon": "color: #FF8C00 !important;",
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FF7F50 0%, #FF6347 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 600 !important; text-shadow: 0 0 8px rgba(255, 127, 80, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+2) .folder-icon": "color: #FF7F50 !important;",
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FFA07A 0%, #FF8C69 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 600 !important; text-shadow: 0 0 8px rgba(255, 160, 122, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='3']:nth-child(3n+3) .folder-icon": "color: #FFA07A !important;",
+        // 第4层 - 深层文件夹（红色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FF4500 0%, #DC143C 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 550 !important; text-shadow: 0 0 8px rgba(255, 69, 0, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+1) .folder-icon": "color: #FF4500 !important;",
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #DC143C 0%, #C71585 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 550 !important; text-shadow: 0 0 8px rgba(220, 20, 60, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+2) .folder-icon": "color: #DC143C !important;",
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FF1493 0%, #DB7093 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 550 !important; text-shadow: 0 0 8px rgba(255, 20, 147, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='4']:nth-child(3n+3) .folder-icon": "color: #FF1493 !important;",
+        // 第5层 - 更深层（紫色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #A78BFA 0%, #8B5CF6 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 500 !important; text-shadow: 0 0 8px rgba(167, 139, 250, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+1) .folder-icon": "color: #A78BFA !important;",
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 500 !important; text-shadow: 0 0 8px rgba(139, 92, 246, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+2) .folder-icon": "color: #8B5CF6 !important;",
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #9333EA 0%, #7E22CE 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 500 !important; text-shadow: 0 0 8px rgba(147, 51, 234, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='5']:nth-child(3n+3) .folder-icon": "color: #9333EA !important;",
+        // 第6层及以上 - 最深层（粉色系渐变 - 3种变体）
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+1) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+1) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+1) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #F472B6 0%, #EC4899 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 450 !important; text-shadow: 0 0 6px rgba(244, 114, 182, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+1) .folder-icon, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+1) .folder-icon, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+1) .folder-icon": "color: #F472B6 !important;",
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+2) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+2) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+2) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #EC4899 0%, #DB2777 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 450 !important; text-shadow: 0 0 6px rgba(236, 72, 153, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+2) .folder-icon, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+2) .folder-icon, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+2) .folder-icon": "color: #EC4899 !important;",
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+3) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+3) .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+3) .monaco-icon-label .label-name": "background: linear-gradient(135deg, #FF69B4 0%, #FF1493 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; font-weight: 450 !important; text-shadow: 0 0 6px rgba(255, 105, 180, 0.4) !important;",
+        ".monaco-list .monaco-list-row[aria-level='6']:nth-child(3n+3) .folder-icon, .monaco-list .monaco-list-row[aria-level='7']:nth-child(3n+3) .folder-icon, .monaco-list .monaco-list-row[aria-level='8']:nth-child(3n+3) .folder-icon": "color: #FF69B4 !important;",
+        // ==================== 侧边栏字体样式（左侧+右侧）====================
+        // 通用列表行样式（覆盖所有侧边栏）
+        ".monaco-workbench .monaco-list .monaco-list-row": "font-family: 'JetBrains Mono', 'Cascadia Code', 'Microsoft YaHei', sans-serif !important; font-size: 13px !important; font-weight: bold !important; font-style: italic !important; letter-spacing: 0.3px !important;",
+        // 所有侧边栏的高亮标签
+        ".monaco-workbench .monaco-list .monaco-highlighted-label": "font-family: 'JetBrains Mono', 'Cascadia Code' !important; font-weight: bold !important; font-style: italic !important;",
+        // 树形视图节点（文件资源管理器、大纲等）
+        ".monaco-workbench .monaco-tree .monaco-tree-row": "font-family: 'JetBrains Mono', 'Cascadia Code', 'Microsoft YaHei', sans-serif !important; font-size: 13px !important; font-weight: bold !important; font-style: italic !important; letter-spacing: 0.3px !important;",
+        // 大纲视图特殊样式
+        ".monaco-workbench .outline-view .monaco-list-row": "font-family: 'JetBrains Mono', 'Cascadia Code' !important; font-weight: bold !important; font-style: italic !important;",
+        // ==================== 侧边栏层级字体与大小 (明显递减效果) ====================
+        // 第1层：最外层，大而醒目
+        ".monaco-list .monaco-list-row[aria-level='1'] .monaco-icon-label .label-name": "font-family: 'JetBrains Mono' !important; font-size: 18px !important; letter-spacing: 0.5px !important;",
+        // 第2层：次级目录
+        ".monaco-list .monaco-list-row[aria-level='2'] .monaco-icon-label .label-name": "font-family: 'Cascadia Code' !important; font-size: 16px !important;",
+        // 第3层：子目录
+        ".monaco-list .monaco-list-row[aria-level='3'] .monaco-icon-label .label-name": "font-family: 'Consolas' !important; font-size: 15px !important;",
+        // 第4层：深层
+        ".monaco-list .monaco-list-row[aria-level='4'] .monaco-icon-label .label-name": "font-family: 'Fira Code' !important; font-size: 13px !important;",
+        // 第5层及以上：最深层，使用系统字体保证小字号清晰
+        ".monaco-list .monaco-list-row[aria-level='5'] .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='6'] .monaco-icon-label .label-name, .monaco-list .monaco-list-row[aria-level='7'] .monaco-icon-label .label-name": "font-family: 'Segoe UI', sans-serif !important; font-size: 12px !important; font-style: normal !important; font-weight: 600 !important;",
+        // 颜色样式 - hover 和 focused 状态（不覆盖层级颜色）
+        ".monaco-list .monaco-list-row:hover .monaco-icon-label .label-name": "filter: brightness(1.2) !important; text-shadow: 0 0 12px currentColor !important;",
+        ".monaco-list .monaco-list-row.focused .monaco-icon-label .label-name, .monaco-list .monaco-list-row.selected .monaco-icon-label .label-name": "background: linear-gradient(135deg, #00ff88 0%, #44ffaa 50%, #66ffcc 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; text-shadow: 0 0 16px rgba(0, 255, 136, 0.7) !important;",
+        // 侧边栏整体覆盖
+        ".monaco-workbench .part.sidebar .monaco-list-row .monaco-icon-label-container": "color: transparent !important;",
+        ".monaco-workbench .part.sidebar .monaco-list-row .monaco-icon-label": "color: transparent !important;",
+        // 顶部标签页字体样式
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab .tab-label": "font-family: 'JetBrains Mono', 'Cascadia Code' !important; font-weight: bold !important; font-style: italic !important; font-size: 13px !important;",
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.active .tab-label": "background: linear-gradient(135deg, #00ff88 0%, #44ffaa 50%, #66ffcc 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important;",
+        ".monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab:not(.active) .tab-label": "background: linear-gradient(135deg, #64b4ff 0%, #88d4ff 50%, #a8e4ff 100%) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important;"
+    },
+    // ==================== 3. 颜色主题细化 (全透明设计) ====================
+    // ✅ 必须使用 custom 标题栏，否则 frame: false 会导致无标题栏
+    "window.titleBarStyle": "custom",
+    // 请确保已安装 gradient-theme 扩展
+    "workbench.colorTheme": "Gradient Bearded Theme Arc Woodfishhhh",
+    "workbench.colorCustomizations": {
+        "editor.background": "#00000000",
+        "editorGutter.background": "#00000000",
+        "sideBar.background": "#00000000",
+        "sideBarSectionHeader.background": "#00000000",
+        "sideBarStickyScroll.background": "#00000030",
+        "activityBar.background": "#00000000",
+        "statusBar.background": "#00000000",
+        "statusBar.noFolderBackground": "#00000000",
+        "statusBar.debuggingBackground": "#00000000",
+        "titleBar.activeBackground": "#00000000",
+        "titleBar.inactiveBackground": "#00000000",
+        "editorGroupHeader.tabsBackground": "#00000000",
+        "tab.activeBackground": "#00000000",
+        "tab.inactiveBackground": "#00000000",
+        "panel.background": "#00000000",
+        "terminal.background": "#00000000",
+        "welcomePage.background": "#00000000",
+        "input.background": "#00000030",
+        "editorCursor.foreground": "#EACD61",
+        "editorHoverWidget.background": "#1D1C1EF0",
+        "editorHoverWidget.border": "#FF6781",
+        "editorWidget.border": "#FF6781",
+        "quickInput.background": "#1D1C1EF0",
+        "editorWidget.background": "#1D1C1EF0",
+        "list.activeSelectionBackground": "#ffffff15",
+        "list.hoverBackground": "#ffffff0a",
+        // 文件资源管理器冷色调配置
+        "sideBar.foreground": "#a0d8ff",
+        "sideBarTitle.foreground": "#64b4ff",
+        "sideBarSectionHeader.foreground": "#8fc4e8",
+        "list.activeSelectionForeground": "#00ffaa",
+        "list.inactiveSelectionForeground": "#88d4ff",
+        "list.hoverForeground": "#b4e4ff",
+        "list.focusForeground": "#00ff88",
+        "list.inactiveFocusForeground": "#c0e8ff",
+        "tree.indentGuidesStroke": "#4a7ba7",
+        "list.activeSelectionIconForeground": "#00ffaa",
+        "list.focusAndSelectionOutline": "#00ff88",
+        "tab.activeForeground": "#00ffaa",
+        "tab.inactiveForeground": "#88d4ff"
+    },
+    // ==================== 4. 其他 UI 优化 ====================
+    "editor.fontFamily": "'JetBrains Mono', 'Cascadia Code', 'JetBrainsMono NF', 'Consolas', monospace",
+    "editor.fontSize": 16,
+    "editor.fontWeight": "bold",
+    "editor.tokenColorCustomizations": {
+        "textMateRules": [
+            {
+                "scope": [
+                    "comment",
+                    "keyword",
+                    "storage.type",
+                    "storage.modifier",
+                    "variable.language.this",
+                    "entity.name.function",
+                    "markup.italic"
+                ],
+                "settings": {
+                    "fontStyle": "italic"
+                }
+            }
+        ]
+    },
+    "editor.cursorSmoothCaretAnimation": "on",
+    "editor.smoothScrolling": true,
+    "breadcrumbs.enabled": false,
+    "workbench.startupEditor": "none",
+    "editor.scrollbar.vertical": "hidden",
+    "editor.scrollbar.horizontal": "hidden"
+}

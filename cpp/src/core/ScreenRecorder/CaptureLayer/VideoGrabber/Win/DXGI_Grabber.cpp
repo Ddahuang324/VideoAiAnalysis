@@ -1,7 +1,6 @@
 #include "DXGI_Grabber.h"
 
-#include "IScreenGrabber.h"
-
+#include "../VideoGrabber.h"
 
 DXGI_Grabber::DXGI_Grabber() {}
 DXGI_Grabber::~DXGI_Grabber() {}

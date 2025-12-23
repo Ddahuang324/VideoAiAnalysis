@@ -11,13 +11,13 @@
 #include <string>
 #include <thread>
 
-#include "IScreenGrabber.h"
 #include "ThreadSafetyQueue.h"
+#include "VideoGrabber.h"
 
 class FrameGrabberThread {
 public:
-    FrameGrabberThread(std::shared_ptr<IScreenGrabber> grabber, ThreadSafetyQueue<FrameData>& queue,
-                       int target_fps = 60);
+    FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber, ThreadSafetyQueue<FrameData>& queue,
+                       int target_fps = 30);
 
     ~FrameGrabberThread();
 
@@ -39,16 +39,20 @@ public:
     using ProgressCallback = std::function<void(int64_t, int, double)>;  // Pybind回调
     using ErrorCallback = std::function<void(const std::string&)>;       // Pybind回调
     using DroppedCallback = std::function<void(int64_t)>;                // Pybind回调
+    using FrameCallback = std::function<void(const FrameData&)>;         // 新增：帧回调
 
     void setProgressCallback(ProgressCallback callback) {
         progress_callback_ = callback;
     }  // 设置进度回调,python绑定使用
     void setErrorCallback(ErrorCallback callback) {
         error_callback_ = callback;
-    };  // 设置错误回调,python绑定使用
+    }  // 设置错误回调,python绑定使用
     void setDroppedCallback(DroppedCallback callback) {
         dropped_callback_ = callback;
-    };  // 设置丢帧回调,python绑定使用
+    }  // 设置丢帧回调,python绑定使用
+    void setFrameCallback(FrameCallback callback) {
+        frame_callback_ = callback;
+    }  // 新增：设置帧回调
 
 private:
     void captureLoop();       // 采集线程主循环
@@ -60,7 +64,7 @@ private:
     void notifyDropped(int64_t dropped_count);       // 通知丢帧回调
 
     // 核心资源
-    std::shared_ptr<IScreenGrabber> grabber_;    // 屏幕采集器
+    std::shared_ptr<VideoGrabber> grabber_;      // 屏幕采集器
     ThreadSafetyQueue<FrameData>& frame_queue_;  // 帧数据队列
     std::unique_ptr<std::thread> m_thread;       // 采集线程
 
@@ -93,4 +97,5 @@ private:
     ProgressCallback progress_callback_;
     ErrorCallback error_callback_;
     DroppedCallback dropped_callback_;
+    FrameCallback frame_callback_;
 };

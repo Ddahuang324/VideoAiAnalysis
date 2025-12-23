@@ -37,9 +37,9 @@ inline FrameData CaptureFrame(int width, int height) {
     return frame;
 }
 
-class IScreenGrabber {
+class VideoGrabber {
 public:
-    virtual ~IScreenGrabber() = default;
+    virtual ~VideoGrabber() = default;
 
     // 开始采集
     virtual bool start() = 0;

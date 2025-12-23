@@ -1,0 +1,885 @@
+# 3.2.3 帧编码器设计
+
+> **消费者核心**  
+> `FrameEncoder` 是视频流处理的消费者,负责从队列中取出原始帧数据,进行像素格式转换和H.264编码,最终写入视频文件。本文档详解其设计原理、FFmpeg集成和性能优化策略。
+
+---
+
+## 📋 目录
+
+1. [模块概述与定位](#模块概述与定位)
+2. [设计目标与挑战](#设计目标与挑战)
+3. [核心架构设计](#核心架构设计)
+4. [详细实现解析](#详细实现解析)
+5. [像素格式转换](#像素格式转换)
+6. [FFmpeg编码流程](#ffmpeg编码流程)
+7. [Pybind11回调机制](#pybind11回调机制)
+8. [性能优化策略](#性能优化策略)
+9. [实战使用指南](#实战使用指南)
+
+---
+
+## 模块概述与定位
+
+### 在系统中的位置
+
+```mermaid
+graph TB
+    subgraph "C++核心层"
+        Queue[ThreadSafeQueue<br/>帧队列]
+        Encoder[FrameEncoder<br/>编码线程]
+        FFmpeg[FFmpegWrapper<br/>编码器封装]
+        Sws[SwsContext<br/>像素转换]
+    end
+    
+    subgraph "Python业务层"
+        Service[VideoService<br/>视频服务]
+        Callback[回调函数<br/>进度/完成通知]
+    end
+    
+    subgraph "文件系统"
+        File[输出视频<br/>output.mp4]
+    end
+    
+    Queue -->|pop| Encoder
+    Encoder -->|FrameData| Sws
+    Sws -->|YUV420P| FFmpeg
+    FFmpeg -->|AVPacket| File
+    Encoder -.Pybind11回调.-> Callback
+    Callback --> Service
+    
+    style Encoder fill:#90EE90,stroke:#333,stroke-width:3px
+    style FFmpeg fill:#FFB6C1
+    style Callback fill:#FFA500
+```
+
+### 核心职责
+
+| 职责 | 说明 | 技术实现 |
+|------|------|---------|
+| **队列消费** | 从ThreadSafeQueue取帧 | 阻塞式pop,超时100ms |
+| **格式转换** | BGRA → YUV420P | libswscale (`sws_scale`) |
+| **视频编码** | H.264编码 | libavcodec (x264) |
+| **文件写入** | 写入MP4容器 | libavformat |
+| **进度通知** | 通知Python层 | Pybind11回调 + GIL |
+
+---
+
+## 设计目标与挑战
+
+### 核心设计目标
+
+```mermaid
+mindmap
+  root((FrameEncoder))
+    高性能编码
+      支持60fps实时编码
+      CPU占用 < 30%
+      硬件加速支持
+    高质量输出
+      H.264编码
+      CRF质量控制
+      码率自适应
+    可靠性
+      编码错误恢复
+      文件完整性保证
+      优雅停止
+    可观测性
+      编码进度通知
+      文件大小统计
+      性能指标监控
+```
+
+### 技术挑战
+
+| 挑战 | 问题 | 解决方案 |
+|------|------|---------|
+| **格式转换** | BGRA→YUV420P耗时 | `sws_scale` 硬件加速 + SIMD |
+| **编码延迟** | H.264编码慢于采集 | 队列缓冲 + 编码参数优化 |
+| **内存管理** | AVFrame/AVPacket泄漏 | RAII智能指针 + 自定义删除器 |
+| **GIL阻塞** | Python回调影响性能 | 异步通知 + 批量回调 |
+
+---
+
+## 核心架构设计
+
+### 类定义
+
+```cpp
+#pragma once
+
+#include <thread>
+#include <atomic>
+#include <memory>
+#include <functional>
+
+#include "ThreadSafeQueue.h"
+#include "FrameData.h"
+#include "FFmpegWrapper.h"
+
+/**
+ * @brief 帧编码器
+ * 
+ * 从队列中取出帧,进行像素格式转换和H.264编码
+ */
+class FrameEncoder {
+public:
+    /**
+     * @brief 构造函数
+     * @param queue 帧队列
+     * @param config 编码器配置
+     */
+    FrameEncoder(
+        std::shared_ptr<ThreadSafeQueue<FrameData>> queue,
+        const EncoderConfig& config
+    );
+    
+    ~FrameEncoder();
+    
+    // 禁止拷贝
+    FrameEncoder(const FrameEncoder&) = delete;
+    FrameEncoder& operator=(const FrameEncoder&) = delete;
+    
+    /**
+     * @brief 启动编码线程
+     */
+    void start();
+    
+    /**
+     * @brief 停止编码线程
+     */
+    void stop();
+    
+    /**
+     * @brief 获取统计信息
+     */
+    int64_t getEncodedCount() const { return encoded_count_; }
+    int64_t getOutputFileSize() const;
+    bool isRunning() const { return running_; }
+    
+    // Pybind11回调函数类型
+    using ProgressCallback = std::function<void(int64_t, int64_t)>;
+    using FinishedCallback = std::function<void(int64_t, const std::string&)>;
+    using ErrorCallback = std::function<void(const std::string&)>;
+    
+    /**
+     * @brief 设置回调函数
+     */
+    void setProgressCallback(ProgressCallback callback) {
+        on_progress_ = callback;
+    }
+    void setFinishedCallback(FinishedCallback callback) {
+        on_finished_ = callback;
+    }
+    void setErrorCallback(ErrorCallback callback) {
+        on_error_ = callback;
+    }
+    
+private:
+    /**
+     * @brief 编码循环 (在独立线程中运行)
+     */
+    void encodeLoop();
+    
+    /**
+     * @brief 处理一帧
+     */
+    bool processFrame(const FrameData& frame);
+    
+    /**
+     * @brief 调用Python回调
+     */
+    void notifyProgress();
+    void notifyFinished();
+    void notifyError(const std::string& error);
+    
+    // 核心组件
+    std::shared_ptr<ThreadSafeQueue<FrameData>> queue_;
+    std::unique_ptr<FFmpegWrapper> encoder_;
+    std::unique_ptr<std::thread> thread_;
+    EncoderConfig config_;
+    
+    // 状态标志
+    std::atomic<bool> running_{false};
+    
+    // 统计信息
+    std::atomic<int64_t> encoded_count_{0};
+    
+    // Python回调
+    ProgressCallback on_progress_;
+    FinishedCallback on_finished_;
+    ErrorCallback on_error_;
+};
+```
+
+### 编码器配置
+
+```cpp
+struct EncoderConfig {
+    std::string output_path;        // 输出文件路径
+    int width;                       // 视频宽度
+    int height;                      // 视频高度
+    int fps;                         // 帧率
+    int bitrate;                     // 码率 (bps)
+    int crf;                         // 质量参数 (0-51, 默认23)
+    std::string preset;              // 编码预设 (ultrafast/fast/medium/slow)
+    std::string codec;               // 编码器 (libx264/h264_nvenc)
+    
+    // 默认配置
+    static EncoderConfig defaultConfig() {
+        return {
+            .output_path = "output.mp4",
+            .width = 1920,
+            .height = 1080,
+            .fps = 60,
+            .bitrate = 8000000,  // 8Mbps
+            .crf = 23,
+            .preset = "fast",
+            .codec = "libx264"
+        };
+    }
+};
+```
+
+### 编码流程
+
+```mermaid
+sequenceDiagram
+    participant Queue as ThreadSafeQueue
+    participant Encoder as FrameEncoder
+    participant Sws as SwsContext
+    participant FFmpeg as FFmpegWrapper
+    participant File as 输出文件
+    
+    Note over Encoder: 启动编码线程
+    Encoder->>FFmpeg: initialize(config)
+    FFmpeg->>File: 创建文件,写入头部
+    
+    loop 编码循环
+        Encoder->>Queue: pop(frame, 100ms)
+        
+        alt 队列非空
+            Queue-->>Encoder: FrameData (BGRA)
+            
+            Encoder->>Sws: sws_scale(BGRA → YUV420P)
+            Sws-->>Encoder: AVFrame (YUV420P)
+            
+            Encoder->>FFmpeg: encodeFrame(yuv_frame)
+            FFmpeg->>FFmpeg: avcodec_send_frame()
+            FFmpeg->>FFmpeg: avcodec_receive_packet()
+            FFmpeg->>File: av_interleaved_write_frame()
+            
+            Encoder->>Encoder: encoded_count_++
+            
+            alt 每30帧
+                Encoder->>Encoder: notifyProgress()
+            end
+        else 队列为空
+            Note over Encoder: 超时,继续等待
+        end
+    end
+    
+    Note over Encoder: 停止信号
+    Encoder->>FFmpeg: finalize()
+    FFmpeg->>FFmpeg: flush编码器
+    FFmpeg->>File: av_write_trailer()
+    Encoder->>Encoder: notifyFinished()
+```
+
+---
+
+## 详细实现解析
+
+### start() 方法
+
+```cpp
+void FrameEncoder::start() {
+    if (running_) {
+        return;  // 已经在运行
+    }
+    
+    // 1️⃣ 创建FFmpeg编码器
+    encoder_ = std::make_unique<FFmpegWrapper>();
+    
+    // 2️⃣ 设置运行标志
+    running_ = true;
+    
+    // 3️⃣ 启动编码线程
+    thread_ = std::make_unique<std::thread>(&FrameEncoder::encodeLoop, this);
+    
+    std::cout << "[FrameEncoder] Started" << std::endl;
+}
+```
+
+### encodeLoop() - 核心编码循环
+
+```cpp
+void FrameEncoder::encodeLoop() {
+    // 1️⃣ 初始化编码器
+    if (!encoder_->initialize(config_)) {
+        notifyError("Failed to initialize encoder: " + encoder_->getLastError());
+        return;
+    }
+    
+    std::cout << "[FrameEncoder] Encoding started" << std::endl;
+    
+    // 2️⃣ 主循环
+    while (running_) {
+        FrameData frame;
+        
+        // 3️⃣ 从队列取帧 (超时100ms)
+        if (!queue_->pop(frame, std::chrono::milliseconds(100))) {
+            // 超时,继续等待
+            continue;
+        }
+        
+        // 4️⃣ 处理帧
+        if (!processFrame(frame)) {
+            notifyError("Failed to encode frame: " + encoder_->getLastError());
+            break;
+        }
+        
+        // 5️⃣ 更新统计
+        encoded_count_++;
+        
+        // 6️⃣ 每30帧通知一次进度
+        if (encoded_count_ % 30 == 0) {
+            notifyProgress();
+        }
+    }
+    
+    // 7️⃣ 完成编码
+    encoder_->finalize();
+    
+    std::cout << "[FrameEncoder] Encoding finished, total frames: " 
+              << encoded_count_ << std::endl;
+    
+    // 8️⃣ 通知完成
+    notifyFinished();
+}
+```
+
+### processFrame() - 帧处理
+
+```cpp
+bool FrameEncoder::processFrame(const FrameData& frame) {
+    // 直接调用FFmpegWrapper编码
+    // (像素转换在FFmpegWrapper内部完成)
+    return encoder_->encodeFrame(frame);
+}
+```
+
+---
+
+## 像素格式转换
+
+### 为什么需要格式转换?
+
+````carousel
+**采集格式: BGRA**
+
+```
+屏幕采集器输出: BGRA (每像素4字节)
+- B: 蓝色通道
+- G: 绿色通道
+- R: 红色通道
+- A: Alpha通道 (透明度)
+```
+
+**特点**:
+- ✅ 采集器原生格式
+- ✅ 无损,包含所有信息
+- ❌ 文件大,不适合存储
+
+<!-- slide -->
+
+**编码格式: YUV420P**
+
+```
+H.264编码器输入: YUV420P
+- Y: 亮度 (Luma)
+- U: 色度蓝 (Cb)
+- V: 色度红 (Cr)
+```
+
+**特点**:
+- ✅ 压缩率高 (1.5字节/像素)
+- ✅ H.264标准格式
+- ✅ 人眼友好 (亮度色度分离)
+- ⚠️ 需要转换
+
+<!-- slide -->
+
+**转换对比**
+
+| 格式 | 每像素字节 | 1080p帧大小 | 适用场景 |
+|------|----------|------------|---------|
+| BGRA | 4字节 | 8.3MB | 采集、处理 |
+| YUV420P | 1.5字节 | 3.1MB | 编码、存储 |
+
+**性能影响**:
+- 转换耗时: ~2ms/帧 (1080p)
+- 内存节省: 62.5%
+- 必要性: H.264要求
+````
+
+### SwsContext 配置
+
+```cpp
+// 在FFmpegWrapper中
+bool FFmpegWrapper::initialize(const EncoderConfig& config) {
+    // ... 其他初始化 ...
+    
+    // 创建像素格式转换上下文
+    sws_ctx_ = SwsContextPtr(
+        sws_getContext(
+            config.width, config.height, AV_PIX_FMT_BGRA,  // 源格式
+            config.width, config.height, AV_PIX_FMT_YUV420P,  // 目标格式
+            SWS_BILINEAR,  // 转换算法
+            nullptr, nullptr, nullptr
+        ),
+        [](SwsContext* ctx) { sws_freeContext(ctx); }
+    );
+    
+    if (!sws_ctx_) {
+        last_error_ = "Failed to create SwsContext";
+        return false;
+    }
+    
+    return true;
+}
+```
+
+### 转换算法对比
+
+| 算法 | 质量 | 速度 | 适用场景 |
+|------|------|------|---------|
+| `SWS_FAST_BILINEAR` | ⭐⭐ | ⚡⚡⚡ | 实时录制 ✅ |
+| `SWS_BILINEAR` | ⭐⭐⭐ | ⚡⚡ | 平衡模式 ✅ |
+| `SWS_BICUBIC` | ⭐⭐⭐⭐ | ⚡ | 高质量离线 |
+| `SWS_LANCZOS` | ⭐⭐⭐⭐⭐ | 🐌 | 专业后期 |
+
+> [!TIP]
+> **推荐配置**: `SWS_BILINEAR`
+> 
+> 在质量和性能之间取得良好平衡,适合60fps实时录制。
+
+### convertPixelFormat() 实现
+
+```cpp
+bool FFmpegWrapper::convertPixelFormat(const FrameData& src, AVFrame* dst) {
+    // 1️⃣ 准备源数据
+    const uint8_t* src_data[1] = { src.data };
+    int src_linesize[1] = { src.stride > 0 ? src.stride : src.width * 4 };
+    
+    // 2️⃣ 执行转换
+    int ret = sws_scale(
+        sws_ctx_.get(),
+        src_data,           // 源数据指针
+        src_linesize,       // 源行字节数
+        0,                  // 起始行
+        src.height,         // 高度
+        dst->data,          // 目标数据指针
+        dst->linesize       // 目标行字节数
+    );
+    
+    if (ret <= 0) {
+        last_error_ = "sws_scale failed";
+        return false;
+    }
+    
+    return true;
+}
+```
+
+#### 性能优化技巧
+
+```cpp
+// ✅ 优化1: 内存对齐
+AVFrame* yuv_frame = av_frame_alloc();
+yuv_frame->format = AV_PIX_FMT_YUV420P;
+yuv_frame->width = width;
+yuv_frame->height = height;
+av_frame_get_buffer(yuv_frame, 32);  // 32字节对齐,SIMD优化
+
+// ✅ 优化2: 复用SwsContext
+// 不要每帧都创建,在初始化时创建一次,重复使用
+
+// ✅ 优化3: 检查stride
+int src_linesize = src.stride > 0 ? src.stride : src.width * 4;
+// 有些采集器的stride != width * 4
+```
+
+---
+
+## FFmpeg编码流程
+
+### 编码器初始化
+
+```cpp
+bool FFmpegWrapper::initialize(const EncoderConfig& config) {
+    // 1️⃣ 查找编码器
+    const AVCodec* codec = avcodec_find_encoder_by_name(config.codec.c_str());
+    if (!codec) {
+        last_error_ = "Codec not found: " + config.codec;
+        return false;
+    }
+    
+    // 2️⃣ 创建编码器上下文
+    codec_ctx_ = AVCodecContextPtr(
+        avcodec_alloc_context3(codec),
+        [](AVCodecContext* ctx) { avcodec_free_context(&ctx); }
+    );
+    
+    // 3️⃣ 配置编码器参数
+    codec_ctx_->width = config.width;
+    codec_ctx_->height = config.height;
+    codec_ctx_->time_base = {1, config.fps};
+    codec_ctx_->framerate = {config.fps, 1};
+    codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
+    codec_ctx_->bit_rate = config.bitrate;
+    
+    // CRF质量控制
+    av_opt_set(codec_ctx_->priv_data, "crf", std::to_string(config.crf).c_str(), 0);
+    av_opt_set(codec_ctx_->priv_data, "preset", config.preset.c_str(), 0);
+    
+    // 4️⃣ 打开编码器
+    if (avcodec_open2(codec_ctx_.get(), codec, nullptr) < 0) {
+        last_error_ = "Failed to open codec";
+        return false;
+    }
+    
+    // 5️⃣ 创建输出文件
+    if (!createOutputFile(config.output_path)) {
+        return false;
+    }
+    
+    return true;
+}
+```
+
+### 编码参数详解
+
+````carousel
+**CRF (Constant Rate Factor)**
+
+```cpp
+// CRF范围: 0-51
+// 值越小,质量越高,文件越大
+av_opt_set(ctx->priv_data, "crf", "23", 0);
+```
+
+| CRF | 质量 | 文件大小 | 适用场景 |
+|-----|------|---------|---------|
+| 18 | 极高 | 很大 | 专业存档 |
+| 23 | 高 | 适中 | **推荐** ✅ |
+| 28 | 中 | 较小 | 快速预览 |
+
+<!-- slide -->
+
+**Preset (编码速度)**
+
+```cpp
+// 影响编码速度和压缩率
+av_opt_set(ctx->priv_data, "preset", "fast", 0);
+```
+
+| Preset | 速度 | 压缩率 | CPU占用 |
+|--------|------|--------|---------|
+| ultrafast | ⚡⚡⚡ | 低 | 10% |
+| fast | ⚡⚡ | 中 | 20% | **推荐** ✅ |
+| medium | ⚡ | 高 | 30% |
+| slow | 🐌 | 很高 | 50% |
+
+<!-- slide -->
+
+**Bitrate (码率)**
+
+```cpp
+codec_ctx->bit_rate = 8000000;  // 8Mbps
+```
+
+| 分辨率 | 推荐码率 | 质量 |
+|--------|---------|------|
+| 1080p60 | 8-12 Mbps | 高质量 ✅ |
+| 1080p30 | 4-6 Mbps | 标准 |
+| 720p60 | 4-6 Mbps | 标准 |
+````
+
+### encodeFrame() 实现
+
+```cpp
+bool FFmpegWrapper::encodeFrame(const FrameData& frame_data) {
+    // 1️⃣ 转换像素格式
+    if (!convertPixelFormat(frame_data, yuv_frame_.get())) {
+        return false;
+    }
+    
+    // 2️⃣ 设置时间戳
+    yuv_frame_->pts = frame_count_++;
+    
+    // 3️⃣ 发送帧到编码器
+    int ret = avcodec_send_frame(codec_ctx_.get(), yuv_frame_.get());
+    if (ret < 0) {
+        last_error_ = "avcodec_send_frame failed";
+        return false;
+    }
+    
+    // 4️⃣ 接收编码后的数据包
+    while (ret >= 0) {
+        AVPacket* pkt = av_packet_alloc();
+        ret = avcodec_receive_packet(codec_ctx_.get(), pkt);
+        
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            av_packet_free(&pkt);
+            break;
+        } else if (ret < 0) {
+            av_packet_free(&pkt);
+            last_error_ = "avcodec_receive_packet failed";
+            return false;
+        }
+        
+        // 5️⃣ 写入文件
+        pkt->stream_index = video_stream_->index;
+        av_packet_rescale_ts(pkt, codec_ctx_->time_base, video_stream_->time_base);
+        
+        ret = av_interleaved_write_frame(format_ctx_.get(), pkt);
+        av_packet_free(&pkt);
+        
+        if (ret < 0) {
+            last_error_ = "av_interleaved_write_frame failed";
+            return false;
+        }
+    }
+    
+    return true;
+}
+```
+
+### finalize() - 完成编码
+
+```cpp
+void FFmpegWrapper::finalize() {
+    // 1️⃣ Flush编码器 (输出缓冲的帧)
+    avcodec_send_frame(codec_ctx_.get(), nullptr);
+    
+    AVPacket* pkt = av_packet_alloc();
+    while (avcodec_receive_packet(codec_ctx_.get(), pkt) == 0) {
+        av_interleaved_write_frame(format_ctx_.get(), pkt);
+        av_packet_unref(pkt);
+    }
+    av_packet_free(&pkt);
+    
+    // 2️⃣ 写入文件尾部
+    av_write_trailer(format_ctx_.get());
+    
+    // 3️⃣ 关闭文件
+    if (format_ctx_ && format_ctx_->pb) {
+        avio_closep(&format_ctx_->pb);
+    }
+    
+    std::cout << "[FFmpegWrapper] Finalized" << std::endl;
+}
+```
+
+---
+
+## Pybind11回调机制
+
+### 回调函数实现
+
+```cpp
+void FrameEncoder::notifyProgress() {
+    if (!on_progress_) {
+        return;
+    }
+    
+    try {
+        // 获取Python GIL
+        py::gil_scoped_acquire acquire;
+        
+        // 调用Python回调
+        on_progress_(
+            encoded_count_.load(),
+            encoder_->getOutputFileSize()
+        );
+    } catch (const std::exception& e) {
+        std::cerr << "[FrameEncoder] Progress callback error: " << e.what() << std::endl;
+    }
+}
+
+void FrameEncoder::notifyFinished() {
+    if (!on_finished_) {
+        return;
+    }
+    
+    try {
+        py::gil_scoped_acquire acquire;
+        on_finished_(
+            encoded_count_.load(),
+            config_.output_path
+        );
+    } catch (const std::exception& e) {
+        std::cerr << "[FrameEncoder] Finished callback error: " << e.what() << std::endl;
+    }
+}
+```
+
+### Pybind11绑定
+
+```cpp
+PYBIND11_MODULE(video_analysis_cpp, m) {
+    py::class_<FrameEncoder, std::shared_ptr<FrameEncoder>>(m, "FrameEncoder")
+        .def(py::init<
+            std::shared_ptr<ThreadSafeQueue<FrameData>>,
+            const EncoderConfig&
+        >())
+        .def("start", &FrameEncoder::start)
+        .def("stop", &FrameEncoder::stop)
+        .def("get_encoded_count", &FrameEncoder::getEncodedCount)
+        .def("get_output_file_size", &FrameEncoder::getOutputFileSize)
+        .def("is_running", &FrameEncoder::isRunning)
+        
+        // 回调函数
+        .def("set_progress_callback", &FrameEncoder::setProgressCallback)
+        .def("set_finished_callback", &FrameEncoder::setFinishedCallback)
+        .def("set_error_callback", &FrameEncoder::setErrorCallback);
+    
+    // 编码器配置
+    py::class_<EncoderConfig>(m, "EncoderConfig")
+        .def(py::init<>())
+        .def_readwrite("output_path", &EncoderConfig::output_path)
+        .def_readwrite("width", &EncoderConfig::width)
+        .def_readwrite("height", &EncoderConfig::height)
+        .def_readwrite("fps", &EncoderConfig::fps)
+        .def_readwrite("bitrate", &EncoderConfig::bitrate)
+        .def_readwrite("crf", &EncoderConfig::crf)
+        .def_readwrite("preset", &EncoderConfig::preset)
+        .def_readwrite("codec", &EncoderConfig::codec)
+        .def_static("default_config", &EncoderConfig::defaultConfig);
+}
+```
+
+---
+
+## 性能优化策略
+
+### 内存管理优化
+
+```cpp
+// ✅ 使用智能指针 + 自定义删除器
+using AVFramePtr = std::unique_ptr<AVFrame, decltype(&av_frame_free)>;
+using AVPacketPtr = std::unique_ptr<AVPacket, decltype(&av_packet_free)>;
+
+AVFramePtr yuv_frame_(av_frame_alloc(), av_frame_free);
+```
+
+### 编码参数调优
+
+| 参数 | 低延迟 | 平衡 | 高质量 |
+|------|--------|------|--------|
+| **Preset** | ultrafast | fast ✅ | medium |
+| **CRF** | 28 | 23 ✅ | 18 |
+| **Bitrate** | 4Mbps | 8Mbps ✅ | 12Mbps |
+| **CPU占用** | 10% | 20% | 35% |
+
+### 硬件加速
+
+```cpp
+// 使用NVIDIA硬件编码器
+EncoderConfig config;
+config.codec = "h264_nvenc";  // 替代libx264
+config.preset = "p4";  // NVENC预设
+
+// 性能提升:
+// - CPU占用: 20% → 5%
+// - 编码速度: 2x-3x提升
+```
+
+---
+
+## 实战使用指南
+
+### C++层使用
+
+```cpp
+#include "FrameEncoder.h"
+
+int main() {
+    // 创建队列
+    auto queue = std::make_shared<ThreadSafeQueue<FrameData>>(30);
+    
+    // 配置编码器
+    EncoderConfig config = EncoderConfig::defaultConfig();
+    config.output_path = "recording.mp4";
+    config.width = 1920;
+    config.height = 1080;
+    config.fps = 60;
+    
+    // 创建编码器
+    auto encoder = std::make_shared<FrameEncoder>(queue, config);
+    
+    // 设置回调
+    encoder->setProgressCallback([](int64_t frames, int64_t size) {
+        std::cout << "Encoded: " << frames << " frames, " 
+                  << size / 1024 / 1024 << " MB" << std::endl;
+    });
+    
+    // 启动
+    encoder->start();
+    
+    // ... 运行 ...
+    
+    // 停止
+    encoder->stop();
+    
+    return 0;
+}
+```
+
+### Python层使用
+
+```python
+import video_analysis_cpp as vac
+
+class VideoService:
+    def __init__(self):
+        self.queue = vac.ThreadSafeQueue(30)
+        
+        # 配置编码器
+        config = vac.EncoderConfig.default_config()
+        config.output_path = "recording.mp4"
+        config.fps = 60
+        
+        self.encoder = vac.FrameEncoder(self.queue, config)
+        
+        # 设置回调
+        self.encoder.set_progress_callback(self._on_progress)
+        self.encoder.set_finished_callback(self._on_finished)
+    
+    def _on_progress(self, frames: int, file_size: int):
+        """编码进度回调"""
+        mb = file_size / 1024 / 1024
+        print(f"📹 Encoded: {frames} frames, {mb:.1f} MB")
+        self.progress_signal.emit(frames, mb)
+    
+    def _on_finished(self, total_frames: int, output_path: str):
+        """编码完成回调"""
+        print(f"✅ Encoding finished: {total_frames} frames")
+        print(f"📁 Output: {output_path}")
+        self.finished_signal.emit(output_path)
+```
+
+---
+
+## 总结
+
+`FrameEncoder` 是视频流处理的消费者核心,关键特性:
+
+✅ **高效编码**: H.264实时编码,支持60fps  
+✅ **格式转换**: BGRA→YUV420P,SIMD加速  
+✅ **FFmpeg集成**: 完整的编码流程封装  
+✅ **跨语言通信**: Pybind11回调 + GIL管理  
+✅ **硬件加速**: 支持NVENC等硬件编码器
+
+**下一步**: 整合生产者和消费者 [3.2.4 生产者-消费者协作机制](file:///d:/编程/项目/AiVideoAnalsysSystem/.agent/第三章/3.2.4_生产者消费者协作.md)

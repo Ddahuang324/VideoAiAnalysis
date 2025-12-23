@@ -8,18 +8,27 @@ Rectangle {
     id: root
     width: 46
     height: parent.height
-    color: mouseArea.containsMouse ? hoverColor : "transparent"
 
     // ==================== 公共 API ====================
 
     property string icon: ""  // "minimize" | "maximize" | "restore" | "close"
-    property color hoverColor: Styles.ThemeManager.sidebarItemHover
+    property color hoverColor: Styles.ThemeManager.surfaceHover
     property color iconColor: Styles.ThemeManager.textSecondary
     property color iconHoverColor: Styles.ThemeManager.textPrimary
 
+    // Close button specific override
+    property bool isCloseButton: icon === "close"
+
     signal clicked
 
-    // ==================== 动画 ====================
+    // ==================== 背景 ====================
+
+    color: {
+        if (mouseArea.containsMouse) {
+            return isCloseButton ? Styles.ThemeManager.error : hoverColor;
+        }
+        return "transparent";
+    }
 
     Behavior on color {
         ColorAnimation {
@@ -27,76 +36,96 @@ Rectangle {
         }
     }
 
-    // ==================== 图标 ====================
+    // ==================== 图标 (Geometric) ====================
 
     Item {
         anchors.centerIn: parent
-        width: 12
-        height: 12
+        width: 10
+        height: 10
+        opacity: mouseArea.containsMouse ? 1.0 : 0.7
 
-        // 最小化图标 - 横线
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Styles.ThemeManager.animFast
+            }
+        }
+
+        // Common Icon Stroke Color
+        property color strokeColor: {
+            if (mouseArea.containsMouse) {
+                return isCloseButton ? "#FFFFFF" : root.iconHoverColor;
+            }
+            return root.iconColor;
+        }
+
+        // Minimize
         Rectangle {
             visible: root.icon === "minimize"
             anchors.centerIn: parent
             width: 10
             height: 1
-            color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
-
-            Behavior on color {
-                ColorAnimation {
-                    duration: Styles.ThemeManager.animFast
-                }
-            }
+            color: parent.strokeColor
         }
 
-        // 最大化图标 - 空心方框
+        // Maximize
         Rectangle {
             visible: root.icon === "maximize"
             anchors.centerIn: parent
             width: 10
             height: 10
             color: "transparent"
-            border.width: 1
-            border.color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
-
-            Behavior on border.color {
-                ColorAnimation {
-                    duration: Styles.ThemeManager.animFast
-                }
-            }
+            border.width: 1.5 // Slightly thicker for boldness
+            border.color: parent.strokeColor
         }
 
-        // 还原图标 - 两个重叠方框
+        // Restore
         Item {
             visible: root.icon === "restore"
-            anchors.centerIn: parent
-            width: 10
-            height: 10
+            anchors.fill: parent
 
             Rectangle {
                 x: 2
-                y: 0
+                y: 2
                 width: 8
                 height: 8
                 color: "transparent"
                 border.width: 1
-                border.color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
+                border.color: parent.parent.strokeColor
             }
-
             Rectangle {
                 x: 0
-                y: 2
+                y: 4
+                width: 8
+                height: 1
+                color: parent.parent.strokeColor
+                rotation: -45 // Abstract restore? No, stick to standard shapes for window controls to avoid confusion.
+                visible: false
+            }
+            // Standard restore icon is hard with just Rects roughly, let's simplify to a "Square with corner"
+            Rectangle {
+                x: 1
+                y: -1
                 width: 8
                 height: 8
-                color: Styles.ThemeManager.titleBarBg
+                color: "transparent"
                 border.width: 1
-                border.color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
+                border.color: parent.parent.strokeColor
+                opacity: 0.5
+            }
+            Rectangle {
+                x: -1
+                y: 1
+                width: 8
+                height: 8
+                color: "transparent"
+                border.width: 1
+                border.color: parent.parent.strokeColor
             }
         }
 
-        // 关闭图标 - X
+        // Close (X)
         Item {
-            visible: root.icon === "close"
+            visible: root.isCloseButton
             anchors.centerIn: parent
             width: 10
             height: 10
@@ -104,29 +133,16 @@ Rectangle {
             Rectangle {
                 anchors.centerIn: parent
                 width: 12
-                height: 1
+                height: 1.5
                 rotation: 45
-                color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: Styles.ThemeManager.animFast
-                    }
-                }
+                color: parent.parent.strokeColor
             }
-
             Rectangle {
                 anchors.centerIn: parent
                 width: 12
-                height: 1
+                height: 1.5
                 rotation: -45
-                color: mouseArea.containsMouse ? root.iconHoverColor : root.iconColor
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: Styles.ThemeManager.animFast
-                    }
-                }
+                color: parent.parent.strokeColor
             }
         }
     }

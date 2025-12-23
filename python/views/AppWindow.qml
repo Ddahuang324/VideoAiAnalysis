@@ -124,28 +124,6 @@ Window {
         }
     }
 
-    // 缩放指示器
-    Rectangle {
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 4
-        width: 12
-        height: 12
-        color: "transparent"
-        visible: root.visibility !== Window.Maximized
-
-        // 缩放图标（三条斜线）
-        Repeater {
-            model: 3
-            Rectangle {
-                width: 8 - index * 2
-                height: 1
-                x: index * 3 + 2
-                y: 10 - index * 3
-                rotation: -45
-                color: Styles.ThemeManager.textMuted
-                transformOrigin: Item.TopLeft
-            }
-        }
-    }
+    // 缩放指示器 (Removed for minimalism)
+    // Functional resize area remains above
 }

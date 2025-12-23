@@ -10,16 +10,20 @@
 #include <string>
 #include <thread>
 
+#ifdef ERROR
+#    undef ERROR
+#endif
+
 #define LOG_TRACE(msg) Infra::Logger::getInstance().log(Infra::Level::TRACE, msg)
 #define LOG_DEBUG(msg) Infra::Logger::getInstance().log(Infra::Level::DEBUG, msg)
 #define LOG_INFO(msg) Infra::Logger::getInstance().log(Infra::Level::INFO, msg)
 #define LOG_WARN(msg) Infra::Logger::getInstance().log(Infra::Level::WARN, msg)
-#define LOG_ERROR(msg) Infra::Logger::getInstance().log(Infra::Level::ERROR, msg)
+#define LOG_ERROR(msg) Infra::Logger::getInstance().log(Infra::Level::ERR, msg)
 #define LOG_FATAL(msg) Infra::Logger::getInstance().log(Infra::Level::FATAL, msg)
 
 namespace Infra {
 
-enum class Level { TRACE = 0, DEBUG, INFO, WARN, ERROR, FATAL };
+enum class Level { TRACE = 0, DEBUG, INFO, WARN, ERR, FATAL };
 
 enum class OutputTarget { CONSOLE = 0, FILE, BOTH };
 
@@ -33,7 +37,7 @@ inline const char* levelToString(Level level) {
             return "INFO";
         case Level::WARN:
             return "WARN";
-        case Level::ERROR:
+        case Level::ERR:
             return "ERROR";
         case Level::FATAL:
             return "FATAL";
@@ -99,9 +103,12 @@ private:
         auto ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
+        std::tm timeStruct;
+        localtime_s(&timeStruct, &timeT);
+
         std::ostringstream timeStream;
-        timeStream << std::put_time(std::localtime(&timeT), "%Y-%m-%d %H:%M:%S") << "."
-                   << std::setfill('0') << std::setw(3) << ms.count();
+        timeStream << std::put_time(&timeStruct, "%Y-%m-%d %H:%M:%S") << "." << std::setfill('0')
+                   << std::setw(3) << ms.count();
         return timeStream.str();
     }
 

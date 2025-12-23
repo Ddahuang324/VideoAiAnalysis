@@ -66,17 +66,20 @@ Rectangle {
         anchors.rightMargin: windowControls.width
         spacing: Styles.ThemeManager.spacingSm
 
-        // 应用图标
+        // 应用图标 (Minimalist V)
         Rectangle {
-            width: 24
-            height: 24
-            radius: Styles.ThemeManager.radiusSm
+            width: 20
+            height: 20
+            radius: 5
             color: Styles.ThemeManager.primary
 
             Text {
                 anchors.centerIn: parent
-                text: "🎬"
-                font.pixelSize: 14
+                text: "V"
+                color: "#FFFFFF"
+                font.pixelSize: 12
+                font.weight: Font.Bold
+                font.family: Styles.ThemeManager.fontFamily
             }
         }
 
@@ -86,7 +89,9 @@ Rectangle {
             color: Styles.ThemeManager.textPrimary
             font.pixelSize: Styles.ThemeManager.fontSizeBody
             font.weight: Font.Medium
+            font.family: Styles.ThemeManager.fontFamily
             Layout.fillWidth: true
+            opacity: 0.8 // Subtle title
         }
     }
 
