@@ -1,0 +1,772 @@
+1# 关键帧智能选择架构设计
+
+> **核心目标**：在 1fps 低帧率录制的基础上，通过 AI 驱动的关键帧筛选，**进一步将 MP4 视频文件大小缩减 60-70%**，同时保留 95%+ 的有效信息。
+
+---
+
+## 问题背景与解决思路
+
+### 为什么需要进一步压缩？
+
+在 AI 视频分析场景中，我们已经采用了 **1fps 低帧率录制策略**来降低数据量。然而，这仍然存在大量冗余：
+
+```mermaid
+flowchart LR
+    subgraph Before["优化前"]
+        V1["15分钟视频<br/>1fps → 900帧<br/>≈ 50MB"]
+    end
+    
+    subgraph Problem["问题分析"]
+        P1["🔴 静态画面重复<br/>约40%冗余"]
+        P2["🔴 低价值帧残留<br/>约20%冗余"]
+    end
+    
+    subgraph After["优化后"]
+        V2["关键帧序列<br/>~300帧<br/>≈ 15MB"]
+    end
+    
+    Before --> Problem --> After
+```
+
+### 解决方案核心思路
+
+我们采用 **三维评分系统** 对每一帧进行智能评估，只保留真正有价值的关键帧：
+
+| 维度 | 检测目标 | 技术方案 | 权重 |
+|:----:|:---------|:---------|:----:|
+| **场景变化** | 画面内容是否发生变化 | MobileNetV3-Small | **45%** |
+| **文字检测** | 画面是否包含有价值文字 | PaddleOCR PP-OCRv4 | **35%** |
+| **运动检测** | 画面中物体是否在移动 | YOLOv8n + ByteTrack | **20%** |
+
+---
+
+## 系统架构总览
+
+整体架构采用分层设计，从输入到输出经历 **解码 → 预筛选 → 模型分析 → 评分 → 输出** 五个核心阶段：
+
+```mermaid
+flowchart TB
+    subgraph Input["📥 输入层"]
+        MP4["MP4 视频文件<br/>900 帧 @ 1fps<br/>≈ 50MB"]
+    end
+    
+    subgraph Decoder["🔓 解码层"]
+        FFD["FFmpeg 解码器"]
+        FrameBuffer["帧缓冲队列"]
+    end
+    
+    subgraph PreFilter["⚡ 预筛选层 (快速过滤)"]
+        direction LR
+        FastHist["快速直方图<br/>初筛"]
+        Skip["跳过静态帧<br/>节省40%计算"]
+    end
+    
+    subgraph Analyzer["🧠 AI模型分析引擎"]
+        direction TB
+        SC["场景变化检测器<br/>MobileNetV3-Small"]
+        MD["运动检测器<br/>YOLOv8n + ByteTrack"]
+        OCR["文字检测器<br/>PP-OCRv4"]
+    end
+    
+    subgraph Scorer["📊 智能评分系统"]
+        Calculator["综合评分计算器<br/>动态权重"]
+        Ranker["帧排序器"]
+        Selector["Top-K 选择器"]
+    end
+    
+    subgraph Output["📤 输出层"]
+        KF["关键帧序列<br/>~300 帧"]
+        NewMP4["优化后视频<br/>≈ 15MB"]
+    end
+    
+    MP4 --> FFD --> FrameBuffer
+    FrameBuffer --> PreFilter
+    PreFilter -->|候选帧| SC & MD & OCR
+    PreFilter -->|静态帧| Skip
+    SC & MD & OCR --> Calculator
+    Calculator --> Ranker --> Selector --> KF --> NewMP4
+    
+    style Input fill:#e1f5fe
+    style Output fill:#e8f5e9
+    style Analyzer fill:#fff3e0
+```
+
+> [!IMPORTANT]
+> **压缩效果预期**：900帧 → ~300帧 = 约 **67% 压缩率**，文件大小从 50MB 降至约 15MB。
+
+---
+
+## 三维评分体系详解
+
+每一帧都会从三个维度进行评估，最终综合得出该帧的"信息价值分数"：
+
+```mermaid
+flowchart LR
+    subgraph Scene["🎬 场景变化维度"]
+        S1["MobileNetV3-Small<br/>深度特征提取"]
+        S2["传统直方图<br/>底噪基准"]
+        S3["余弦相似度<br/>变化判断"]
+    end
+    
+    subgraph Motion["🎯 运动检测维度"]
+        M1["YOLOv8n<br/>目标检测"]
+        M2["ByteTrack<br/>多目标跟踪"]
+        M3["位移强度<br/>运动评估"]
+    end
+    
+    subgraph TextOCR["📝 文字检测维度"]
+        T1["PP-OCRv4<br/>端到端识别"]
+        T2["文字置信度"]
+        T3["文字密度分布"]
+    end
+    
+    S1 --> S2 --> S3
+    M1 --> M2 --> M3
+    T1 --> T2 --> T3
+    
+    style Scene fill:#bbdefb
+    style Motion fill:#c8e6c9
+    style TextOCR fill:#ffe0b2
+```
+
+---
+
+## 模块一：场景变化检测
+
+> [!NOTE]
+> 场景变化检测作为"**开关位**"，当检测到显著场景切换时，自动保留该帧作为关键帧。
+
+### 技术方案
+
+采用 **MobileNetV3-Small + 传统直方图** 混合策略：
+
+- **MobileNetV3-Small**：提取 1280 维深度特征向量，理解语义级别的场景变化
+- **传统直方图**：作为底噪基准，快速过滤明显相似帧
+
+```mermaid
+flowchart TB
+    subgraph Input["输入"]
+        Frame["当前帧"]
+        PrevFrame["前一帧"]
+    end
+    
+    subgraph MobileNet["MobileNetV3-Small 特征提取"]
+        Backbone["Backbone<br/>深度可分离卷积"]
+        Pool["Global Avg Pool"]
+        Feature["1280维特征向量"]
+    end
+    
+    subgraph Traditional["传统直方图"]
+        Hist["RGB直方图"]
+        Bhatta["巴氏距离"]
+    end
+    
+    subgraph Fusion["融合决策"]
+        Cosine["余弦相似度"]
+        Weighted["加权融合<br/>α=0.7, β=0.3"]
+        Score["场景变化分数 S"]
+    end
+    
+    Frame --> Backbone --> Pool --> Feature
+    PrevFrame --> Backbone
+    Feature --> Cosine
+    
+    Frame --> Hist --> Bhatta
+    PrevFrame --> Hist
+    
+    Cosine --> Weighted
+    Bhatta --> Weighted
+    Weighted --> Score
+    
+    style MobileNet fill:#e3f2fd
+    style Traditional fill:#f3e5f5
+```
+
+### 核心算法实现
+
+```cpp
+class SceneChangeDetector {
+public:
+    struct Config {
+        float modelWeight = 0.7f;      // MobileNet特征权重
+        float histogramWeight = 0.3f;  // 传统直方图权重
+        float resetThreshold = 0.35f;  // 场景切换阈值
+    };
+    
+    float calculateScore(const Frame& prev, const Frame& curr) {
+        // 1. MobileNetV3-Small 特征提取
+        auto prevFeature = mobileNet_.extractFeature(prev);  // [1280]
+        auto currFeature = mobileNet_.extractFeature(curr);  // [1280]
+        
+        // 2. 计算余弦相似度
+        float cosineSim = cosineSimilarity(prevFeature, currFeature);
+        float modelDiff = 1.0f - cosineSim;
+        
+        // 3. 传统直方图差异（底噪基准）
+        float histDiff = compareHistograms(prev, curr, CV_COMP_BHATTACHARYYA);
+        
+        // 4. 加权融合
+        float score = modelDiff * config_.modelWeight 
+                    + histDiff * config_.histogramWeight;
+        
+        return normalizeToScore(score);
+    }
+    
+private:
+    MobileNetV3Wrapper mobileNet_;
+    Config config_;
+};
+```
+
+---
+
+## 模块二：运动检测
+
+> [!TIP]
+> 运动检测作为"**引导位**"，确定"哪些区域有价值"。运动越剧烈，该帧的信息价值越高。
+
+### 技术方案
+
+采用 **YOLOv8n + ByteTrack** 目标级跟踪：
+
+- **YOLOv8n**：轻量级目标检测，识别画面中的物体
+- **ByteTrack**：高性能多目标跟踪算法，计算物体位移
+
+```mermaid
+flowchart TB
+    subgraph Detection["YOLOv8n 目标检测"]
+        Frame["输入帧"]
+        YOLO["YOLOv8n<br/>nano版本"]
+        Boxes["检测框<br/>[x,y,w,h,cls,conf]"]
+    end
+    
+    subgraph Tracking["ByteTrack 跟踪"]
+        Associate["匈牙利匹配"]
+        TrackState["轨迹状态<br/>New/Tracked/Lost"]
+        TrackID["轨迹ID分配"]
+    end
+    
+    subgraph Analysis["位移分析"]
+        Center["中心点轨迹"]
+        Velocity["速度计算"]
+        Intensity["运动强度 M"]
+    end
+    
+    Frame --> YOLO --> Boxes
+    Boxes --> Associate --> TrackState --> TrackID
+    TrackID --> Center --> Velocity --> Intensity
+    
+    style Detection fill:#e8f5e9
+    style Tracking fill:#fff8e1
+```
+
+### 运动强度计算
+
+```cpp
+class MotionDetector {
+public:
+    struct TrackInfo {
+        int trackId;
+        cv::Point2f center;
+        cv::Point2f velocity;
+        float confidence;
+    };
+    
+    float calculateScore(const Frame& frame, FrameContext& ctx) {
+        // 1. YOLOv8n 目标检测
+        auto detections = yolov8_.detect(frame);
+        
+        // 2. ByteTrack 多目标跟踪
+        auto tracks = byteTrack_.update(detections);
+        
+        // 3. 计算运动强度
+        float totalMotion = 0.0f;
+        float maxConfidence = 0.0f;
+        
+        for (const auto& track : tracks) {
+            float displacement = cv::norm(track.velocity);
+            float weightedMotion = displacement * track.confidence;
+            totalMotion += weightedMotion;
+            maxConfidence = std::max(maxConfidence, track.confidence);
+        }
+        
+        // 4. 归一化评分
+        float motionScore = std::min(totalMotion / motionThreshold_, 1.0f);
+        
+        // 5. 置信度加权
+        return motionScore * 0.7f + maxConfidence * 0.3f;
+    }
+    
+private:
+    YOLOv8nWrapper yolov8_;
+    ByteTracker byteTrack_;
+    float motionThreshold_ = 100.0f;  // 像素/帧
+};
+```
+
+---
+
+## 模块三：文字检测
+
+> [!IMPORTANT]
+> 文字检测是**核心语义位**，权重最高。包含重要文字信息的帧具有最高的保留优先级。
+
+### 技术方案
+
+采用 **PaddleOCR PP-OCRv4** 端到端识别：
+
+```mermaid
+flowchart TB
+    subgraph OCRPipeline["PP-OCRv4 Pipeline"]
+        Frame["输入帧"]
+        Det["文字检测模型<br/>DB++"]
+        Boxes["文字区域"]
+        Cls["方向分类<br/>0°/180°"]
+        Rec["文字识别<br/>SVTR"]
+        Text["识别结果<br/>[text, conf, box]"]
+    end
+    
+    subgraph Analysis["语义分析"]
+        ConfAvg["平均置信度"]
+        Density["文字密度<br/>area_ratio"]
+        Semantic["语义价值评估"]
+    end
+    
+    subgraph Score["评分输出"]
+        Final["OCR评分 T"]
+    end
+    
+    Frame --> Det --> Boxes --> Cls --> Rec --> Text
+    Text --> ConfAvg & Density
+    ConfAvg & Density --> Semantic --> Final
+    
+    style OCRPipeline fill:#ffe0b2
+```
+
+### 文字密度评分
+
+```cpp
+class TextDetector {
+public:
+    struct OCRResult {
+        std::string text;
+        float confidence;
+        cv::Rect boundingBox;
+    };
+    
+    float calculateScore(const Frame& frame) {
+        // 1. PP-OCRv4 端到端识别
+        auto results = paddleOCR_.recognize(frame);
+        
+        if (results.empty()) {
+            return 0.0f;  // 无文字
+        }
+        
+        // 2. 计算文字区域总面积
+        float totalTextArea = 0.0f;
+        float totalConfidence = 0.0f;
+        
+        for (const auto& result : results) {
+            totalTextArea += result.boundingBox.area();
+            totalConfidence += result.confidence;
+        }
+        
+        float frameArea = frame.width() * frame.height();
+        
+        // 3. 文字密度 (面积占比)
+        float density = totalTextArea / frameArea;
+        float densityScore = std::min(density / 0.3f, 1.0f);  // 30%饱和
+        
+        // 4. 平均置信度
+        float avgConfidence = totalConfidence / results.size();
+        
+        // 5. 融合评分
+        return densityScore * 0.6f + avgConfidence * 0.4f;
+    }
+    
+private:
+    PaddleOCRWrapper paddleOCR_;
+};
+```
+
+---
+
+## 综合评分：动态权重策略
+
+不同于固定权重，我们采用 **动态权重** 策略，根据各维度的激活程度自适应调整：
+
+```mermaid
+flowchart LR
+    subgraph Inputs["维度分数"]
+        S["场景变化 S"]
+        M["运动强度 M"]
+        T["文字密度 T"]
+    end
+    
+    subgraph Weights["动态权重计算"]
+        Normalize["分数归一化"]
+        Softmax["Softmax<br/>权重分配"]
+        W["动态权重<br/>[ws, wm, wt]"]
+    end
+    
+    subgraph Base["基础权重"]
+        Ws["场景变化 0.45"]
+        Wt["文字检测 0.35"]
+        Wm["运动检测 0.20"]
+    end
+    
+    subgraph Final["最终评分"]
+        Fusion["加权融合"]
+        Score["Final Score"]
+    end
+    
+    S & M & T --> Normalize --> Softmax --> W
+    W --> Fusion
+    Ws & Wm & Wt --> Fusion
+    S & M & T --> Fusion --> Score
+    
+    style Base fill:#e1bee7
+    style Final fill:#c8e6c9
+```
+
+### 评分公式
+
+```
+# 基础权重 (变化优先)
+base_weights = [0.45, 0.35, 0.20]  # Scene, OCR, Motion
+
+# 动态调整因子
+activation = softmax([S, T, M])
+adjusted_weights = base_weights * (1 + α * activation)
+adjusted_weights = normalize(adjusted_weights)
+
+# 最终评分
+FinalScore = S × 0.45 + T × 0.35 + M × 0.20
+```
+
+> [!NOTE]
+> **场景变化权重最高 (0.45)**，确保代码编辑、文档滚动等细微内容变化不会被遗漏；文字检测次之 (0.35)，运动检测最低 (0.20)。
+
+---
+
+## 类设计架构
+
+整体采用策略模式，便于扩展新的评分维度：
+
+```mermaid
+classDiagram
+    class FrameAnalyzer {
+        <<interface>>
+        +analyze(frame, context) float
+        +getBaseWeight() float
+        +getName() string
+    }
+    
+    class SceneChangeDetector {
+        -MobileNetV3Wrapper mobileNet
+        -Config config
+        +analyze(frame, context) float
+        +extractFeature(frame) vector~float~
+    }
+    
+    class MotionDetector {
+        -YOLOv8nWrapper yolov8
+        -ByteTracker byteTrack
+        +analyze(frame, context) float
+        +getActiveTracks() vector~TrackInfo~
+    }
+    
+    class TextDetector {
+        -PaddleOCRWrapper paddleOCR
+        +analyze(frame, context) float
+        +getTextResults() vector~OCRResult~
+    }
+    
+    class KeyFrameSelector {
+        -vector~FrameAnalyzer*~ analyzers
+        -DynamicWeightCalculator weightCalc
+        +selectKeyFrames(videoPath) vector~int~
+        -preFilter(frames) vector~Frame~
+        -calculateFinalScore(scores) float
+    }
+    
+    class ModelManager {
+        -map~string,Model~ models
+        +loadModel(name, path) bool
+        +getModel(name) Model*
+        +warmUp() void
+    }
+    
+    FrameAnalyzer <|.. SceneChangeDetector
+    FrameAnalyzer <|.. MotionDetector
+    FrameAnalyzer <|.. TextDetector
+    KeyFrameSelector o-- FrameAnalyzer
+    KeyFrameSelector --> ModelManager
+    SceneChangeDetector --> ModelManager
+    MotionDetector --> ModelManager
+    TextDetector --> ModelManager
+```
+
+---
+
+## 性能优化：C++ 工程化加速方案
+
+> [!NOTE]
+> 本方案聚焦于 **C++ 工程化手段** 进行性能优化，通过流水线设计、并行计算、异步处理等方式提升吞吐量，而非模型层面的优化。
+
+### 三级流水线架构
+
+采用经典的 **生产者-消费者模式**，将处理流程拆分为三个独立阶段，实现并行执行：
+
+```mermaid
+flowchart LR
+    subgraph Stage1["Stage 1: 解码阶段"]
+        direction TB
+        FFmpeg["FFmpeg 解码"]
+        Queue1["帧队列<br/>capacity=32"]
+    end
+    
+    subgraph Stage2["Stage 2: 预筛选阶段"]
+        direction TB
+        Filter["快速直方图<br/>过滤静态帧"]
+        Queue2["候选帧队列<br/>capacity=16"]
+    end
+    
+    subgraph Stage3["Stage 3: 模型推理阶段"]
+        direction TB
+        Parallel["并行推理池<br/>3个检测器"]
+        Score["评分聚合"]
+    end
+    
+    Stage1 -->|"异步传递"| Stage2 -->|"异步传递"| Stage3
+    
+    style Stage1 fill:#bbdefb
+    style Stage2 fill:#c8e6c9
+    style Stage3 fill:#fff3e0
+```
+
+### 并行计算策略
+
+三个检测模块在 Stage 3 中 **并行执行**，互不阻塞：
+
+```mermaid
+flowchart TB
+    subgraph Input["输入"]
+        Frame["候选帧"]
+    end
+    
+    subgraph Parallel["并行检测 (std::async)"]
+        direction LR
+        T1["线程1<br/>场景变化检测"]
+        T2["线程2<br/>运动检测"]
+        T3["线程3<br/>文字检测"]
+    end
+    
+    subgraph Sync["同步点"]
+        Future["std::future<br/>等待所有结果"]
+        Aggregate["评分聚合"]
+    end
+    
+    Frame --> T1 & T2 & T3
+    T1 & T2 & T3 --> Future --> Aggregate
+    
+    style Parallel fill:#e8f5e9
+```
+
+### 核心实现代码
+
+```cpp
+class ParallelFrameAnalyzer {
+public:
+    struct AnalysisResult {
+        float sceneScore;
+        float motionScore;
+        float textScore;
+        float finalScore;
+    };
+    
+    AnalysisResult analyzeFrame(const Frame& frame, FrameContext& ctx) {
+        // 1. 启动三个异步任务（并行执行）
+        auto sceneFuture = std::async(std::launch::async, [&]() {
+            return sceneDetector_.calculateScore(ctx.prevFrame, frame);
+        });
+        
+        auto motionFuture = std::async(std::launch::async, [&]() {
+            return motionDetector_.calculateScore(frame, ctx);
+        });
+        
+        auto textFuture = std::async(std::launch::async, [&]() {
+            return textDetector_.calculateScore(frame);
+        });
+        
+        // 2. 等待所有结果（同步点）
+        AnalysisResult result;
+        result.sceneScore = sceneFuture.get();
+        result.motionScore = motionFuture.get();
+        result.textScore = textFuture.get();
+        
+        // 3. 计算加权最终分数
+        result.finalScore = calculateWeightedScore(result);
+        
+        return result;
+    }
+    
+private:
+    SceneChangeDetector sceneDetector_;
+    MotionDetector motionDetector_;
+    TextDetector textDetector_;
+};
+```
+
+### 流水线控制器
+
+```cpp
+class PipelineController {
+public:
+    void process(const std::string& videoPath) {
+        // Stage 1: 解码线程
+        std::thread decoderThread([&]() {
+            FFmpegDecoder decoder(videoPath);
+            while (auto frame = decoder.nextFrame()) {
+                frameQueue_.push(std::move(frame));  // 阻塞队列
+            }
+            frameQueue_.setComplete();
+        });
+        
+        // Stage 2: 预筛选线程
+        std::thread filterThread([&]() {
+            while (auto frame = frameQueue_.pop()) {
+                if (preFilter_.shouldProcess(*frame)) {
+                    candidateQueue_.push(std::move(frame));
+                }
+                // 静态帧直接丢弃，减少后续计算
+            }
+            candidateQueue_.setComplete();
+        });
+        
+        // Stage 3: 并行分析（主线程或线程池）
+        while (auto frame = candidateQueue_.pop()) {
+            auto result = analyzer_.analyzeFrame(*frame, context_);
+            if (result.finalScore > threshold_) {
+                keyFrames_.push_back(frame->index);
+            }
+        }
+        
+        decoderThread.join();
+        filterThread.join();
+    }
+    
+private:
+    BlockingQueue<Frame> frameQueue_{32};      // 解码缓冲
+    BlockingQueue<Frame> candidateQueue_{16};  // 候选缓冲
+    PreFilter preFilter_;
+    ParallelFrameAnalyzer analyzer_;
+};
+```
+
+### 性能指标预期
+
+| 视频时长 | 原始帧数 | 预筛选后 | 单线程处理 | 流水线+并行 | 加速比 |
+|:--------:|:--------:|:--------:|:----------:|:-----------:|:------:|
+| **1 分钟** | 60 | ~36 | ~8 秒 | ~3 秒 | 2.7x |
+| **5 分钟** | 300 | ~180 | ~35 秒 | ~12 秒 | 2.9x |
+| **15 分钟** | 900 | ~540 | ~100 秒 | ~35 秒 | 2.9x |
+| **1 小时** | 3600 | ~2160 | ~400 秒 | ~140 秒 | 2.9x |
+
+> [!TIP]
+> 通过 **流水线 + 并行计算**，在不改变模型的情况下实现约 **3x 加速**。
+
+---
+
+## 模型调用规格
+
+### 模型清单
+
+| 模型 | 版本 | 输入尺寸 | 模型大小 | 推理框架 | 单帧延迟 |
+|:----:|:----:|:--------:|:--------:|:--------:|:--------:|
+| **MobileNetV3-Small** | v3 | 224×224 | ~2.5 MB | ONNX Runtime | 5-10ms |
+| **YOLOv8n** | 8.0 | 640×640 | ~6.3 MB | ONNX Runtime | 15-30ms |
+| **PP-OCRv4 Det** | v4 | 动态 | ~4.4 MB | PaddleInference | 20-40ms |
+| **PP-OCRv4 Rec** | v4 | 动态 | ~10.5 MB | PaddleInference | 30-60ms |
+
+### 依赖项
+
+```plaintext
+# 推理框架
+- ONNX Runtime >= 1.17.0
+- PaddlePaddle >= 2.6.0 (用于 PP-OCRv4)
+
+# C++ 库
+- OpenCV >= 4.8.0
+- Eigen >= 3.4.0
+```
+
+---
+
+## 风险与缓解措施
+
+> [!WARNING]
+> 并发设计引入同步复杂性，需关注以下风险。
+
+| 风险项 | 严重程度 | 缓解措施 |
+|:------:|:--------:|:---------:|
+| **队列积压** | 🟡 中 | 设置容量上限，生产者阻塞等待 |
+| **内存峰值** | 🟡 中 | 控制队列大小，及时释放已处理帧 |
+| **线程安全** | 🔴 高 | 使用线程安全队列，避免共享可变状态 |
+| **模型加载慢** | 🟢 低 | 应用启动时预加载所有模型 |
+| **OCR 成为瓶颈** | 🟡 中 | 预筛选减负 + 可考虑批量 OCR |
+
+---
+
+## 压缩效果总结
+
+````carousel
+### 压缩前 vs 压缩后
+
+| 指标 | 压缩前 (1fps) | 压缩后 (关键帧) | 效果 |
+|:----:|:-------------:|:---------------:|:----:|
+| 15分钟视频帧数 | 900帧 | ~300帧 | ↓67% |
+| 文件大小 | ~50MB | ~15MB | ↓70% |
+| 信息保留率 | 100% | 95%+ | 几乎无损 |
+
+<!-- slide -->
+
+### 技术优势
+
+| 维度 | 传统方案 | 模型驱动方案 |
+|:----:|:--------:|:------------:|
+| 场景理解 | 像素级 | **语义级** ✅ |
+| 运动检测 | 全局变化 | **目标级跟踪** ✅ |
+| 文字检测 | 边缘统计 | **端到端OCR** ✅ |
+| 精度 | 中等 | **高** ✅ |
+
+<!-- slide -->
+
+### 最终效果
+
+```
+原始视频 (1fps, 15分钟)
+└── 900 帧 × ~55KB/帧 ≈ 50MB
+
+关键帧筛选后
+└── 300 帧 × ~50KB/帧 ≈ 15MB
+
+总压缩率: 70%
+信息保留: 95%+
+```
+````
+
+---
+
+## 结论
+
+本架构通过引入深度学习模型，将关键帧选择从 **像素级比较** 升级为 **语义级理解**：
+
+1. **场景变化** - MobileNetV3-Small 提取深度特征，理解场景变化语义
+2. **运动检测** - YOLOv8n + ByteTrack 实现目标级运动跟踪
+3. **文字检测** - PP-OCRv4 端到端识别，精确评估信息密度
+
+配合 **动态权重策略** 和 **多级优化**，在保持实时性的同时，实现更精准的关键帧筛选。
+
+> [!IMPORTANT]
+> **预期效果**：在 1fps 录制基础上，进一步压缩 **60-70%**，将 15 分钟视频从 50MB 降至约 15MB，同时信息保留率达到 **95%+**。

@@ -17,6 +17,10 @@ if(pybind11_FOUND)
         ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/AudioGrabber
         ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/ProcessLayer
         ${CMAKE_SOURCE_DIR}/cpp/include/Infra
+        # KeyFrame 模块头文件路径
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Detectors
+        ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Foundation
     )
     
     # 链接核心库

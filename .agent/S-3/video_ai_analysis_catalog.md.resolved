@@ -1,0 +1,485 @@
+# 视频AI分析功能需求目录
+
+> 本目录将"视频传输到Python API层 + Google AI SDK分析"需求拆分为独立的子模块，每个子模块可独立开发与测试。
+
+---
+
+## 项目背景
+
+```mermaid
+graph LR
+    subgraph C++层
+        A[ScreenRecorder] --> B[MP4文件]
+        C[AudioGrabber] --> B
+    end
+    
+    subgraph Python层
+        B --> D[API Service]
+        D --> E[Google AI SDK]
+        E --> F[JSON结构化输出]
+    end
+    
+    subgraph QML层
+        F --> G[结果展示]
+    end
+```
+
+现有实现已完成 **C++层视频/音频采集与MP4封装**，本需求聚焦于将视频传递给Python层并调用Google Gemini进行内容分析。
+
+---
+
+## 子问题目录总览
+
+| 章节 | 模块名 | 主要目标 | 技术栈 |
+|:----:|:------:|:---------|:------:|
+| 1 | 视频文件传输接口 | C++ → Python 文件路径传递 | pybind11 |
+| 2 | Python API服务架构 | 服务层设计与接口定义 | Python |
+| 3 | Google AI SDK集成 | Gemini API调用封装 | google-genai |
+| 4 | 视频上传与处理 | 视频文件上传到Gemini | Files API |
+| 5 | Prompt工程模块 | 模板化Prompt管理 | Python |
+| 6 | JSON结构化输出 | 响应解析与格式化 | Pydantic |
+| 7 | 异步与进度反馈 | 流式结果与进度通知 | asyncio / signals |
+| 8 | 错误处理与重试 | 健壮的异常处理机制 | Python |
+
+---
+
+## Chapter 1: 视频文件传输接口
+
+> **目标**: 在C++录制完成后，将MP4文件路径安全传递给Python层。
+
+### 1.1 接口设计
+
+```mermaid
+sequenceDiagram
+    participant QML
+    participant CPP as ScreenRecorder
+    participant Binding as Pybind11
+    participant Python as VideoService
+    
+    CPP->>CPP: 录制完成生成MP4
+    CPP->>Binding: 调用Python分析接口
+    Binding->>Python: analyze_video(path)
+    Python-->>Binding: 返回分析结果
+    Binding-->>QML: 信号通知
+```
+
+### 1.2 任务清单
+
+- **1.2.1** 扩展 [bind_Screen_Recorder.cpp](file:///d:/%E7%BC%96%E7%A8%8B/%E9%A1%B9%E7%9B%AE/AiVideoAnalsysSystem/cpp/bindings/bind_Screen_Recorder.cpp)，暴露视频分析触发方法
+- **1.2.2** 设计 `AnalysisRequest` 数据结构（文件路径、分析参数、prompt模板）
+- **1.2.3** 实现GIL安全的异步调用包装器
+
+### 1.3 关键知识点
+
+- pybind11 `py::gil_scoped_acquire` / `py::gil_scoped_release`
+- C++ → Python 回调的线程安全处理
+- 文件路径的跨平台编码（UTF-8）
+
+---
+
+## Chapter 2: Python API服务架构
+
+> **目标**: 构建清晰的服务层架构，实现业务逻辑与AI调用的分离。
+
+### 2.1 架构设计
+
+```mermaid
+classDiagram
+    class VideoAnalysisService {
+        +analyze_video(path, config) AnalysisResult
+        -_upload_video(path) FileHandle
+        -_call_gemini(file, prompt) str
+        -_parse_response(raw) AnalysisResult
+    }
+    
+    class GeminiClient {
+        +upload_file(path) File
+        +generate_content(prompt, files) Response
+        +wait_for_processing(file) File
+    }
+    
+    class PromptManager {
+        +get_prompt(template_name) str
+        +render_prompt(template, context) str
+    }
+    
+    class ResponseParser {
+        +parse_json(raw_text) dict
+        +validate_schema(data) AnalysisResult
+    }
+    
+    VideoAnalysisService --> GeminiClient
+    VideoAnalysisService --> PromptManager
+    VideoAnalysisService --> ResponseParser
+```
+
+### 2.2 任务清单
+
+- **2.2.1** 创建 `services/ai_analysis_service.py`
+- **2.2.2** 定义 `models/analysis_models.py`（请求/响应数据模型）
+- **2.2.3** 创建 `clients/gemini_client.py` 封装SDK调用
+- **2.2.4** 更新 `viewmodels/` 层暴露给QML
+
+### 2.3 目录结构预览
+
+```
+python/
+├── services/
+│   ├── ai_analysis_service.py    # [NEW] AI分析服务
+│   └── video_service.py          # [EXISTING] 录制服务
+├── clients/
+│   └── gemini_client.py          # [NEW] Gemini SDK封装
+├── models/
+│   ├── analysis_models.py        # [NEW] 分析数据模型
+│   └── video_models.py           # [EXISTING]
+└── viewmodels/
+    └── analysis_viewmodel.py     # [NEW] 分析ViewModel
+```
+
+---
+
+## Chapter 3: Google AI SDK集成
+
+> **目标**: 集成最新的 `google-genai` 库（Google Gen AI SDK），封装Gemini API调用。
+
+> [!IMPORTANT]
+> 旧库 `google-generativeai` 已弃用，请使用最新的 `google-genai`
+> 安装命令：`pip install --upgrade google-genai`
+
+### 3.1 SDK初始化流程
+
+```mermaid
+flowchart TD
+    A[启动应用] --> B{检查API Key}
+    B -->|存在| C[初始化SDK]
+    B -->|不存在| D[提示用户配置]
+    C --> E[验证Key有效性]
+    E -->|有效| F[SDK就绪]
+    E -->|无效| G[错误提示]
+```
+
+### 3.2 任务清单
+
+- **3.2.1** 配置管理：API Key安全存储与读取
+- **3.2.2** SDK初始化封装 `GeminiClient.__init__()`
+- **3.2.3** 模型选择支持（Gemini 1.5 Flash / Pro / 2.0）
+- **3.2.4** 请求参数配置（temperature, top_p, etc.）
+
+### 3.3 代码示例
+
+```python
+from google import genai
+
+class GeminiClient:
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
+    
+    def generate(self, prompt: str):
+        return self.client.models.generate_content(
+            model=self.model,
+            contents=prompt
+        )
+```
+
+---
+
+## Chapter 4: 视频上传与处理
+
+> **目标**: 实现视频文件上传到Gemini Files API，并处理上传状态轮询。
+
+### 4.1 上传流程
+
+```mermaid
+stateDiagram-v2
+    [*] --> Uploading: upload_file()
+    Uploading --> Processing: 上传成功
+    Processing --> Active: 处理完成
+    Processing --> Processing: 轮询等待
+    Active --> [*]: 可用于分析
+    
+    Uploading --> Failed: 上传失败
+    Processing --> Failed: 处理超时
+    Failed --> [*]: 抛出异常
+```
+
+### 4.2 任务清单
+
+- **4.2.1** 实现 `upload_file()` 方法
+- **4.2.2** 实现 `wait_for_processing()` 轮询逻辑
+- **4.2.3** 处理大文件上传（分块/进度回调）
+- **4.2.4** 文件生命周期管理（上传后48小时自动删除）
+
+### 4.3 关键代码
+
+```python
+import time
+from google import genai
+
+def upload_and_wait(self, file_path: str, timeout: int = 300):
+    # 使用新SDK上传文件
+    file = self.client.files.upload(file=file_path)
+    start = time.time()
+    
+    while file.state.name == "PROCESSING":
+        time.sleep(5)
+        file = self.client.files.get(name=file.name)
+        
+        if (time.time() - start) > timeout:
+            raise TimeoutError("视频处理超时")
+    
+    if file.state.name == "FAILED":
+        raise RuntimeError(f"视频处理失败: {file.state}")
+        
+    return file
+```
+
+---
+
+## Chapter 5: Prompt工程模块
+
+> **目标**: 设计模板化的Prompt系统，支持灵活的分析需求配置。
+
+### 5.1 Prompt模板结构
+
+```mermaid
+graph TD
+    subgraph 模板层
+        A[系统指令 System] --> D[完整Prompt]
+        B[用户任务 Task] --> D
+        C[输出格式 Format] --> D
+    end
+    
+    subgraph 变量注入
+        E[视频上下文] --> B
+        F[自定义规则] --> B
+    end
+```
+
+### 5.2 任务清单
+
+- **5.2.1** 创建 `prompts/` 目录存放模板文件
+- **5.2.2** 实现 `PromptManager` 模板加载与渲染
+- **5.2.3** 设计JSON输出格式定义Schema
+- **5.2.4** 支持用户自定义Prompt扩展
+
+### 5.3 模板示例
+
+```python
+# prompts/video_analysis.py
+SYSTEM_PROMPT = """
+你是一个专业的视频内容分析助手。
+请按照以下JSON格式输出分析结果。
+"""
+
+OUTPUT_SCHEMA = """
+{
+    "summary": "视频内容总结",
+    "scenes": [
+        {
+            "timestamp": "00:00:00",
+            "description": "场景描述",
+            "key_elements": ["元素1", "元素2"]
+        }
+    ],
+    "tags": ["标签1", "标签2"]
+}
+"""
+```
+
+---
+
+## Chapter 6: JSON结构化输出
+
+> **目标**: 确保AI输出符合预定义的JSON Schema，并进行验证与解析。
+
+### 6.1 数据模型设计
+
+```mermaid
+classDiagram
+    class AnalysisResult {
+        +str summary
+        +List~Scene~ scenes
+        +List~str~ tags
+        +datetime analyzed_at
+    }
+    
+    class Scene {
+        +str timestamp
+        +str description
+        +List~str~ key_elements
+        +float confidence
+    }
+    
+    class AnalysisError {
+        +str error_code
+        +str message
+        +dict details
+    }
+    
+    AnalysisResult "1" --> "*" Scene
+```
+
+### 6.2 任务清单
+
+- **6.2.1** 使用Pydantic定义数据模型
+- **6.2.2** 实现JSON解析与提取（处理markdown代码块）
+- **6.2.3** Schema验证与错误处理
+- **6.2.4** 输出数据序列化（供QML消费）
+
+### 6.3 Gemini结构化输出配置
+
+```python
+# 使用Gemini的response_schema特性
+generation_config = {
+    "response_mime_type": "application/json",
+    "response_schema": AnalysisResult
+}
+```
+
+---
+
+## Chapter 7: 异步与进度反馈
+
+> **目标**: 实现非阻塞的分析调用，并提供实时进度反馈给UI层。
+
+### 7.1 异步架构
+
+```mermaid
+sequenceDiagram
+    participant QML
+    participant ViewModel
+    participant Service
+    participant Gemini
+    
+    QML->>ViewModel: startAnalysis()
+    ViewModel->>Service: analyze_async()
+    
+    loop 进度更新
+        Service-->>ViewModel: progress_updated(%)
+        ViewModel-->>QML: progressChanged
+    end
+    
+    Service->>Gemini: generate_content()
+    Gemini-->>Service: streaming response
+    Service-->>ViewModel: analysis_completed
+    ViewModel-->>QML: resultReady
+```
+
+### 7.2 任务清单
+
+- **7.2.1** 实现异步分析方法 `analyze_async()`
+- **7.2.2** 设计进度回调机制
+- **7.2.3** 流式响应处理（Gemini Streaming）
+- **7.2.4** 与C++信号槽系统集成（线程安全）
+
+### 7.3 进度阶段定义
+
+| 阶段 | 进度范围 | 描述 |
+|:----:|:--------:|:-----|
+| 上传中 | 0-30% | 视频文件上传到Gemini |
+| 处理中 | 30-50% | 等待视频处理完成 |
+| 分析中 | 50-90% | AI模型分析视频内容 |
+| 解析中 | 90-100% | 解析并验证输出格式 |
+
+---
+
+## Chapter 8: 错误处理与重试
+
+> **目标**: 构建健壮的异常处理机制，确保系统稳定性。
+
+### 8.1 错误分类
+
+```mermaid
+graph TB
+    A[异常类型] --> B[网络异常]
+    A --> C[API异常]
+    A --> D[文件异常]
+    A --> E[解析异常]
+    
+    B --> B1[连接超时]
+    B --> B2[DNS解析失败]
+    
+    C --> C1[API Key无效]
+    C --> C2[配额超限]
+    C --> C3[模型不可用]
+    
+    D --> D1[文件不存在]
+    D --> D2[格式不支持]
+    D --> D3[文件过大]
+    
+    E --> E1[JSON格式错误]
+    E --> E2[Schema验证失败]
+```
+
+### 8.2 任务清单
+
+- **8.2.1** 定义自定义异常类层次
+- **8.2.2** 实现指数退避重试机制
+- **8.2.3** 错误信息本地化（中文提示）
+- **8.2.4** 错误日志记录与上报
+
+### 8.3 重试策略
+
+```python
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError))
+)
+async def call_gemini_with_retry(self, prompt, file):
+    return await self.model.generate_content_async([prompt, file])
+```
+
+---
+
+## 依赖关系图
+
+```mermaid
+graph TD
+    C1[Chapter 1: 传输接口] --> C2[Chapter 2: 服务架构]
+    C2 --> C3[Chapter 3: SDK集成]
+    C3 --> C4[Chapter 4: 视频上传]
+    C2 --> C5[Chapter 5: Prompt工程]
+    C4 --> C6[Chapter 6: 结构化输出]
+    C5 --> C6
+    C6 --> C7[Chapter 7: 异步反馈]
+    C3 --> C8[Chapter 8: 错误处理]
+    C4 --> C8
+    
+    style C1 fill:#e1f5fe
+    style C2 fill:#e1f5fe
+    style C3 fill:#fff3e0
+    style C4 fill:#fff3e0
+    style C5 fill:#f3e5f5
+    style C6 fill:#f3e5f5
+    style C7 fill:#e8f5e9
+    style C8 fill:#ffebee
+```
+
+---
+
+## 开发优先级建议
+
+| 优先级 | 章节 | 理由 |
+|:------:|:----:|:-----|
+| 🔴 P0 | Chapter 3 | SDK集成是核心基础 |
+| 🔴 P0 | Chapter 4 | 视频上传是必要前置 |
+| 🟠 P1 | Chapter 2 | 服务架构决定代码组织 |
+| 🟠 P1 | Chapter 6 | 输出格式影响下游消费 |
+| 🟡 P2 | Chapter 1 | 可先用Python直接测试 |
+| 🟡 P2 | Chapter 5 | 初期可硬编码Prompt |
+| 🟢 P3 | Chapter 7 | 功能跑通后再优化 |
+| 🟢 P3 | Chapter 8 | 功能跑通后再完善 |
+
+---
+
+## 附录：技术选型
+
+| 组件 | 推荐方案 | 备选方案 |
+|:----:|:--------:|:--------:|
+| AI SDK | google-genai | REST API 直接调用 |
+| 数据校验 | Pydantic v2 | dataclasses + json |
+| 异步框架 | asyncio | threading |
+| 重试库 | tenacity | 手动实现 |
+| 日志 | loguru | logging |

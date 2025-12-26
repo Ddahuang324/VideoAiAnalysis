@@ -97,6 +97,176 @@ if(NOT ffmpeg_prebuilt_POPULATED)
     endif()
 endif()
 
+# ==================== ONNX Runtime (FetchContent Prebuilt) ====================
+FetchContent_Declare(
+    onnxruntime_prebuilt
+    URL https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-win-x64-1.17.1.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+if(NOT onnxruntime_prebuilt_POPULATED)
+    message(STATUS "Downloading/Extracting ONNX Runtime prebuilt binaries...")
+    FetchContent_Populate(onnxruntime_prebuilt)
+    
+    set(ONNXRUNTIME_ROOT "${onnxruntime_prebuilt_SOURCE_DIR}")
+    set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include")
+    
+    # 查找库文件
+    find_library(ONNXRUNTIME_LIBRARY 
+        NAMES onnxruntime 
+        PATHS "${ONNXRUNTIME_ROOT}/lib" 
+        NO_DEFAULT_PATH
+    )
+    
+    # 查找 DLLs (用于后续运行时拷贝)
+    file(GLOB ONNXRUNTIME_DLLS "${ONNXRUNTIME_ROOT}/lib/*.dll")
+    
+    if(ONNXRUNTIME_LIBRARY)
+        set(ONNXRUNTIME_FOUND TRUE)
+        message(STATUS "✓ ONNX Runtime prebuilt binaries initialized via FetchContent")
+        message(STATUS "  Version: 1.17.1")
+        message(STATUS "  Include: ${ONNXRUNTIME_INCLUDE_DIR}")
+        message(STATUS "  Library: ${ONNXRUNTIME_LIBRARY}")
+    else()
+        message(FATAL_ERROR "Failed to find ONNX Runtime library in downloaded archive")
+    endif()
+endif()
+
+# ==================== OpenCV (Local or FetchContent) ====================
+# 1. 优先尝试通过 find_package 查找 (支持 -DOpenCV_DIR 或环境变量)
+if(NOT OpenCV_FOUND)
+    find_package(OpenCV CONFIG QUIET)
+    if(OpenCV_FOUND)
+        message(STATUS "✓ Found OpenCV via find_package: ${OpenCV_DIR}")
+        set(OpenCV_LIBS ${OpenCV_LIBRARIES})
+        if(NOT OpenCV_INCLUDE_DIRS)
+            set(OpenCV_INCLUDE_DIRS ${OpenCV_INCLUDE_DIR})
+        endif()
+    endif()
+endif()
+
+# 2. 尝试在指定目录手动查找
+if(NOT OpenCV_FOUND)
+    set(OPENCV_CANDIDATES
+        "${CMAKE_SOURCE_DIR}/deps/opencv"
+        "${CMAKE_BINARY_DIR}/_deps/opencv"
+        "C:/opencv"
+    )
+    
+    foreach(CANDIDATE_DIR ${OPENCV_CANDIDATES})
+        if(EXISTS "${CANDIDATE_DIR}")
+            # 优先尝试 CONFIG 模式
+            set(OpenCV_DIR_HINTS 
+                "${CANDIDATE_DIR}"
+                "${CANDIDATE_DIR}/build"
+                "${CANDIDATE_DIR}/build/x64/vc16/lib"
+            )
+            
+            foreach(HINT ${OpenCV_DIR_HINTS})
+                if(EXISTS "${HINT}/OpenCVConfig.cmake")
+                    find_package(OpenCV CONFIG QUIET PATHS "${HINT}" NO_DEFAULT_PATH)
+                    if(OpenCV_FOUND)
+                        message(STATUS "✓ Found OpenCV via CONFIG in: ${HINT}")
+                        set(OpenCV_LIBS ${OpenCV_LIBRARIES})
+                        break()
+                    endif()
+                endif()
+            endforeach()
+
+            if(OpenCV_FOUND)
+                break()
+            endif()
+
+            # 如果 CONFIG 模式失败，尝试手动查找 (针对非标准结构)
+            set(OpenCV_DIR "${CANDIDATE_DIR}")
+            if(EXISTS "${OpenCV_DIR}/build")
+                set(OpenCV_BASE "${OpenCV_DIR}/build")
+            else()
+                set(OpenCV_BASE "${OpenCV_DIR}")
+            endif()
+
+            set(OpenCV_INCLUDE_DIRS "${OpenCV_BASE}/include")
+            file(GLOB_RECURSE OpenCV_LIB_DIR_CANDIDATES LIST_DIRECTORIES true "${OpenCV_BASE}/*/lib")
+            list(APPEND OpenCV_LIB_DIR_CANDIDATES "${OpenCV_BASE}/lib")
+            
+            # 查找库 (增加 opencv_world 支持)
+            find_library(OpenCV_world_LIBRARY 
+                NAMES opencv_world4120 opencv_world480 opencv_world
+                PATHS ${OpenCV_LIB_DIR_CANDIDATES}
+                NO_DEFAULT_PATH
+            )
+            if(OpenCV_world_LIBRARY)
+                set(OpenCV_FOUND TRUE)
+                set(OpenCV_LIBS ${OpenCV_world_LIBRARY})
+            else()
+                find_library(OpenCV_core_LIBRARY 
+                    NAMES opencv_core4120 opencv_core480 opencv_core
+                    PATHS ${OpenCV_LIB_DIR_CANDIDATES}
+                    NO_DEFAULT_PATH
+                )
+                find_library(OpenCV_imgproc_LIBRARY 
+                    NAMES opencv_imgproc4120 opencv_imgproc480 opencv_imgproc
+                    PATHS ${OpenCV_LIB_DIR_CANDIDATES}
+                    NO_DEFAULT_PATH
+                )
+                find_library(OpenCV_imgcodecs_LIBRARY 
+                    NAMES opencv_imgcodecs4120 opencv_imgcodecs480 opencv_imgcodecs
+                    PATHS ${OpenCV_LIB_DIR_CANDIDATES}
+                    NO_DEFAULT_PATH
+                )
+                if(OpenCV_core_LIBRARY)
+                    set(OpenCV_FOUND TRUE)
+                    set(OpenCV_LIBS ${OpenCV_core_LIBRARY} ${OpenCV_imgproc_LIBRARY} ${OpenCV_imgcodecs_LIBRARY})
+                endif()
+            endif()
+
+            if(OpenCV_FOUND)
+                get_filename_component(OpenCV_LIB_REAL_DIR "${OpenCV_LIBS}" DIRECTORY)
+                string(REPLACE "/lib" "/bin" OpenCV_BIN_DIR "${OpenCV_LIB_REAL_DIR}")
+                file(GLOB OpenCV_DLLS "${OpenCV_BIN_DIR}/*.dll")
+                message(STATUS "✓ Using OpenCV from: ${CANDIDATE_DIR}")
+                break()
+            endif()
+        endif()
+    endforeach()
+endif()
+
+# 3. 如果本地没找到，再尝试 FetchContent (或者你可以注释掉这部分强制使用本地)
+if(NOT OpenCV_FOUND)
+    FetchContent_Declare(
+        opencv_prebuilt
+        URL https://github.com/thommyho/Cpp-OpenCV-Windows-PreBuilts/releases/download/v4.8.0/MSVC142_64.zip
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+
+    if(NOT opencv_prebuilt_POPULATED)
+        message(STATUS "Downloading/Extracting OpenCV prebuilt binaries...")
+        FetchContent_Populate(opencv_prebuilt)
+        
+        set(OpenCV_DIR "${opencv_prebuilt_SOURCE_DIR}")
+        set(OpenCV_INCLUDE_DIRS "${OpenCV_DIR}/include")
+        set(OpenCV_LIB_DIR "${OpenCV_DIR}/lib")
+        set(OpenCV_BIN_DIR "${OpenCV_DIR}/bin")
+        
+        find_library(OpenCV_core_LIBRARY NAMES opencv_core480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
+        find_library(OpenCV_imgproc_LIBRARY NAMES opencv_imgproc480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
+        find_library(OpenCV_imgcodecs_LIBRARY NAMES opencv_imgcodecs480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
+        
+        file(GLOB OpenCV_DLLS "${OpenCV_BIN_DIR}/*.dll")
+        
+        if(OpenCV_core_LIBRARY)
+            set(OpenCV_FOUND TRUE)
+            set(OpenCV_LIBS ${OpenCV_core_LIBRARY} ${OpenCV_imgproc_LIBRARY} ${OpenCV_imgcodecs_LIBRARY})
+        endif()
+    endif()
+endif()
+
+if(OpenCV_FOUND)
+    message(STATUS "✓ OpenCV initialized")
+else()
+    message(FATAL_ERROR "OpenCV not found. Please place it in deps/opencv or ensure internet connection.")
+endif()
+
 # 查找 Python
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 message(STATUS "Python version: ${Python_VERSION}")
