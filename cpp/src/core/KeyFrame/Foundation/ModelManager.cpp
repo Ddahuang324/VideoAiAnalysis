@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include "DataConverter.h"
 #include "Log.h"
 #include "ONNXSession.h"
 #include "onnxruntime_c_api.h"
@@ -53,6 +52,57 @@ ONNXSession* ModelManager::getSession(const std::string& modelName) {
         LOG_ERROR("[ModelManager] Model not found: " + modelName);
         return nullptr;
     }
+}
+
+std::vector<std::vector<float>> ModelManager::runInference(
+    const std::string& modelName, const std::vector<std::vector<float>>& inputs) {
+    std::lock_guard<std::mutex> lock(mtx_);
+
+    auto it = onnxSessions_.find(modelName);
+    if (it == onnxSessions_.end()) {
+        LOG_ERROR("[ModelManager] Cannot run inference, model not found: " + modelName);
+        return {};
+    }
+
+    // 使用内存池优化：减少推理过程中的动态内存分配
+    tensorBuffer_.reset();
+    auto outputInfos = it->second->run(inputs, tensorBuffer_);
+
+    // 将结果从内存池拷贝到返回的 vector
+    std::vector<std::vector<float>> results;
+    results.reserve(outputInfos.size());
+
+    for (const auto& info : outputInfos) {
+        results.emplace_back(info.data, info.data + info.elementCount);
+    }
+
+    return results;
+}
+
+std::vector<std::vector<float>> ModelManager::runInference(
+    const std::string& modelName, const std::vector<std::vector<float>>& inputs,
+    const std::vector<std::vector<int64_t>>& inputShapes) {
+    std::lock_guard<std::mutex> lock(mtx_);
+
+    auto it = onnxSessions_.find(modelName);
+    if (it == onnxSessions_.end()) {
+        LOG_ERROR("[ModelManager] Cannot run inference, model not found: " + modelName);
+        return {};
+    }
+
+    // 使用内存池优化：减少推理过程中的动态内存分配
+    tensorBuffer_.reset();
+    auto outputInfos = it->second->run(inputs, inputShapes, tensorBuffer_);
+
+    // 将结果从内存池拷贝到返回的 vector
+    std::vector<std::vector<float>> results;
+    results.reserve(outputInfos.size());
+
+    for (const auto& info : outputInfos) {
+        results.emplace_back(info.data, info.data + info.elementCount);
+    }
+
+    return results;
 }
 
 void ModelManager::warmUpModel() {

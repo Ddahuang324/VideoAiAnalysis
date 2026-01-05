@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ONNXSession.h"
+#include "TensorBuffer.h"
 #include "onnxruntime_cxx_api.h"
 
 namespace KeyFrame {
@@ -28,6 +29,19 @@ public:
 
     ONNXSession* getSession(const std::string& modelName);
 
+    /**
+     * @brief 统一推理接口
+     * @param modelName 模型名称
+     * @param inputs 输入数据 (Batch, Data)
+     * @return 推理结果 (Batch, Data)
+     */
+    std::vector<std::vector<float>> runInference(const std::string& modelName,
+                                                 const std::vector<std::vector<float>>& inputs);
+
+    std::vector<std::vector<float>> runInference(
+        const std::string& modelName, const std::vector<std::vector<float>>& inputs,
+        const std::vector<std::vector<int64_t>>& inputShapes);
+
     void warmUpModel();
 
     bool hasModel(const std::string& modelName) const;
@@ -44,6 +58,7 @@ private:
     std::unique_ptr<Ort::Env> env_;
     mutable std::mutex mtx_;
     std::unordered_map<std::string, std::unique_ptr<ONNXSession>> onnxSessions_;
+    TensorBuffer tensorBuffer_;  // 共享内存池，减少推理时的动态分配
 };
 
 };  // namespace KeyFrame

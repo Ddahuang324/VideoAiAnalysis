@@ -17,6 +17,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 生成 .qmlls.ini 文件，解决 QML 导入警告
 set(QT_QML_GENERATE_QMLLS_INI ON)
 
+# ==================== UTF-8 编码支持 ====================
+# 解决 Windows 下中文路径编码问题
+if(MSVC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32))
+    # MSVC 和 clang-cl: 使用 /utf-8 选项
+    add_compile_options(/utf-8)
+    message(STATUS "Enabled UTF-8 encoding support for MSVC/clang-cl")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # GCC/Clang: 使用 -finput-charset 和 -fexec-charset
+    add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)
+    message(STATUS "Enabled UTF-8 encoding support for GCC/Clang")
+endif()
+
 # ==================== 输出目录设置 ====================
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

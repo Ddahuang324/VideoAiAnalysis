@@ -89,8 +89,8 @@ std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<f
     return extractOutputs(outputTensors);
 }
 
-std::vector<float*> ONNXSession::run(const std::vector<std::vector<float>>& inputs,
-                                     TensorBuffer& outputBuffer) {
+std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vector<float>>& inputs,
+                                                      TensorBuffer& outputBuffer) {
     auto inputTensors = createInputTensors(inputs);
 
     // 从第一个输入推断当前的 Batch Size
@@ -115,7 +115,7 @@ std::vector<float*> ONNXSession::run(const std::vector<std::vector<float>>& inpu
 
     // 准备输出 Tensor，直接使用 TensorBuffer 的内存，避免二次拷贝
     std::vector<Ort::Value> outputTensors;
-    std::vector<float*> outputPtrs;
+    std::vector<OutputInfo> outputInfos;
     std::vector<std::vector<int64_t>> actualOutputShapes;
 
     for (size_t i = 0; i < outputShapes_.size(); ++i) {
@@ -124,7 +124,7 @@ std::vector<float*> ONNXSession::run(const std::vector<std::vector<float>>& inpu
         actualOutputShapes.push_back(shape);
 
         float* ptr = outputBuffer.allocate(elementCount);
-        outputPtrs.push_back(ptr);
+        outputInfos.push_back({ptr, elementCount});
 
         outputTensors.push_back(Ort::Value::CreateTensor<float>(memoryInfo_, ptr, elementCount,
                                                                 actualOutputShapes.back().data(),
@@ -136,7 +136,88 @@ std::vector<float*> ONNXSession::run(const std::vector<std::vector<float>>& inpu
                   inputTensors.size(), outputNames.data(), outputTensors.data(),
                   outputTensors.size());
 
-    return outputPtrs;
+    return outputInfos;
+}
+
+std::vector<ONNXSession::OutputInfo> ONNXSession::run(
+    const std::vector<std::vector<float>>& inputs,
+    const std::vector<std::vector<int64_t>>& inputShapes, TensorBuffer& outputBuffer) {
+    auto inputTensors = createInputTensors(inputs, inputShapes);
+
+    // 从第一个输入推断当前的 Batch Size
+    int64_t currentBatchSize = 1;
+    if (!inputShapes.empty() && !inputShapes[0].empty()) {
+        currentBatchSize = inputShapes[0][0];
+    }
+
+    std::vector<const char*> inputNames;
+    for (const auto& name : inputNodeNames_) {
+        inputNames.push_back(name.c_str());
+    }
+
+    std::vector<const char*> outputNames;
+    for (const auto& name : outputNodeNames_) {
+        outputNames.push_back(name.c_str());
+    }
+
+    // 检查是否可以预分配输出
+    bool canPreAllocate = true;
+    for (const auto& shape : outputShapes_) {
+        for (size_t j = 1; j < shape.size(); ++j) {
+            if (shape[j] <= 0) {
+                canPreAllocate = false;
+                break;
+            }
+        }
+        if (!canPreAllocate)
+            break;
+    }
+
+    if (!canPreAllocate) {
+        // 无法预分配（存在非 Batch 维度的动态形状），让 ORT 分配
+        auto outputTensors =
+            session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
+                          inputTensors.size(), outputNames.data(), outputNames.size());
+
+        std::vector<OutputInfo> outputInfos;
+        for (auto& tensor : outputTensors) {
+            auto info = tensor.GetTensorTypeAndShapeInfo();
+            size_t elementCount = info.GetElementCount();
+
+            float* ptr = outputBuffer.allocate(elementCount);
+            float* tensorData = tensor.GetTensorMutableData<float>();
+
+            std::copy(tensorData, tensorData + elementCount, ptr);
+
+            outputInfos.push_back({ptr, elementCount});
+        }
+        return outputInfos;
+    }
+
+    // 准备输出 Tensor，直接使用 TensorBuffer 的内存，避免二次拷贝
+    std::vector<Ort::Value> outputTensors;
+    std::vector<OutputInfo> outputInfos;
+    std::vector<std::vector<int64_t>> actualOutputShapes;
+
+    for (size_t i = 0; i < outputShapes_.size(); ++i) {
+        std::vector<int64_t> shape = outputShapes_[i];
+        size_t elementCount = computeShapeAndCount(shape, currentBatchSize);
+        actualOutputShapes.push_back(shape);
+
+        float* ptr = outputBuffer.allocate(elementCount);
+        outputInfos.push_back({ptr, elementCount});
+
+        outputTensors.push_back(Ort::Value::CreateTensor<float>(memoryInfo_, ptr, elementCount,
+                                                                actualOutputShapes.back().data(),
+                                                                actualOutputShapes.back().size()));
+    }
+
+    // 执行推理，结果将直接写入 outputBuffer
+    session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
+                  inputTensors.size(), outputNames.data(), outputTensors.data(),
+                  outputTensors.size());
+
+    return outputInfos;
 }
 
 std::vector<int64_t> ONNXSession::getInputShape(size_t index) const {
@@ -168,6 +249,22 @@ std::vector<Ort::Value> ONNXSession::createInputTensors(
         int64_t dynamicValue =
             (staticElements > 0) ? static_cast<int64_t>(data.size() / staticElements) : 1;
         computeShapeAndCount(actualShape, dynamicValue);
+
+        // 把对应的输入数据和格式转换成ONNX的tensor
+        tensors.push_back(
+            Ort::Value::CreateTensor<float>(memoryInfo_, const_cast<float*>(data.data()),
+                                            data.size(), actualShape.data(), actualShape.size()));
+    }
+    return tensors;
+}
+
+std::vector<Ort::Value> ONNXSession::createInputTensors(
+    const std::vector<std::vector<float>>& inputs,
+    const std::vector<std::vector<int64_t>>& explicitShapes) {
+    std::vector<Ort::Value> tensors;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        const auto& data = inputs[i];
+        std::vector<int64_t> actualShape = explicitShapes[i];
 
         // 把对应的输入数据和格式转换成ONNX的tensor
         tensors.push_back(
@@ -213,10 +310,51 @@ void ONNXSession::warmUp() {
 
 size_t ONNXSession::computeShapeAndCount(std::vector<int64_t>& shape, int64_t dynamicValue) {
     size_t count = 1;
-    for (auto& dim : shape) {
-        if (dim <= 0) {
-            dim = dynamicValue;
+    int dynamicDimCount = 0;
+    for (auto dim : shape) {
+        if (dim <= 0)
+            dynamicDimCount++;
+    }
+
+    if (dynamicDimCount > 1 && shape.size() == 4) {
+        // 针对 NCHW 图像输入的特殊处理
+        if (shape[0] <= 0) {
+            shape[0] = 1;  // 假设 Batch Size 为 1
+            dynamicDimCount--;
         }
+
+        if (dynamicDimCount == 2) {
+            // 剩余两个动态维度（通常是 H 和 W）
+            int64_t remainingElements = dynamicValue;
+            int64_t side = static_cast<int64_t>(std::sqrt(remainingElements));
+            if (side * side == remainingElements) {
+                for (auto& dim : shape) {
+                    if (dim <= 0)
+                        dim = side;
+                }
+            } else {
+                // 如果不能整开方，尝试分配给最后一个维度
+                for (size_t i = 0; i < shape.size(); ++i) {
+                    if (shape[i] <= 0) {
+                        shape[i] = remainingElements;
+                        remainingElements = 1;
+                    }
+                }
+            }
+        } else {
+            for (auto& dim : shape) {
+                if (dim <= 0)
+                    dim = dynamicValue;
+            }
+        }
+    } else {
+        for (auto& dim : shape) {
+            if (dim <= 0)
+                dim = dynamicValue;
+        }
+    }
+
+    for (auto dim : shape) {
         count *= static_cast<size_t>(dim);
     }
     return count;

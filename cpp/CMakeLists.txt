@@ -15,6 +15,7 @@ set(CORE_HEADERS
     include/Infra/Log.h
     # KeyFrame 模块头文件
     include/core/KeyFrame/Detectors/MotionDetector.h
+    include/core/KeyFrame/Detectors/MotionVisualizer.h
     include/core/KeyFrame/Detectors/SceneChangeDetector.h
     include/core/KeyFrame/Detectors/TextDetector.h
     include/core/KeyFrame/Foundation/DataConverter.h
@@ -36,6 +37,7 @@ add_library(ai_video_core STATIC
     src/core/ScreenRecorder/ProcessLayer/FrameGrabberThread.cpp
     # KeyFrame 模块源文件
     src/core/KeyFrame/Detectors/MotionDetector.cpp
+    src/core/KeyFrame/Detectors/MotionVisualizer.cpp
     src/core/KeyFrame/Detectors/SceneChangeDetector.cpp
     src/core/KeyFrame/Detectors/TextDetector.cpp
     src/core/KeyFrame/Foundation/DataConverter.cpp
