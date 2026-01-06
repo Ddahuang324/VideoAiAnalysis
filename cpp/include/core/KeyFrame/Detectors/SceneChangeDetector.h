@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -10,6 +11,8 @@
 #include "ModelManager.h"
 
 namespace KeyFrame {
+
+class FrameResource;  // 前向声明
 
 class SceneChangeDetector {
 public:
@@ -34,6 +37,7 @@ public:
 
     // 检测场景变化
     Result detect(const cv::Mat& frame);
+    Result detect(std::shared_ptr<FrameResource> resource);
 
     // 重置状态
     void reset();

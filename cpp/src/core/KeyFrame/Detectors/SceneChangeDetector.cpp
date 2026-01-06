@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
+#include <string>
 #include <vector>
 
 #include "DataConverter.h"
+#include "FrameResource.h"
 #include "Log.h"
 #include "ModelManager.h"
 
@@ -22,16 +25,27 @@ SceneChangeDetector::SceneChangeDetector(ModelManager& modelManager, const Confi
 }
 
 SceneChangeDetector::Result SceneChangeDetector::detect(const cv::Mat& frame) {
+    return detect(std::make_shared<FrameResource>(frame));
+}
+
+SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameResource> resource) {
     Result result;
-    std::vector<float> inputData = preProcessFrame(frame);
-    // 预处理帧
-    if (inputData.empty()) {
+    std::vector<float> inputData;
+
+    // 使用 FrameResource 缓存预处理后的 Tensor
+    std::string cacheKey = "scene_tensor_" + std::to_string(config_.inputsize);
+    auto cachedTensor = resource->getOrGenerate<std::vector<float>>(cacheKey, [&]() {
+        return std::make_shared<std::vector<float>>(preProcessFrame(resource->getOriginalFrame()));
+    });
+
+    if (!cachedTensor || cachedTensor->empty()) {
         LOG_ERROR("Failed to preprocess frame for scene change detection.");
         return result;
     }
 
-    // 提取特征向量
+    inputData = *cachedTensor;
 
+    // 提取特征向量
     std::vector<float> currentFeature = extractFeature(inputData);
     if (currentFeature.empty()) {
         LOG_ERROR("Failed to extract feature for scene change detection.");

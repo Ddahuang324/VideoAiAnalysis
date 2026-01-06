@@ -1,5 +1,6 @@
 #include "ModelManager.h"
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>

@@ -5,14 +5,18 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "DataConverter.h"
+#include "FrameResource.h"
 #include "Log.h"
 #include "ModelManager.h"
 
@@ -32,11 +36,18 @@ TextDetector::TextDetector(ModelManager& modelManager, const Config& config)
 }
 
 TextDetector::Result TextDetector::detect(const cv::Mat& frame) {
+    return detect(std::make_shared<FrameResource>(frame));
+}
+
+TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resource) {
+    const cv::Mat& frame = resource->getOriginalFrame();
     if (frame.empty()) {
         return Result();
     }
 
     // 1. 检测文本区域 (PaddleOCR Det)
+    // 注意：这里 detectTextRegions 内部也可以优化，但目前先保持原样，
+    // 因为它涉及复杂的 Letterbox 预处理。
     std::vector<std::vector<cv::Point>> polygons = detectTextRegions(frame);
 
     // 流程图：检测到文本？ 否 -> 返回分数 0.0

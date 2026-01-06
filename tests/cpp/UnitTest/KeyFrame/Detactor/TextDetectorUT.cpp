@@ -1,13 +1,24 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
 #ifdef _WIN32
 #    include <windows.h>
+#    include <winnls.h>
+
+#    include "consoleapi2.h"
+
+
 #endif
 
 #include "DataConverter.h"

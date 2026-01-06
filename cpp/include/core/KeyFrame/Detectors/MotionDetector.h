@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
@@ -10,6 +12,8 @@
 #include "ModelManager.h"
 
 namespace KeyFrame {
+
+class FrameResource;  // 前向声明
 
 class MotionDetector {
 public:
@@ -69,6 +73,7 @@ public:
      * @return 检测结果
      */
     Result detect(const cv::Mat& frame);
+    Result detect(std::shared_ptr<FrameResource> resource);
 
     /**
      * @brief 重置检测器状态

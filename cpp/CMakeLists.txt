@@ -22,6 +22,11 @@ set(CORE_HEADERS
     include/core/KeyFrame/Foundation/ModelManager.h
     include/core/KeyFrame/Foundation/ONNXSession.h
     include/core/KeyFrame/Foundation/TensorBuffer.h
+    include/core/KeyFrame/FrameAnaylzer/DynamicCalculator.h
+    include/core/KeyFrame/FrameAnaylzer/FrameScorer.h
+    include/core/KeyFrame/FrameAnaylzer/IFrameAnalyzer.h
+    include/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.h
+    include/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.h
 )
 
 add_library(ai_video_core STATIC
@@ -44,6 +49,10 @@ add_library(ai_video_core STATIC
     src/core/KeyFrame/Foundation/ModelManager.cpp
     src/core/KeyFrame/Foundation/ONNXSession.cpp
     src/core/KeyFrame/Foundation/TensorBuffer.cpp
+    src/core/KeyFrame/FrameAnaylzer/DynamicCalculator.cpp
+    src/core/KeyFrame/FrameAnaylzer/FrameScorer.cpp
+    src/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.cpp
+    src/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.cpp
 )
 
 target_include_directories(ai_video_core PUBLIC
@@ -64,6 +73,7 @@ target_include_directories(ai_video_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Detectors
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Foundation
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/FrameAnaylzer
 )
 
 # 链接 FFmpeg

@@ -5,6 +5,8 @@
 #include <exception>
 #include <iomanip>
 #include <ios>
+#include <memory>
+#include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/dnn/dnn.hpp>
@@ -14,6 +16,7 @@
 #include <vector>
 
 #include "DataConverter.h"
+#include "FrameResource.h"
 #include "Log.h"
 #include "ModelManager.h"
 
@@ -26,29 +29,28 @@ MotionDetector::MotionDetector(ModelManager& modelManager, const Config& config,
       config_(config) {}
 
 MotionDetector::Result MotionDetector::detect(const cv::Mat& frame) {
+    return detect(std::make_shared<FrameResource>(frame));
+}
+
+MotionDetector::Result MotionDetector::detect(std::shared_ptr<FrameResource> resource) {
+    const cv::Mat& frame = resource->getOriginalFrame();
     // 输入验证
     if (frame.empty()) {
         LOG_WARN("[MotionDetector] 输入帧为空，返回默认结果");
         return Result{0.0f, {}, 0, 0, 0.0f, 0.0f};
     }
 
-    {
-        std::ostringstream oss;
-        oss << "[MotionDetector] 开始检测，帧尺寸: " << frame.cols << "x" << frame.rows;
-        LOG_DEBUG(oss.str());
+    // 预处理 (使用 FrameResource 缓存)
+    std::string cacheKey = "motion_tensor_" + std::to_string(config_.inputWidth);
+    auto cachedTensor = resource->getOrGenerate<std::vector<float>>(
+        cacheKey, [&]() { return std::make_shared<std::vector<float>>(preprocessFrame(frame)); });
+
+    if (!cachedTensor || cachedTensor->empty()) {
+        LOG_ERROR("[MotionDetector] 预处理失败，返回默认结果");
+        return Result{0.0f, activeTracks_, 0, 0, 0.0f, 0.0f};
     }
 
-    // 预处理
-    std::vector<float> inputData = preprocessFrame(frame);
-    if (inputData.empty()) {
-        LOG_ERROR("[MotionDetector] 预处理失败，返回默认结果");
-        return Result{0.0f, {}, 0, 0, 0.0f, 0.0f};
-    }
-    {
-        std::ostringstream oss;
-        oss << "[MotionDetector] 预处理完成，输入数据大小: " << inputData.size();
-        LOG_DEBUG(oss.str());
-    }
+    std::vector<float> inputData = *cachedTensor;
 
     // 模型推理
     std::vector<std::vector<float>> outputs = modelManager_.runInference(modelName_, {inputData});
