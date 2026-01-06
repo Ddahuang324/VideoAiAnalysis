@@ -32,7 +32,6 @@ extern "C" {
 #include "Log.h"
 #include "VideoGrabber.h"
 
-
 // 辅助函数：将GDI PixelFormat转换为FFmpeg AVPixelFormat
 static AVPixelFormat convertGdiPixelFormat(PixelFormat format) {
     switch (format) {
@@ -497,7 +496,8 @@ bool FFmpegWrapper::step6_muxAndWritePacket(AVPacket* packet, AVStream* stream) 
 
     // 调整时间戳
     AVCodecContext* ctx = (stream == videoStream_) ? codecContext_.get() : audioCodecContext_.get();
-    av_packet_rescale_ts(packet, ctx->time_base, stream->time_base);
+    av_packet_rescale_ts(packet, ctx->time_base,
+                         stream->time_base);  // 多时间基 在这里转化为mp4时间基
 
     // 写入文件
     int ret = av_interleaved_write_frame(formatContext_.get(), packet);

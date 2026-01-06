@@ -1,0 +1,99 @@
+# 关键帧智能选择架构：实施路线图 (Implementation Roadmap)
+
+> **目标**：将关键帧选择架构拆分为高度模块化的子任务，降低耦合度，确保各组件可独立开发与验证。
+
+---
+
+## 📅 实施路线图总览
+
+本项目的实施将分为六个核心阶段，每个阶段都专注于架构中的特定层级。
+
+```mermaid
+gantt
+    title 关键帧选择架构开发计划
+    dateFormat  YYYY-MM-DD
+    section 基础设施
+    依赖集成与模型管理       :active, p1, 2025-12-25, 3d
+    section 预处理层
+    FFmpeg 解码与预筛选     :p2, after p1, 4d
+    section 核心 AI 模块
+    场景变化检测 (MobileNet) :p3, after p2, 5d
+    运动检测 (YOLO+Byte)    :p4, after p2, 6d
+    文字检测 (PaddleOCR)    :p5, after p2, 6d
+    section 评分与决策
+    评分逻辑与动态权重       :p6, after p3 p4 p5, 4d
+    section 性能加速
+    流水线与并行化策略       :p7, after p6, 5d
+```
+
+---
+
+## 🛠️ 模块化任务拆分
+
+### 1. 基础设施与模型管理 (`Foundation`)
+- **目标**：建立统一的模型加载与推理接口，管理底层环境。
+- **子任务**：
+    - [ ] **依赖配置**：集成 ONNX Runtime (CPU/GPU) 与库环境。
+    - [ ] **ModelManager 实现**：单例类，负责多模型的并发加载、预热及缓存策略。
+    - [ ] **通用 Tensor 转换工具**：将 OpenCV `cv::Mat` 高效转换为模型所需的输入格式。
+
+### 2. 解码流水线 (`Frontend`)
+- **目标**：实现视频帧的高效获取与线程间传递。
+- **子任务**：
+    - [ ] **FFmpegDecoder 封装**：支持异步取帧，维护固定容量的 `FrameBuffer`，确保解码不阻塞 AI 推理。
+
+### 3. 三维核心检测引擎 (`Core Engine`)
+- **目标**：实现具体的 AI 评分维度。
+- **子任务**：
+    - [ ] **SceneChange 模块**：
+        - 实现 `SceneChangeDetector`。
+        - 集成 MobileNetV3-Small，提取 1280 维特征。
+    - [ ] **Motion 模块**：
+        - 实现 `MotionDetector`。
+        - YOLOv8n 推理封装 + ByteTrack 跟踪器集成。
+    - [ ] **OCR 模块**：
+        - 实现 `TextDetector`。
+        - 封装 PaddleOCR 的 Det/Rec 两个阶段。
+
+### 4. 智能评分与决策系统 (`Intelligence`)
+- **目标**：将原始检测数据转化为最终的决策信号。
+- **子任务**：
+    - [ ] **DynamicWeightCalculator**：根据各维度的活跃度（Activation）实时计算权重，解决单一维度权重过高的问题。
+    - [ ] **KeyFrameSelector**：帧排序与窗口选择算法，确保关键帧分布均匀。
+
+### 5. 高性能工程化加速 (`Performance`)
+- **目标**：利用 C++ 特性提升吞吐量。
+- **子任务**：
+    - [ ] **PipelineController**：搭建生产者-消费者三级流水线（解码 -> 预排 -> 推理）。
+    - [ ] **并行的检测池**：利用 `std::async` 或自定义线程池让三个检测器在同一时刻分析同一帧。
+
+---
+
+## 📐 模块间耦合关系
+
+通过接口抽象，各模块通过 `FrameContext` 进行数据共享，减少直接调用：
+
+```mermaid
+graph LR
+    Decoder -->|Frame| ParallelAnalyzer
+    
+    subgraph ParallelAnalyzer
+        A1[Scene Detector]
+        A2[Motion Detector]
+        A3[Text Detector]
+    end
+    
+    A1 & A2 & A3 -->|Dimensions| Scorer
+    Scorer -->|Decision| FinalOutput
+```
+
+---
+
+## 🚩 阶段性验收标准 (Milestones)
+
+| 阶段 | 验收产物 | 核心指标 |
+| :--- | :--- | :--- |
+| **M1** | `ModelManager` 单元测试 | 所有模型通过预热，无内存泄漏 |
+| M2 | 视觉化检测工具 | 能够在视频上实时标注物体位置与 OCR 结果 |
+| M3 | 离线压缩工具 | 基于全量 1fps 帧分析，实现关键帧精准提取 |
+| **M4** | 性能调优报告 | 在主流 CPU 上实现约 3x 的处理加速 |

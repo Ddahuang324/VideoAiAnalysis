@@ -28,6 +28,15 @@ function(register_tests_under BASE_DIR PREFIX)
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/ProcessLayer
                 ${CMAKE_SOURCE_DIR}/cpp/include/Infra
+                ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Detectors
+                ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Foundation
+        )
+
+        # 添加编译定义，供 C++ 代码定位资源
+        target_compile_definitions(${EXEC_NAME}
+            PRIVATE
+                TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/tests/cpp/UnitTest/KeyFrame/TestImage"
+                TEST_MODELS_DIR="${CMAKE_SOURCE_DIR}/Models"
         )
 
         # 链接核心库与 GTest
