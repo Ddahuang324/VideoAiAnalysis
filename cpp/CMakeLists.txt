@@ -27,6 +27,18 @@ set(CORE_HEADERS
     include/core/KeyFrame/FrameAnaylzer/IFrameAnalyzer.h
     include/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.h
     include/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.h
+    include/core/MQInfra/FramePublisher.h
+    include/core/MQInfra/FrameSubscriber.h
+    include/core/MQInfra/KeyFrameMetaDataPublisher.h
+    include/core/MQInfra/KeyFrameMetaDataSubscriber.h
+    include/core/MQInfra/Protocol.h
+    include/core/KeyFrame/FrameAnaylzer/FrameAnalyzer.h
+    include/core/KeyFrame/FrameAnaylzer/FrameResource.h
+    include/core/ScreenRecorder/ProcessLayer/FrameGrabberThread.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/DXGI_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/GDI_Grabber.h
 )
 
 add_library(ai_video_core STATIC
@@ -53,6 +65,22 @@ add_library(ai_video_core STATIC
     src/core/KeyFrame/FrameAnaylzer/FrameScorer.cpp
     src/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.cpp
     src/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.cpp
+    src/Infra/Log.cpp
+    src/core/MQInfra/FramePublisher.cpp
+    src/core/MQInfra/FrameSubscriber.cpp
+    src/core/MQInfra/KeyFrameMetaDataPublisher.cpp
+    src/core/MQInfra/KeyFrameMetaDataSubscriber.cpp
+    src/core/MQInfra/Protocol.cpp
+    src/core/ScreenRecorder/ScreenRecorder.cpp
+    src/core/KeyFrame/FrameAnaylzer/FrameAnalyzer.cpp
+    src/core/KeyFrame/FrameAnaylzer/FrameResource.cpp
+    src/core/KeyFrame/FrameAnaylzer/IFrameAnalyzer.cpp
+    src/core/ScreenRecorder/ProcessLayer/ThreadSafetyQueue.cpp
+    src/core/ScreenRecorder/CaptureLayer/AudioGrabber/AudioData.cpp
+    src/core/ScreenRecorder/CaptureLayer/AudioGrabber/AudioGrabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/VideoGrabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.cpp
 )
 
 target_include_directories(ai_video_core PUBLIC
@@ -127,6 +155,25 @@ if(OpenCV_FOUND)
     endif()
     
     message(STATUS "✓ Linked OpenCV to ai_video_core")
+endif()
+
+# ==================== ZeroMQ 链接（如果通过根 CMake 拉取） ====================
+if(TARGET cppzmq::cppzmq OR TARGET cppzmq OR TARGET libzmq::libzmq OR TARGET libzmq)
+    message(STATUS "ZeroMQ targets detected; linking to ai_video_core if available")
+    # 尝试以规范的命名空间链接（优先使用 namespaced alias）
+    if(TARGET cppzmq::cppzmq)
+        target_link_libraries(ai_video_core PUBLIC cppzmq::cppzmq)
+    elseif(TARGET cppzmq)
+        target_link_libraries(ai_video_core PUBLIC cppzmq)
+    endif()
+
+    if(TARGET libzmq::libzmq)
+        target_link_libraries(ai_video_core PUBLIC libzmq::libzmq)
+    elseif(TARGET libzmq)
+        target_link_libraries(ai_video_core PUBLIC libzmq)
+    endif()
+
+    message(STATUS "✓ Linked ZeroMQ (if targets provided by FetchContent)")
 endif()
 
 target_compile_features(ai_video_core PUBLIC cxx_std_17)

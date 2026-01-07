@@ -142,6 +142,52 @@ if(NOT onnxruntime_prebuilt_POPULATED)
     else()
         message(FATAL_ERROR "Failed to find ONNX Runtime library in downloaded archive")
     endif()
+
+    # ==================== ZeroMQ (libzmq + cppzmq via FetchContent) ====================
+    # 使用 FetchContent 下载并构建 libzmq 与 cppzmq（C++ 绑定）
+    FetchContent_Declare(
+        libzmq
+        GIT_REPOSITORY https://github.com/zeromq/libzmq.git
+        GIT_TAG v4.3.4
+    )
+
+    FetchContent_Declare(
+        cppzmq
+        GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+        GIT_TAG v4.9.0
+    )
+
+    if(NOT libzmq_POPULATED OR NOT cppzmq_POPULATED)
+        message(STATUS "Fetching ZeroMQ (libzmq + cppzmq) via FetchContent...")
+        # Disable building tests in libzmq to speed up
+        set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+        set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        # Disable libzmq precompiled headers to avoid duplicate PCH outputs when
+        # building as a subproject (prevents "multiple rules generate precompiled.hpp")
+        set(ENABLE_PRECOMPILED OFF CACHE BOOL "Disable precompiled headers for libzmq subbuild" FORCE)
+        # Disable examples/tests and optional crypto integrations in subprojects
+        # to avoid extra CMake warnings and optional dependency searches.
+        set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building examples in subprojects" FORCE)
+        set(CPPZMQ_BUILD_EXAMPLES OFF CACHE BOOL "Disable cppzmq examples" FORCE)
+        set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "Disable cppzmq tests" FORCE)
+        # Prefer not to try to find optional crypto libs here (user can enable if installed)
+        set(WITH_LIBSODIUM OFF CACHE BOOL "Don't attempt to use libsodium in subproject build" FORCE)
+        set(WITH_GNUTLS OFF CACHE BOOL "Don't attempt to use GnuTLS in subproject build" FORCE)
+        # Also disable WSS/TLS and NSS probing in libzmq subbuild to avoid warnings
+        set(WITH_TLS OFF CACHE BOOL "Don't attempt to enable WSS/TLS in subproject build" FORCE)
+        set(WITH_NSS OFF CACHE BOOL "Don't attempt to use NSS in subproject build" FORCE)
+        FetchContent_MakeAvailable(libzmq cppzmq)
+
+        # Create namespaced aliases so downstream code can reliably link
+        if(TARGET cppzmq)
+            add_library(cppzmq::cppzmq ALIAS cppzmq)
+        endif()
+        if(TARGET libzmq)
+            add_library(libzmq::libzmq ALIAS libzmq)
+        endif()
+
+        message(STATUS "✓ ZeroMQ (libzmq + cppzmq) available via FetchContent if targets exist")
+    endif()
 endif()
 
 # ==================== OpenCV (Local or FetchContent) ====================
