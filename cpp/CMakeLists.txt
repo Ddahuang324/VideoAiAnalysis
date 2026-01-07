@@ -39,6 +39,7 @@ set(CORE_HEADERS
     include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.h
     include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/DXGI_Grabber.h
     include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/GDI_Grabber.h
+    include/core/ScreenRecorder/RingFrameBuffer.h
 )
 
 add_library(ai_video_core STATIC
@@ -81,6 +82,7 @@ add_library(ai_video_core STATIC
     src/core/ScreenRecorder/CaptureLayer/VideoGrabber/VideoGrabber.cpp
     src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.cpp
     src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.cpp
+    src/core/ScreenRecorder/RingFrameBuffer.cpp
 )
 
 target_include_directories(ai_video_core PUBLIC

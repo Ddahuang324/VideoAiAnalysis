@@ -1,11 +1,20 @@
 #include "GDI_Grabber.h"
 
+#include <opencv2/core/hal/interface.h>
+
 #include <chrono>
 #include <cstring>
 #include <exception>
+#include <memory>
+#include <opencv2/core/mat.hpp>
 #include <string>
 
 #include "Infra/Log.h"
+#include "VideoGrabber.h"
+#include "windef.h"
+#include "wingdi.h"
+#include "winuser.h"
+
 
 GDI_Grabber::GDI_Grabber() = default;
 GDI_Grabber::~GDI_Grabber() {
@@ -119,6 +128,7 @@ FrameData GDI_Grabber::CaptureFrame(int timeout_ms) {
         std::memcpy(frame.data, m_guard->getMemoryBits(), size);
 
         frame.format = PixelFormat::BGRA;
+        frame.frame = cv::Mat(m_height, m_width, CV_8UC4, frame.data);
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();

@@ -1,5 +1,7 @@
 #include "core/MQInfra/FramePublisher.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <zmq.hpp>
 
@@ -20,8 +22,13 @@ bool FramePublisher::initialize(const std::string& endpoint) {
 }
 
 bool FramePublisher::publish(const Protocol::FrameMessage& frame) {
-    if (!Protocol::sendFrameMessageZeroCopy(publisher_, frame)) {
-        LOG_ERROR("Failed to send frame message");
+    return publishRaw(frame.header, frame.image_data.data(), frame.image_data.size(), frame.crc32);
+}
+
+bool FramePublisher::publishRaw(const Protocol::FrameHeader& header, const void* data,
+                                size_t data_size, uint32_t crc) {
+    if (!Protocol::sendFrameRawZeroCopy(publisher_, header, data, data_size, crc)) {
+        LOG_ERROR("Failed to send raw frame message");
         stats_.total_dropped_frames += 1;
         return false;
     }

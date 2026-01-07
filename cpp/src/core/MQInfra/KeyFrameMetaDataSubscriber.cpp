@@ -41,7 +41,12 @@ std::optional<Protocol::KeyFrameMetaDataMessage> KeyFrameMetaDataSubscriber::rec
     } catch (const std::exception& e) {
         return std::nullopt;
     }
-    subscriber_.close();
-    context_.close();
+}
+
+void KeyFrameMetaDataSubscriber::shutdown() {
+    try {
+        subscriber_.close();
+    } catch (...) {
+    }
 }
 }  // namespace MQInfra

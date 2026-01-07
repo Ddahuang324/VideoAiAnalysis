@@ -16,7 +16,6 @@
 #include "core/ScreenRecorder/ProcessLayer/FFmpegWrapper.h"
 #include "core/ScreenRecorder/ScreenRecorder.h"
 
-
 namespace py = pybind11;
 
 // ============================================================================
@@ -155,6 +154,19 @@ void bind_Screen_Recorder(py::module& m) {
 
         .def("resume_recording", &ScreenRecorder::resumeRecording,
              py::call_guard<py::gil_scoped_release>(), "恢复录制")
+
+        // ====================================================================
+        // ZMQ 发布与关键帧接收
+        // ====================================================================
+        .def("start_publishing", &ScreenRecorder::startPublishing,
+             py::call_guard<py::gil_scoped_release>(), "开始发布帧数据到 ZMQ")
+        .def("stop_publishing", &ScreenRecorder::stopPublishing,
+             py::call_guard<py::gil_scoped_release>(), "结束发布帧数据")
+        .def("start_key_frame_receiving", &ScreenRecorder::startKeyFrameMetaDataReceiving,
+             py::arg("key_frame_path"), py::call_guard<py::gil_scoped_release>(),
+             "开始接收关键帧元数据并启动编码器")
+        .def("stop_key_frame_receiving", &ScreenRecorder::stopKeyFrameMetaDataReceiving,
+             py::call_guard<py::gil_scoped_release>(), "结束关键帧接收与编码")
 
         // 状态查询方法
         .def("get_frame_count", &ScreenRecorder::getFrameCount, "获取已捕获的帧数")

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <zmq.hpp>
@@ -22,6 +23,8 @@ public:
     bool initialize(const std::string& endpoint = "tcp://*:5555");
 
     bool publish(const Protocol::FrameMessage& frame);
+    bool publishRaw(const Protocol::FrameHeader& header, const void* data, size_t data_size,
+                    uint32_t crc);
     Stats getStats() const;
     void shutdown();
 

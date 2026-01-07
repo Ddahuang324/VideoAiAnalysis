@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <opencv2/core.hpp>
+#include <opencv2/core/mat.hpp>
 
 enum class PixelFormat {
     UNKNOWN,
@@ -17,7 +19,8 @@ struct FrameData {
     int height;
     PixelFormat format;
     int64_t timestamp_ms;
-
+    uint32_t frame_ID;
+    cv::Mat frame;
     std::shared_ptr<uint8_t> data_holder;
 
     FrameData()

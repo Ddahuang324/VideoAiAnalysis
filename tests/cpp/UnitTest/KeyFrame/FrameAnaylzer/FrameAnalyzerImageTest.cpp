@@ -2,6 +2,10 @@
 
 #ifdef _WIN32
 #    include <windows.h>
+
+#    include "consoleapi2.h"
+#    include "winnls.h"
+
 #endif
 
 #include <cstddef>

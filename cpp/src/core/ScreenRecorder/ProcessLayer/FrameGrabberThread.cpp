@@ -12,7 +12,6 @@
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
-
 FrameGrabberThread::FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber,
                                        ThreadSafetyQueue<FrameData>& queue, int target_fps)
     : grabber_(grabber), frame_queue_(queue), m_thread(nullptr), target_fps_(target_fps) {}
@@ -142,6 +141,9 @@ void FrameGrabberThread::captureLoop() {
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - start_time_)
                                  .count();
+
+        // 生成帧ID：使用当前已捕获帧数 +1 作为新帧ID
+        frame.frame_ID = captured_frame_count_.load() + 1;
 
         if (!frame_queue_.push(frame, std::chrono::milliseconds(100))) {
             dropped_frame_count_++;

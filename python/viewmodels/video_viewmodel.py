@@ -163,11 +163,18 @@ class VideoViewModel(QObject):
             success = recorder.start_recording(str(output_path))
             
             if success:
+                # 同时启动 ZMQ 发布和关键帧接收
+                # 生成关键帧输出文件名
+                keyframe_output_path = output_dir / f"recording_{timestamp}_keyframes.mp4"
+                recorder.start_publishing()
+                recorder.start_key_frame_receiving(str(keyframe_output_path))
+                
                 self._is_recording = True
                 self.recordingStateChanged.emit(True)
                 self._status = f"Recording to: {output_path.name}"
                 self.statusChanged.emit(self._status)
-                print(f"[VideoViewModel] ✅ 录制已开始")
+                print(f"[VideoViewModel] ✅ 录制及发布已开始")
+                print(f"[VideoViewModel] 🔑 关键帧将保存至: {keyframe_output_path.name}")
                 return True
             else:
                 error_msg = "Failed to start recording"
@@ -188,6 +195,11 @@ class VideoViewModel(QObject):
             print("[VideoViewModel] 停止录制")
             
             recorder = self._service.get_screen_recorder()
+            
+            # 停止关键帧接收和 ZMQ 发布
+            recorder.stop_key_frame_receiving()
+            recorder.stop_publishing()
+            
             recorder.stop_recording()
             
             self._is_recording = False
@@ -195,7 +207,7 @@ class VideoViewModel(QObject):
             self._status = "Recording stopped"
             self.statusChanged.emit(self._status)
             
-            print("[VideoViewModel] ✅ 录制已停止")
+            print("[VideoViewModel] ✅ 录制及其相关服务已停止")
             return True
             
         except Exception as e:

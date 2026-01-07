@@ -28,6 +28,7 @@ function(register_tests_under BASE_DIR PREFIX)
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer/SpecificGrabber/Win
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/ProcessLayer
                 ${CMAKE_SOURCE_DIR}/cpp/include/Infra
+                ${CMAKE_SOURCE_DIR}/cpp/include/core/MQInfra
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Detectors
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Foundation
         )

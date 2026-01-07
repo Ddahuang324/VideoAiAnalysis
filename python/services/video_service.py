@@ -160,7 +160,46 @@ class ScreenRecorderService:
         except Exception as e:
             print(f"[ScreenRecorderService] Error resuming recording: {e}")
             raise
-    
+
+    def start_publishing(self) -> bool:
+        """开始发布帧数据到 ZMQ"""
+        if not self._recorder:
+            return False
+        try:
+            return self._recorder.start_publishing()
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error starting publishing: {e}")
+            return False
+
+    def stop_publishing(self):
+        """停止发布帧数据"""
+        if not self._recorder:
+            return
+        try:
+            self._recorder.stop_publishing()
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error stopping publishing: {e}")
+
+    def start_key_frame_receiving(self, key_frame_path: str) -> bool:
+        """开始接收关键帧并启动编码"""
+        if not self._recorder:
+            return False
+        try:
+            # key_frame_path 需要是完整的文件路径
+            return self._recorder.start_key_frame_receiving(key_frame_path)
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error starting key frame receiving: {e}")
+            return False
+
+    def stop_key_frame_receiving(self):
+        """停止关键帧接收"""
+        if not self._recorder:
+            return
+        try:
+            self._recorder.stop_key_frame_receiving()
+        except Exception as e:
+            print(f"[ScreenRecorderService] Error stopping key frame receiving: {e}")
+
     def is_recording(self) -> bool:
         """检查是否正在录制"""
         if not self._recorder:
