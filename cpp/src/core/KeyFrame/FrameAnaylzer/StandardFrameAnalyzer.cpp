@@ -71,7 +71,7 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
     auto textFuture = std::async(std::launch::async, [&]() {
         if (textDetector_) {
             auto result = textDetector_->detect(resource);
-            float score = result.textRegions.empty() ? 0.0f : 1.0f;
+            float score = static_cast<float>(result.score);
             return std::make_pair(result, score);
         }
         return std::make_pair(TextDetector::Result{}, 0.0f);

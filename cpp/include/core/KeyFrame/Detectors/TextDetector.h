@@ -24,6 +24,8 @@ public:
         float detThreshold = 0.3f;  // 检测置信度阈值
         float recThreshold = 0.5f;  // 识别置信度阈值
 
+        bool enableRecognition = false;  // 是否启用文本识别（识别很慢，评分阶段建议关闭）
+
         // 权重参数
         float alpha = 0.6f;  // 文本区域覆盖率权重
         float beta = 0.4f;   // 文本变化率权重

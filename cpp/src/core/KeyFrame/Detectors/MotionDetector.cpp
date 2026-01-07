@@ -240,10 +240,24 @@ std::vector<float> MotionDetector::preprocessFrame(const cv::Mat& frame) {
 
 std::vector<MotionDetector::Detection> MotionDetector::postprocessDetections(
     const std::vector<std::vector<float>>& outputs, const cv::Size& originalSize) {
+    if (outputs.empty() || outputs[0].empty()) {
+        LOG_ERROR("[MotionDetector] 后处理输入为空");
+        return {};
+    }
+
     // YOLOv8n 输出通常为: [1, 84, 8400]
     // 84 = 4 (bbox: cx, cy, w, h) + 80 (classes)
     const int numClasses = 80;
     const int numProposals = 8400;
+    const size_t expectedSize = static_cast<size_t>(numClasses + 4) * numProposals;
+
+    if (outputs[0].size() < expectedSize) {
+        std::ostringstream oss;
+        oss << "[MotionDetector] 模型输出大小不匹配. 期望: " << expectedSize
+            << ", 实际: " << outputs[0].size();
+        LOG_ERROR(oss.str());
+        return {};
+    }
 
     std::vector<cv::Rect> bboxes;
     std::vector<float> scores;
@@ -297,7 +311,13 @@ std::vector<MotionDetector::Detection> MotionDetector::postprocessDetections(
 
     std::vector<Detection> nmsResults;
     for (int idx : nmsIndices) {
-        nmsResults.push_back({bboxes[idx], scores[idx], classIds[idx]});
+        if (idx >= 0 && static_cast<size_t>(idx) < bboxes.size()) {
+            nmsResults.push_back({bboxes[idx], scores[idx], classIds[idx]});
+        } else {
+            std::ostringstream oss;
+            oss << "[MotionDetector] NMS 索引越界: " << idx << ", bboxes size: " << bboxes.size();
+            LOG_ERROR(oss.str());
+        }
     }
 
     return nmsResults;

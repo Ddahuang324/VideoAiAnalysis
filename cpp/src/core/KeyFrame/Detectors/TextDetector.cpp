@@ -67,14 +67,18 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
         if (rect.width < 4 || rect.height < 4)
             continue;
 
-        cv::Mat crop = frame(rect);
-        std::string text = recognizeText(crop);
-
         TextRegion region;
         region.polygon = poly;
-        region.text = text;
-        region.confidence = 1.0f;  // 简化处理
         region.boundingBox = rect;
+        region.confidence = 1.0f;  // 简化处理
+
+        if (config_.enableRecognition) {
+            cv::Mat crop = frame(rect);
+            region.text = recognizeText(crop);
+        } else {
+            region.text = "";
+        }
+
         currentRegions.push_back(region);
     }
 

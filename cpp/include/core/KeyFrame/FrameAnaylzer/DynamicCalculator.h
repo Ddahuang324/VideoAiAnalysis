@@ -10,10 +10,10 @@ namespace KeyFrame {
 class DynamicCalculator {
 public:
     struct Config {
-        std::vector<float> baseWeights = {0.45f, 0.35f, 0.20f};  // 场景、运动、文本的基础权重
+        std::vector<float> baseWeights = {0.45f, 0.2f, 0.35f};  // 场景、运动、文本的基础权重
 
         float currentFrameWeight = 0.3f;   // 当前帧权重
-        float activationInfluence = 0.5f;  // 激活影响因子
+        float activationInfluence = 0.5f;  // 激活度的重要性
 
         int historyWindowSize = 30;  // 历史帧数窗口大小
 

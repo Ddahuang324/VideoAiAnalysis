@@ -336,6 +336,100 @@ class ArtifactConverter:
         
         return processed_text
     
+    def process_png_images(self, markdown_text: str) -> str:
+        """
+        处理Markdown中的本地PNG图片路径,将图片移动到images文件夹并替换为相对路径
+        
+        支持的路径格式:
+        - 绝对路径: C:/Users/.../*.png 或 C:\\Users\\...\\*.png
+        - 相对路径: ../images/*.png
+        
+        Args:
+            markdown_text: 原始Markdown文本
+            
+        Returns:
+            处理后的Markdown文本
+        """
+        print("\n[Process] 开始处理PNG图片...\n")
+        
+        # 正则匹配图片链接: ![alt](path)
+        # 支持 .png, .jpg, .jpeg, .gif, .webp 等常见图片格式
+        image_pattern = r'!\[(.*?)\]\(([^)]+\.(?:png|jpg|jpeg|gif|webp|svg))\)'
+        
+        matches = re.findall(image_pattern, markdown_text, re.IGNORECASE)
+        
+        if not matches:
+            print("[!] 未检测到图片文件")
+            return markdown_text
+        
+        print(f"[OK] 检测到 {len(matches)} 个图片引用\n")
+        
+        counter = 0
+        
+        def move_and_replace(match):
+            nonlocal counter
+            
+            alt_text = match.group(1)
+            image_path_str = match.group(2)
+            
+            # 跳过已经是相对路径 images/ 的引用
+            if image_path_str.startswith('images/'):
+                print(f"  [Skip] 图片已在images文件夹: {image_path_str}")
+                return match.group(0)
+            
+            # 跳过网络URL
+            if image_path_str.startswith(('http://', 'https://', 'data:')):
+                print(f"  [Skip] 网络图片: {image_path_str[:60]}...")
+                return match.group(0)
+            
+            counter += 1
+            
+            try:
+                # 规范化路径 (处理 C:/ 和 C:\ 混用的情况)
+                image_path = Path(image_path_str.replace('\\', '/'))
+                
+                # 检查文件是否存在
+                if not image_path.exists():
+                    print(f"  [Error] 图片 {counter} 不存在: {image_path}")
+                    return match.group(0)
+                
+                if not image_path.is_file():
+                    print(f"  [Error] 图片 {counter} 不是文件: {image_path}")
+                    return match.group(0)
+                
+                print(f"  ... 正在移动图片 {counter}: {image_path.name}")
+                
+                # 生成新文件名 (保留原始文件名)
+                original_name = image_path.name
+                new_image_path = self.images_dir / original_name
+                
+                # 如果目标文件已存在,添加时间戳避免冲突
+                if new_image_path.exists():
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    stem = image_path.stem
+                    suffix = image_path.suffix
+                    new_image_path = self.images_dir / f"{stem}_{timestamp}{suffix}"
+                
+                # 移动文件 (剪切,不保留备份)
+                shutil.move(str(image_path), str(new_image_path))
+                
+                print(f"  [OK] 图片 {counter} 已移动: {new_image_path.name}")
+                
+                # 返回新的Markdown图片引用
+                return f"![{alt_text}](images/{new_image_path.name})"
+                
+            except Exception as e:
+                print(f"  [Error] 图片 {counter} 处理失败: {e}")
+                # 保留原链接
+                return match.group(0)
+        
+        # 替换所有图片链接
+        processed_text = re.sub(image_pattern, move_and_replace, markdown_text, flags=re.IGNORECASE)
+        
+        print(f"\n[OK] 成功处理 {counter} 个图片文件")
+        
+        return processed_text
+    
     def save_markdown(self, content: str, filename: Optional[str] = None):
         """保存Markdown文件"""
         if not filename:
@@ -398,10 +492,13 @@ class ArtifactConverter:
                 # 2. 处理Mermaid图表
                 processed_text = self.process_mermaid_blocks(markdown_text, page)
                 
-                # 3. 保存文件
+                # 3. 处理PNG图片 (移动本地图片到images文件夹)
+                processed_text = self.process_png_images(processed_text)
+                
+                # 4. 保存文件
                 output_file = self.save_markdown(processed_text, output_filename)
                 
-                # 4. 如果不是Base64模式，创建ZIP包
+                # 5. 如果不是Base64模式，创建ZIP包
                 if not self.embed_base64:
                     self.create_zip()
                     print(f"\n[Tip] 建议直接将生成的 ZIP 文件导入到 Anytype 或 Notion 中。")

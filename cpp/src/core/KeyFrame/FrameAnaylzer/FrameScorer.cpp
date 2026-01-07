@@ -23,7 +23,7 @@ float FrameScorer::FuseScores(const MultiDimensionScore& scores,
         weightCalculator_->update(scores);
         appliedWeights = weightCalculator_->getCurrentWeights();
     } else {
-        appliedWeights = {0.45f, 0.35f, 0.20f};  // 默认权重
+        appliedWeights = {0.45f, 0.2f, 0.35f};  // 默认权重
     }
 
     float finalScore = scores.sceneScore * appliedWeights[0] +

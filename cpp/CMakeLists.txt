@@ -102,6 +102,9 @@ target_include_directories(ai_video_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Detectors
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Foundation
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/FrameAnaylzer
+    # MQInfra 模块头文件路径，支持仅文件名包含 Protocol.h 等
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/MQInfra
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux
 )
 
 # 链接 FFmpeg

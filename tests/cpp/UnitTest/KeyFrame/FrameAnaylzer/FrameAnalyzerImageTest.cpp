@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#ifdef _WIN32
+#    include <windows.h>
+#endif
+
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
@@ -10,7 +14,9 @@
 #include <string>
 #include <vector>
 
+#include "DynamicCalculator.h"
 #include "FrameResource.h"
+#include "FrameScorer.h"
 #include "IFrameAnalyzer.h"
 #include "ModelManager.h"
 #include "MotionDetector.h"
@@ -23,6 +29,9 @@ namespace fs = std::filesystem;
 class FrameAnalyzerImageTest : public ::testing::Test {
 protected:
     void SetUp() override {
+#ifdef _WIN32
+        SetConsoleOutputCP(CP_UTF8);
+#endif
         // Setup paths
         fs::path exePath = fs::current_path();
 
@@ -46,7 +55,7 @@ protected:
         }
 
         if (yoloPath.empty() || mobileNetPath.empty() || ocrDetPath.empty() || ocrRecPath.empty()) {
-            std::cout << "[Warning] Some models not found, tests might fail or skip." << std::endl;
+            std::cout << "[警告] 未找到部分模型，测试可能会失败或被跳过。" << std::endl;
         }
 
         // 2. Initialize ModelManager
@@ -80,9 +89,15 @@ protected:
         // 4. Create Analyzer
         analyzer = std::make_unique<KeyFrame::StandardFrameAnalyzer>(sceneDetector, motionDetector,
                                                                      textDetector);
+
+        // 5. Create Scorer
+        KeyFrame::DynamicCalculator::Config dynamicConfig;
+        auto dynamicCalculator = std::make_shared<KeyFrame::DynamicCalculator>(dynamicConfig);
+        scorer = std::make_unique<KeyFrame::FrameScorer>(dynamicCalculator);
     }
 
     std::unique_ptr<KeyFrame::StandardFrameAnalyzer> analyzer;
+    std::unique_ptr<KeyFrame::FrameScorer> scorer;
 };
 
 TEST_F(FrameAnalyzerImageTest, AnalyzeImages1To6) {
@@ -101,22 +116,22 @@ TEST_F(FrameAnalyzerImageTest, AnalyzeImages1To6) {
         }
     }
 
-    ASSERT_FALSE(assetsDir.empty()) << "Test images directory not found.";
-    std::cout << "[Test] Using assets directory: " << assetsDir.string() << std::endl;
+    ASSERT_FALSE(assetsDir.empty()) << "未找到测试图像目录。";
+    std::cout << "[测试] 使用资源目录: " << assetsDir.string() << std::endl;
 
     struct TestImage {
         std::string filename;
         std::string description;
-        bool expectedLowScore;  // Expectation for the validation point (Images 3 and 6)
+        bool expectedLowScore;  // 对验证点的预期（图 3 和图 6）
     };
 
     std::vector<TestImage> images = {
-        {"1-anytype.png", "Initial Base Frame", false},
-        {"2-code.png", "Large Change (High Score Expected)", false},
-        {"3-codeWithSmallChange.png", "Small Change vs 2 (Low Score Expected)", true},
-        {"4.png", "Sequence 4", false},
-        {"5.png", "Sequence 5", false},
-        {"6.png", "Sequence 6 (Redundant, Low Score Expected)", true}};
+        {"1-anytype.png", "初始基础帧", false},
+        {"2-code.png", "变化较大（预期高分）", false},
+        {"3-codeWithSmallChange.png", "相对于图 2 变化较小（预期低分）", true},
+        {"4.png", "序列 4", false},
+        {"5.png", "序列 5", false},
+        {"6.png", "序列 6（冗余，预期低分）", true}};
 
     struct ResultData {
         float sceneScore;
@@ -136,37 +151,41 @@ TEST_F(FrameAnalyzerImageTest, AnalyzeImages1To6) {
         context.frameIndex = i;
         context.timestamp = i * 1.0;  // Simulated 1fps
 
-        auto scores = analyzer->analyzeFrame(resource, context);
+        auto rawScores = analyzer->analyzeFrame(resource, context);
+        auto finalScore = scorer->score(rawScores, context);
 
-        results.push_back({scores.sceneScore, scores.sceneChangeResult.isSceneChange});
+        results.push_back({rawScores.sceneScore, rawScores.sceneChangeResult.isSceneChange});
 
-        std::cout << "\n[Analyzed " << images[i].filename << " (" << images[i].description << ")]"
+        std::cout << "\n[分析完成 " << images[i].filename << " (" << images[i].description << ")]"
                   << std::endl;
-        std::cout << "  Scene Score: " << scores.sceneScore << std::endl;
-        std::cout << "  Is Scene Change: "
-                  << (scores.sceneChangeResult.isSceneChange ? "YES" : "NO") << std::endl;
-        std::cout << "  Similarity: " << scores.sceneChangeResult.similarity << std::endl;
+        std::cout << "  最终得分: " << finalScore.finalscore << std::endl;
+        std::cout << "  贡献度: 场景=" << finalScore.sceneContribution
+                  << ", 运动=" << finalScore.motionContribution
+                  << ", 文本=" << finalScore.textContribution << std::endl;
+        std::cout << "  权重: 场景=" << finalScore.appliedWeights[0]
+                  << ", 运动=" << finalScore.appliedWeights[1]
+                  << ", 文本=" << finalScore.appliedWeights[2] << std::endl;
+        std::cout << "  是否为场景切换: "
+                  << (rawScores.sceneChangeResult.isSceneChange ? "是" : "否") << std::endl;
+        std::cout << "  相似度: " << rawScores.sceneChangeResult.similarity << std::endl;
     }
 
-    // Validation Logic
+    // 验证逻辑
 
-    // 1. Verify Image 2 vs Image 3
-    // Image 2 should have been a scene change (vs 1) OR have a relatively higher score if we
-    // consider the transition. Image 3 should be a LOW score because it's only a small change
-    // from 2. Note: The analyzer compares current frame vs PREVIOUS frame.
+    // 1. 验证图 2 vs 图 3
+    // 图 2 应该是场景切换（对比图 1）或者具有较高的分数。
+    // 图 3 应该得分较低，因为它相对于图 2 只有很小的变化。
+    // 注意：分析器是将当前帧与上一帧进行对比。
 
-    // Check results[2] (Image 3)
-    // We expect it NOT to be a scene change, and score to be low.
-    EXPECT_FALSE(results[2].isSceneChange)
-        << "Image 3 should NOT be a scene change (small difference from Image 2)";
-    EXPECT_LT(results[2].sceneScore, 0.4f) << "Image 3 should have a low scene score";
+    // 检查 results[2] (图 3)
+    // 我们预期它不是场景切换，且得分较低。
+    EXPECT_FALSE(results[2].isSceneChange) << "图 3 不应被视为场景切换（相对于图 2 差异较小）";
+    EXPECT_LT(results[2].sceneScore, 0.4f) << "图 3 的场景得分应较低";
 
-    // 2. Verify Image 6
-    // Assuming 6 is redundant to 5.
-    EXPECT_FALSE(results[5].isSceneChange) << "Image 6 should NOT be a scene change (redundant)";
-    EXPECT_LT(results[5].sceneScore, 0.4f) << "Image 6 should have a low scene score";
+    // 2. 验证图 6
+    // 假设图 6 相对于图 5 是冗余的。
+    EXPECT_FALSE(results[5].isSceneChange) << "图 6 不应被视为场景切换（冗余帧）";
+    EXPECT_LT(results[5].sceneScore, 0.4f) << "图 6 的场景得分应较低";
 
-    std::cout
-        << "\n[Success] Validated that Image 3 and Image 6 have low scores/redundancy as expected."
-        << std::endl;
+    std::cout << "\n[成功] 已验证图 3 和图 6 如预期具有低分/冗余。" << std::endl;
 }
