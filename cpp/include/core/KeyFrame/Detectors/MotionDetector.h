@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
@@ -114,6 +115,7 @@ private:
 
     // Letterbox 变换信息 (用于坐标还原)
     DataConverter::LetterboxInfo letterboxInfo_;
+    mutable std::mutex mutex_;
 };
 
 }  // namespace KeyFrame

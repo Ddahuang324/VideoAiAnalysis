@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <string>
@@ -29,6 +30,7 @@ SceneChangeDetector::Result SceneChangeDetector::detect(const cv::Mat& frame) {
 }
 
 SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameResource> resource) {
+    std::lock_guard<std::mutex> lock(mutex_);
     Result result;
     std::vector<float> inputData;
 
@@ -89,6 +91,7 @@ SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameRes
 }
 
 void SceneChangeDetector::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     featureCache_.clear();
 }
 

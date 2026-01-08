@@ -1,7 +1,6 @@
 #include "KeyFrameDetector.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -36,8 +35,13 @@ KeyFrameDetector::SelectionResult KeyFrameDetector::selectFromFrames(
         return result;
     }
 
-    // 计算总帧数 (取最后一个的索引+1)
-    result.totalFrames = frameScores.back().frameIndex + 1;
+    // 计算总帧数 (查找最大索引)
+    int maxIndex = 0;
+    for (const auto& s : frameScores) {
+        if (s.frameIndex > maxIndex)
+            maxIndex = s.frameIndex;
+    }
+    result.totalFrames = maxIndex + 1;
 
     // 1. 预过滤 (移除低于 minScoreThreshold 的帧)
     auto candidates = preFilter(frameScores);
@@ -90,14 +94,16 @@ KeyFrameDetector::SelectionResult KeyFrameDetector::selectFromFrames(
         }
     }
 
-    // 4. 整理结果并按索引（时间顺序）回写
-    for (const auto& s : selectedScores) {
-        result.keyFrameIndices.push_back(s.frameIndex);
-        result.KeyframeScores.push_back(s);
-    }
+    // 4. 整理结果
+    result.KeyframeScores = selectedScores;
 
     // 最终按索引排序，确保输出是按时间顺序的
-    std::sort(result.keyFrameIndices.begin(), result.keyFrameIndices.end());
+    std::sort(result.KeyframeScores.begin(), result.KeyframeScores.end(),
+              [](const FrameScore& a, const FrameScore& b) { return a.frameIndex < b.frameIndex; });
+
+    for (const auto& s : result.KeyframeScores) {
+        result.keyFrameIndices.push_back(s.frameIndex);
+    }
     // 同时通过索引映射回复原本的分数列表顺序 (如果需要的话)
 
     result.selectedFrames = result.keyFrameIndices.size();

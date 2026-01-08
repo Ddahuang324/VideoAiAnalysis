@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -113,6 +114,7 @@ private:
 
     // 上下文记录
     AnalysisContext context_;
+    std::mutex contextMutex_;
 };
 
 }  // namespace KeyFrame

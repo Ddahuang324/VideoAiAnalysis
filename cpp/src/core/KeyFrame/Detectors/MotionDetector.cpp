@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <ios>
 #include <memory>
+#include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
@@ -33,6 +34,7 @@ MotionDetector::Result MotionDetector::detect(const cv::Mat& frame) {
 }
 
 MotionDetector::Result MotionDetector::detect(std::shared_ptr<FrameResource> resource) {
+    std::lock_guard<std::mutex> lock(mutex_);
     const cv::Mat& frame = resource->getOriginalFrame();
     // 输入验证
     if (frame.empty()) {
@@ -202,6 +204,7 @@ float MotionDetector::ComputeMotionScore(const std::vector<Track>& tracks, int n
 }
 
 void MotionDetector::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     {
         std::ostringstream oss;
         oss << "[MotionDetector] 重置检测器，清除 " << activeTracks_.size() << " 个活跃轨迹";
@@ -211,6 +214,7 @@ void MotionDetector::reset() {
     lostTracks_.clear();
     trackLostFrames_.clear();
     nextTrackId_ = 0;
+    prevGrayFrame_ = cv::Mat();
 }
 
 std::vector<float> MotionDetector::preprocessFrame(const cv::Mat& frame) {

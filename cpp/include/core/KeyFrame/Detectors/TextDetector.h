@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
@@ -71,6 +72,7 @@ private:
     std::vector<TextRegion> previousRegions_;
     ModelManager& modelManager_;
     Config config_;
+    std::mutex mutex_;
 
 };  // class TextDetector
 

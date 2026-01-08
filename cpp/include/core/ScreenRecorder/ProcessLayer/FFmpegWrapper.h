@@ -163,6 +163,11 @@ private:
     // 帧缓冲区是否已分配（避免重复分配）
     bool frameBufferAllocated_ = false;
 
+    // 保存最后一帧数据，用于在 finalize 时复制一帧确保最后一帧能正确显示
+    FrameData lastFrameData_;
+    std::vector<uint8_t> lastFrameBuffer_;
+    bool hasLastFrame_ = false;
+
     mutable std::mutex muxerMutex_;
 };
 

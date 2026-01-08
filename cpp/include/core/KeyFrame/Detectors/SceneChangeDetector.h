@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -59,6 +60,7 @@ private:
     Config config_;
     std::string modelName_;
     std::deque<std::vector<float>> featureCache_;
+    std::mutex mutex_;
 
     static constexpr size_t MAX_CACHE_SIZE = 2;
 };

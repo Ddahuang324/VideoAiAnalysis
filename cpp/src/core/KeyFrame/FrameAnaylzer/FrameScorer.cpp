@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,6 +35,7 @@ float FrameScorer::FuseScores(const MultiDimensionScore& scores,
 }
 
 FrameScore FrameScorer::score(const MultiDimensionScore& scores, const AnalysisContext& context) {
+    std::lock_guard<std::mutex> lock(mutex_);
     FrameScore result;
     result.frameIndex = context.frameIndex;
     result.timestamp = context.timestamp;
@@ -70,6 +72,7 @@ std::vector<FrameScore> FrameScorer::scoreBatch(const std::vector<MultiDimension
 }
 
 void FrameScorer::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     while (!scoreHistory_.empty())
         scoreHistory_.pop();
     sumScores_ = 0.0f;  // 重置累积和

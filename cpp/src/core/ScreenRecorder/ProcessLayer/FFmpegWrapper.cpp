@@ -196,7 +196,9 @@ bool FFmpegWrapper::step3_createVideoStreamAndEncoder(const EncoderConfig& confi
     videoStream_->time_base = codecContext_->time_base;
 
     codecContext_->gop_size = config.fps;
-    codecContext_->max_b_frames = 2;
+    // 禁用B帧: B帧需要后续参考帧才能解码,在关键帧视频(帧数少)中会导致最后的B帧无法显示
+    // 设置为0确保所有帧都能独立解码和显示
+    codecContext_->max_b_frames = 0;
 
     // 3.5 打开编码器（并设置编码选项）
     AVDictionary* opts = nullptr;
@@ -329,6 +331,24 @@ bool FFmpegWrapper::encoderFrame(const FrameData& frameData) {
         return false;
     }
 
+    // 保存最后一帧数据，用于 finalize 时复制一帧确保最后一帧能正确显示
+    size_t dataSize = frameData.width * frameData.height;
+    switch (frameData.format) {
+        case PixelFormat::BGRA:
+        case PixelFormat::RGBA:
+            dataSize *= 4;
+            break;
+        case PixelFormat::RGB24:
+            dataSize *= 3;
+            break;
+        default:
+            dataSize *= 4;
+    }
+    lastFrameBuffer_.assign(frameData.data, frameData.data + dataSize);
+    lastFrameData_ = frameData;
+    lastFrameData_.data = lastFrameBuffer_.data();
+    hasLastFrame_ = true;
+
     encodedFrameCount_++;
     return true;
 }
@@ -460,28 +480,81 @@ bool FFmpegWrapper::step6_flushEncoder() {
     std::lock_guard<std::mutex> lock(muxerMutex_);
     LOG_INFO("Step 6: Flushing encoder...");
 
-    // 刷新视频
+    int flushedVideoFrames = 0;
+    int flushedAudioFrames = 0;
+
+    // 刷新视频编码器
     if (codecContext_) {
-        avcodec_send_frame(codecContext_.get(), nullptr);
-        while (avcodec_receive_packet(codecContext_.get(), packet_.get()) >= 0) {
-            // 注意：这里内部调用不需要再加锁，但因为我们已经拿到了锁，所以没问题
-            // 为了避免死锁，我们可以直接写逻辑或者使用递归锁，但这里简单处理
+        // 发送 nullptr 帧告知编码器进入刷新模式
+        int ret = avcodec_send_frame(codecContext_.get(), nullptr);
+        if (ret < 0 && ret != AVERROR_EOF) {
+            LOG_WARN("avcodec_send_frame(nullptr) returned: " + std::to_string(ret));
+        }
+
+        // 持续接收所有剩余的编码包
+        while (true) {
+            ret = avcodec_receive_packet(codecContext_.get(), packet_.get());
+            if (ret == AVERROR(EAGAIN)) {
+                // 不应该在 flush 模式下返回 EAGAIN，记录警告
+                LOG_WARN("Unexpected EAGAIN during flush");
+                break;
+            } else if (ret == AVERROR_EOF) {
+                // 所有包都已接收完毕
+                break;
+            } else if (ret < 0) {
+                LOG_ERROR("Error during video encoder flush: " + std::to_string(ret));
+                break;
+            }
+
+            // 成功接收到一个包，写入文件
             packet_->stream_index = videoStream_->index;
             av_packet_rescale_ts(packet_.get(), codecContext_->time_base, videoStream_->time_base);
-            av_interleaved_write_frame(formatContext_.get(), packet_.get());
+
+            int writeRet = av_interleaved_write_frame(formatContext_.get(), packet_.get());
+            if (writeRet < 0) {
+                LOG_ERROR("Error writing flushed video packet: " + std::to_string(writeRet));
+            } else {
+                flushedVideoFrames++;
+            }
             av_packet_unref(packet_.get());
         }
+
+        LOG_INFO("Flushed " + std::to_string(flushedVideoFrames) +
+                 " video frames from encoder buffer");
     }
 
-    // 刷新音频
+    // 刷新音频编码器
     if (audioCodecContext_) {
-        avcodec_send_frame(audioCodecContext_.get(), nullptr);
-        while (avcodec_receive_packet(audioCodecContext_.get(), audioPacket_.get()) >= 0) {
+        int ret = avcodec_send_frame(audioCodecContext_.get(), nullptr);
+        if (ret < 0 && ret != AVERROR_EOF) {
+            LOG_WARN("Audio avcodec_send_frame(nullptr) returned: " + std::to_string(ret));
+        }
+
+        while (true) {
+            ret = avcodec_receive_packet(audioCodecContext_.get(), audioPacket_.get());
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            } else if (ret < 0) {
+                LOG_ERROR("Error during audio encoder flush: " + std::to_string(ret));
+                break;
+            }
+
             audioPacket_->stream_index = audioStream_->index;
             av_packet_rescale_ts(audioPacket_.get(), audioCodecContext_->time_base,
                                  audioStream_->time_base);
-            av_interleaved_write_frame(formatContext_.get(), audioPacket_.get());
+
+            int writeRet = av_interleaved_write_frame(formatContext_.get(), audioPacket_.get());
+            if (writeRet < 0) {
+                LOG_ERROR("Error writing flushed audio packet: " + std::to_string(writeRet));
+            } else {
+                flushedAudioFrames++;
+            }
             av_packet_unref(audioPacket_.get());
+        }
+
+        if (flushedAudioFrames > 0) {
+            LOG_INFO("Flushed " + std::to_string(flushedAudioFrames) +
+                     " audio frames from encoder buffer");
         }
     }
 
@@ -578,6 +651,14 @@ bool FFmpegWrapper::convertPixelFormat(const FrameData& frameData, AVFrame* dstF
 void FFmpegWrapper::finalize() {
     if (!isInitialized_) {
         return;
+    }
+
+    // 在 flush 之前，复制最后一帧以确保它能正确显示
+    // 这是因为播放器需要知道最后一帧的持续时间，而这通常由下一帧的 PTS 决定
+    if (hasLastFrame_) {
+        LOG_INFO("Duplicating last frame to ensure proper duration...");
+        step5_encodeAndWriteFrame(lastFrameData_);
+        encodedFrameCount_++;
     }
 
     step6_flushEncoder();

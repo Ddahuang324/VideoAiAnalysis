@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <queue>
 #include <vector>
 
@@ -91,5 +92,6 @@ private:
     std::queue<float> scoreHistory_;
     float sumScores_ = 0.0f;  // 累积和，用于高效计算平均值
     float lastSmoothedScore_ = 0.0f;
+    std::mutex mutex_;
 };
 }  // namespace KeyFrame

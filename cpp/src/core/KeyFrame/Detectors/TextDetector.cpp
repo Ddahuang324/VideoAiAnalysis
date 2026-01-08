@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
@@ -40,6 +41,7 @@ TextDetector::Result TextDetector::detect(const cv::Mat& frame) {
 }
 
 TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resource) {
+    std::lock_guard<std::mutex> lock(mutex_);
     const cv::Mat& frame = resource->getOriginalFrame();
     if (frame.empty()) {
         return Result();
@@ -99,6 +101,7 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
 }
 
 void TextDetector::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     previousRegions_.clear();
 }
 

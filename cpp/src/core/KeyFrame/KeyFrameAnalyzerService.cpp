@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -205,10 +206,14 @@ void KeyFrameAnalyzerService::receiveLoop() {
         ctx.timestamp = static_cast<double>(msg->header.timestamp) / 1000.0;
         ctx.frameSize = mat.size();
 
-        // 更新服务全局上下文 (用于平均分等统计，如果需要的话)
-        context_.frameIndex = ctx.frameIndex;
-        context_.timestamp = ctx.timestamp;
-        context_.frameSize = ctx.frameSize;
+        // 更新服务全局上下文
+        {
+            std::lock_guard<std::mutex> lock(contextMutex_);
+            context_.frameIndex = ctx.frameIndex;
+            context_.timestamp = ctx.timestamp;
+            context_.frameSize = ctx.frameSize;
+            context_.totalFramesAnalyzed++;
+        }
 
         if (!frameQueue_->push({resource, ctx}, std::chrono::milliseconds(100))) {
             LOG_WARN("Frame queue full, dropping frame " + std::to_string(msg->header.frameID));
