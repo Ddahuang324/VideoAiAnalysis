@@ -33,8 +33,12 @@ ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Conf
         sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
     }
 
-    session_ = std::make_unique<Ort::Session>(*env_, std::filesystem::path(modelPath).c_str(),
+#ifdef _WIN32
+    session_ = std::make_unique<Ort::Session>(*env_, std::filesystem::u8path(modelPath).c_str(),
                                               sessionOptions);
+#else
+    session_ = std::make_unique<Ort::Session>(*env_, modelPath.c_str(), sessionOptions);
+#endif
 
     extractMetadata();
 
@@ -68,7 +72,11 @@ void ONNXSession::extractMetadata() {
 }
 
 std::string ONNXSession::extractModelName(const std::string& path) {
+#ifdef _WIN32
+    return std::filesystem::u8path(path).filename().u8string();
+#else
     return std::filesystem::path(path).filename().string();
+#endif
 }
 
 std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<float>>& inputs) {

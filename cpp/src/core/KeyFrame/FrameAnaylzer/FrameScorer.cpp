@@ -73,6 +73,7 @@ void FrameScorer::reset() {
     while (!scoreHistory_.empty())
         scoreHistory_.pop();
     sumScores_ = 0.0f;  // 重置累积和
+    lastSmoothedScore_ = 0.0f;
     if (weightCalculator_)
         weightCalculator_->reset();
 }
@@ -99,7 +100,27 @@ float FrameScorer::ApplyBoosts(float baseScore, const MultiDimensionScore& score
 }
 
 float FrameScorer::ApplyTemporalSmoothing(int frameIndex, float currentScore) {
-    if (!config_.enbaleSmoothing || config_.smoothingWindowSize <= 1) {
+    if (!config_.enbaleSmoothing) {
+        return currentScore;
+    }
+
+    // 优先使用 EMA (指数移动平均)，响应更快，区分度更高
+    if (config_.smoothingEMAAlpha > 0.0f && config_.smoothingEMAAlpha <= 1.0f) {
+        if (scoreHistory_.empty()) {
+            lastSmoothedScore_ = currentScore;
+        } else {
+            // EMA 公式: S_t = α * X_t + (1 - α) * S_{t-1}
+            lastSmoothedScore_ = config_.smoothingEMAAlpha * currentScore +
+                                 (1.0f - config_.smoothingEMAAlpha) * lastSmoothedScore_;
+        }
+        scoreHistory_.push(currentScore);  // 仅用于判断是否为第一帧
+        LOG_INFO("Applied EMA Smoothing (alpha=" + std::to_string(config_.smoothingEMAAlpha) +
+                 "): " + std::to_string(lastSmoothedScore_));
+        return lastSmoothedScore_;
+    }
+
+    // 回退到 SMA (简单移动平均)
+    if (config_.smoothingWindowSize <= 1) {
         return currentScore;
     }
 
@@ -112,7 +133,8 @@ float FrameScorer::ApplyTemporalSmoothing(int frameIndex, float currentScore) {
     }
 
     float smoothedScore = sumScores_ / scoreHistory_.size();
-    LOG_INFO("Applied Temporal Smoothing: " + std::to_string(smoothedScore));
+    LOG_INFO("Applied SMA Smoothing (window=" + std::to_string(config_.smoothingWindowSize) +
+             "): " + std::to_string(smoothedScore));
     return smoothedScore;
 }
 }  // namespace KeyFrame

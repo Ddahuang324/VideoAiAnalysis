@@ -32,7 +32,7 @@ std::optional<Protocol::FrameMessage> FrameSubscriber::receiveFrame(int timeout_
     return result;
 }
 
-Stats FrameSubscriber::getStats() const {
+SubscriberStats FrameSubscriber::getStats() const {
     return stats_;
 }
 

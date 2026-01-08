@@ -28,16 +28,18 @@ public:
         bool enableDynamicWeighting;  // 是否启用动态权重调整
 
         bool enbaleSmoothing;     // 是否启用时间平滑
-        int smoothingWindowSize;  // 平滑窗口大小（帧数）
+        int smoothingWindowSize;  // 平滑窗口大小（帧数，用于 SMA）
+        float smoothingEMAAlpha;  // EMA 平滑系数 (0.0 - 1.0, 1.0 表示无平滑)，默认为 0 表示使用 SMA
 
         float sceneChangeBoost;     // 场景变化时的分数提升因子
-        float motionIncreaseBoost;  // 运动增加时的分
+        float motionIncreaseBoost;  // 运动增加时的分数提升因子
         float textIncreaseBoost;    // 文本增加时的分数提升因子
 
         Config()
             : enableDynamicWeighting(true),
               enbaleSmoothing(true),
-              smoothingWindowSize(5),
+              smoothingWindowSize(3),
+              smoothingEMAAlpha(0.6f),
               sceneChangeBoost(1.2f),
               motionIncreaseBoost(1.1f),
               textIncreaseBoost(1.1f) {}
@@ -88,5 +90,6 @@ private:
 
     std::queue<float> scoreHistory_;
     float sumScores_ = 0.0f;  // 累积和，用于高效计算平均值
+    float lastSmoothedScore_ = 0.0f;
 };
 }  // namespace KeyFrame

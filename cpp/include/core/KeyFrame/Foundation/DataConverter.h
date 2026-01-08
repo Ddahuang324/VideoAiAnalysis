@@ -2,7 +2,9 @@
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <vector>
 
 namespace KeyFrame {
@@ -100,6 +102,22 @@ public:
         const cv::Mat& image, const cv::Size& targetSize, LetterboxInfo& info,
         bool normalize = true, const std::vector<float>& mean = {0.485f, 0.456f, 0.406f},
         const std::vector<float>& std = {0.229f, 0.224f, 0.225f});
+
+    /**
+     * @brief 从包含 UTF-8 字符的路径加载图像 (解决 Windows 下中文路径问题)
+     * @param utf8Path UTF-8 编码的图像路径
+     * @param flags OpenCV 读取标志 (默认 IMREAD_COLOR)
+     * @return 加载的 cv::Mat, 失败则返回空容器
+     */
+    static cv::Mat readImage(const std::string& utf8Path, int flags = cv::IMREAD_COLOR);
+
+    /**
+     * @brief 将图像保存到包含 UTF-8 字符的路径 (解决 Windows 下中文路径问题)
+     * @param utf8Path UTF-8 编码的目标路径
+     * @param image 要保存的图像
+     * @return 是否保存成功
+     */
+    static bool writeImage(const std::string& utf8Path, const cv::Mat& image);
 
     /**
      * @brief 将检测框从 Letterbox 空间映射回原图空间

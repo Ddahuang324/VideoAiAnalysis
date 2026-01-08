@@ -41,9 +41,9 @@ protected:
 
         // 1. Locate Models
         std::vector<fs::path> possibleModelDirs = {
-            fs::path(TEST_MODELS_DIR), exePath / "Models",
+            fs::u8path(TEST_MODELS_DIR), exePath / "Models",
             exePath.parent_path().parent_path() / "Models",
-            fs::path("D:/编程/项目/AiVideoAnalsysSystem/Models")};
+            fs::u8path("D:/编程/项目/AiVideoAnalsysSystem/Models")};
 
         fs::path yoloPath, mobileNetPath, ocrDetPath, ocrRecPath;
 
@@ -66,19 +66,19 @@ protected:
         auto& mm = KeyFrame::ModelManager::GetInstance();
 
         if (!yoloPath.empty() && !mm.hasModel("yolov8n.onnx"))
-            mm.loadModel("yolov8n.onnx", yoloPath.string(),
+            mm.loadModel("yolov8n.onnx", yoloPath.u8string(),
                          KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
 
         if (!mobileNetPath.empty() && !mm.hasModel("MobileNet-v3-Small"))
-            mm.loadModel("MobileNet-v3-Small", mobileNetPath.string(),
+            mm.loadModel("MobileNet-v3-Small", mobileNetPath.u8string(),
                          KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
 
         if (!ocrDetPath.empty() && !mm.hasModel("ch_PP-OCRv4_det_infer.onnx"))
-            mm.loadModel("ch_PP-OCRv4_det_infer.onnx", ocrDetPath.string(),
+            mm.loadModel("ch_PP-OCRv4_det_infer.onnx", ocrDetPath.u8string(),
                          KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
 
         if (!ocrRecPath.empty() && !mm.hasModel("ch_PP-OCRv4_rec_infer.onnx"))
-            mm.loadModel("ch_PP-OCRv4_rec_infer.onnx", ocrRecPath.string(),
+            mm.loadModel("ch_PP-OCRv4_rec_infer.onnx", ocrRecPath.u8string(),
                          KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
 
         // 3. Create Detectors
@@ -108,9 +108,9 @@ TEST_F(FrameAnalyzerImageTest, AnalyzeImages1To6) {
     // 1. Locate Assets
     fs::path exePath = fs::current_path();
     std::vector<fs::path> possibleAssetDirs = {
-        fs::path(TEST_ASSETS_DIR), exePath / "tests/cpp/UnitTest/KeyFrame/TestImage",
+        fs::u8path(TEST_ASSETS_DIR), exePath / "tests/cpp/UnitTest/KeyFrame/TestImage",
         exePath.parent_path().parent_path() / "tests/cpp/UnitTest/KeyFrame/TestImage",
-        fs::path("D:/编程/项目/AiVideoAnalsysSystem/tests/cpp/UnitTest/KeyFrame/TestImage")};
+        fs::u8path("D:/编程/项目/AiVideoAnalsysSystem/tests/cpp/UnitTest/KeyFrame/TestImage")};
 
     fs::path assetsDir;
     for (const auto& dir : possibleAssetDirs) {

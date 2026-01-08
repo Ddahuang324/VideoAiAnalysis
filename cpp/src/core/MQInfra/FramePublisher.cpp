@@ -37,7 +37,7 @@ bool FramePublisher::publishRaw(const Protocol::FrameHeader& header, const void*
     return true;
 }
 
-Stats FramePublisher::getStats() const {
+PublisherStats FramePublisher::getStats() const {
     return stats_;
 }
 

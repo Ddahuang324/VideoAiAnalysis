@@ -3,12 +3,17 @@
 #include <opencv2/core/hal/interface.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <ios>
 #include <opencv2/core.hpp>
 #include <opencv2/core/base.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace KeyFrame {
@@ -244,6 +249,76 @@ std::vector<float> DataConverter::matToTensorLetterbox(const cv::Mat& image,
     }
 
     return tensor;
+}
+
+cv::Mat DataConverter::readImage(const std::string& utf8Path, int flags) {
+    try {
+        // 使用 std::filesystem 处理 UTF-8 路径 (C++17)
+#ifdef _WIN32
+        std::filesystem::path p = std::filesystem::u8path(utf8Path);
+#else
+        std::filesystem::path p(utf8Path);
+#endif
+
+        if (!std::filesystem::exists(p)) {
+            return cv::Mat();
+        }
+
+        // 以二进制模式读取文件到内存
+        std::ifstream file(p, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            return cv::Mat();
+        }
+
+        std::streamsize size = file.tellg();
+        file.seekg(0, std::ios::beg);
+
+        std::vector<char> buffer(size);
+        if (!file.read(buffer.data(), size)) {
+            return cv::Mat();
+        }
+
+        // 从内存解码
+        return cv::imdecode(buffer, flags);
+    } catch (...) {
+        return cv::Mat();
+    }
+}
+
+bool DataConverter::writeImage(const std::string& utf8Path, const cv::Mat& image) {
+    if (image.empty()) {
+        return false;
+    }
+
+    try {
+#ifdef _WIN32
+        std::filesystem::path p = std::filesystem::u8path(utf8Path);
+#else
+        std::filesystem::path p(utf8Path);
+#endif
+
+        // 获取文件后缀以确定编码格式
+        std::string ext = p.extension().string();
+        if (ext.empty())
+            ext = ".png";
+
+        // 将图像编码到内存缓冲区
+        std::vector<uchar> buffer;
+        if (!cv::imencode(ext, image, buffer)) {
+            return false;
+        }
+
+        // 写入文件
+        std::ofstream file(p, std::ios::binary);
+        if (!file.is_open()) {
+            return false;
+        }
+
+        file.write(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+        return file.good();
+    } catch (...) {
+        return false;
+    }
 }
 
 cv::Rect DataConverter::rescaleBox(const cv::Rect& box, const LetterboxInfo& info) {
