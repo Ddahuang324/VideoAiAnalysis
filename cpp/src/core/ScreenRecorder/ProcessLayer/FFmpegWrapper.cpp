@@ -1,4 +1,5 @@
 
+#include <cstddef>
 #include <mutex>
 
 #include "AudioData.h"

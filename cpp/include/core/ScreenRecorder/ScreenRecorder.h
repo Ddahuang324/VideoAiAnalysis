@@ -57,6 +57,8 @@ public:
     void setErrorCallback(ErrorCallback callback);
     void setFrameCallback(FrameCallback callback);
 
+    std::string getLastError() const { return m_lastError; }
+
     //================发布线程================//
     bool startPublishing();
     void stopPublishing();

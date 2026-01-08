@@ -27,7 +27,7 @@
 #include "TextDetector.h"
 #include "ThreadSafetyQueue.h"
 #include "core/KeyFrame/Foundation/ModelManager.h"
-#include "core/KeyFrame/FrameAnaylzer/FrameResource.h"
+#include "core/KeyFrame/FrameAnalyzer/FrameResource.h"
 #include "core/MQInfra/Protocol.h"
 
 namespace KeyFrame {
@@ -186,6 +186,25 @@ void KeyFrameAnalyzerService::waitThreads() {
         publishThread_.join();
 }
 
+AnalysisContext KeyFrameAnalyzerService::getContext() const {
+    std::lock_guard<std::mutex> lock(contextMutex_);
+    return context_;
+}
+
+std::vector<FrameScore> KeyFrameAnalyzerService::getLatestKeyFrames() const {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    return latestKeyFrames_;
+}
+
+void KeyFrameAnalyzerService::updateLatestKeyFrames(const FrameScore& score) {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    latestKeyFrames_.push_back(score);
+    totalKeyFrames_++;
+    if (latestKeyFrames_.size() > 20) {
+        latestKeyFrames_.erase(latestKeyFrames_.begin());
+    }
+}
+
 void KeyFrameAnalyzerService::receiveLoop() {
     LOG_INFO("Receive loop started.");
     while (running_) {
@@ -261,6 +280,7 @@ void KeyFrameAnalyzerService::selectLoop() {
                 auto selectionResult = keyframeDetector_->selectFromFrames(scoreBuffer, dynamicK);
 
                 for (const auto& selectedScore : selectionResult.KeyframeScores) {
+                    updateLatestKeyFrames(selectedScore);
                     if (!selectedFrameQueue_->push(selectedScore, std::chrono::milliseconds(100))) {
                         LOG_WARN("Selected frame queue full, dropping keyframe " +
                                  std::to_string(selectedScore.frameIndex));

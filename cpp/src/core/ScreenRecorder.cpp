@@ -28,6 +28,9 @@
 ScreenRecorder::ScreenRecorder() = default;
 
 ScreenRecorder::~ScreenRecorder() {
+    // 确保所有辅助线程都已停止，防止在对象析构时发生 std::terminate 或访问已释放资源
+    stopPublishing();
+    stopKeyFrameMetaDataReceiving();
     if (m_isRecording.load()) {
         stopRecording();
     }
@@ -156,6 +159,10 @@ void ScreenRecorder::stopRecording() {
     }
 
     LOG_INFO("[ScreenRecorder] Stopping Recording");
+
+    // 1. 先停止依赖外部资源的异步线程，防止竞态条件（如主循环还在写入 RingBuffer 或发送 ZMQ 消息）
+    stopPublishing();
+    stopKeyFrameMetaDataReceiving();
     if (grabber_thread_) {
         grabber_thread_->stop();
         grabber_thread_.reset();

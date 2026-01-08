@@ -13,7 +13,6 @@
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
-
 FrameEncoder::FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue,
                            std::shared_ptr<FFmpegWrapper> encoder, const EncoderConfig& config)
     : queue_(queue), encoder_(encoder), config_(config) {

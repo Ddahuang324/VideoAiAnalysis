@@ -76,6 +76,22 @@ if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)  # 允许使用 FetchContent_Populate 进行手动配置
 endif()
 
+# FetchContent: nlohmann/json (C++ JSON library)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.2
+)
+
+if(NOT nlohmann_json_POPULATED)
+    message(STATUS "Fetching nlohmann/json via FetchContent...")
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+if(TARGET nlohmann_json::nlohmann_json)
+    message(STATUS "✓ nlohmann/json available via FetchContent")
+endif()
+
 FetchContent_Declare(
     ffmpeg_prebuilt
     URL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip
