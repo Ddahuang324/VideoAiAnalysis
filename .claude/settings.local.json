@@ -8,7 +8,14 @@
       "Bash(cmd:*)",
       "Bash(powershell:*)",
       "Bash(.test_MotionDetectorUT.exe)",
-      "Bash(Select-Object:*)"
+      "Bash(Select-Object:*)",
+      "Bash(test:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(\"../.venv/Scripts/ninja.exe\":*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(Get-Process)",
+      "Bash(Where-Object {$_ProcessName -match \"ninja|cmake|msbuild|cl\"})"
     ]
   }
 }

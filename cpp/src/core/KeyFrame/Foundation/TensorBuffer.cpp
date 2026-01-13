@@ -1,16 +1,15 @@
 #include "TensorBuffer.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cstring>
 
-#include "corecrt_malloc.h"
-
 #ifdef _WIN32
-#    include <malloc.h>
+#include <malloc.h>
 #endif
 
 namespace KeyFrame {
+
+// ========== Constructor / Destructor ==========
 
 TensorBuffer::TensorBuffer(size_t initialCapacity, size_t alignment)
     : capacity_(initialCapacity), alignment_(alignment) {
@@ -25,6 +24,8 @@ TensorBuffer::~TensorBuffer() {
     }
 }
 
+// ========== Memory Allocation ==========
+
 float* TensorBuffer::allocate(size_t size) {
     size_t alignedSize = alignSize(size);
 
@@ -37,21 +38,10 @@ float* TensorBuffer::allocate(size_t size) {
     return ptr;
 }
 
-void TensorBuffer::reset() {
-    offset_ = 0;
-}
-
-void TensorBuffer::reserve(size_t totalSize) {  // 防抖动
-    if (totalSize > capacity_) {
-        grow(totalSize);
-    }
-}
-
 void TensorBuffer::grow(size_t minSize) {
     size_t newCapacity = std::max(minSize, capacity_ * 2);
 
-    float* newData = nullptr;
-    newData = static_cast<float*>(_aligned_malloc(newCapacity * sizeof(float), alignment_));
+    float* newData = static_cast<float*>(_aligned_malloc(newCapacity * sizeof(float), alignment_));
 
     if (newData && data_ && offset_ > 0) {
         std::memcpy(newData, data_, offset_ * sizeof(float));
@@ -65,15 +55,24 @@ void TensorBuffer::grow(size_t minSize) {
     capacity_ = newCapacity;
 }
 
+// ========== Buffer Control ==========
+
+void TensorBuffer::reset() {
+    offset_ = 0;
+}
+
+void TensorBuffer::reserve(size_t totalSize) {
+    if (totalSize > capacity_) {
+        grow(totalSize);
+    }
+}
+
+// ========== Alignment ==========
+
 size_t TensorBuffer::alignSize(size_t size) const {
     size_t byteSize = size * sizeof(float);
+    // Align to alignment boundary using bitwise AND
     size_t alignedByteSize = (byteSize + alignment_ - 1) & ~(alignment_ - 1);
-    /*
-      163: 00000000 00000000 00000000 10100011
-   0xFFC0: 11111111 11111111 11111111 11000000    ~63
--------------------------------------------------
-    结果:   00000000 00000000 00000000 10000000   = 128
-    */
     return alignedByteSize / sizeof(float);
 }
 

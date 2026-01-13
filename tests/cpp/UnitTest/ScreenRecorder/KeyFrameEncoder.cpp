@@ -165,13 +165,13 @@ TEST_F(ScreenRecorderThreadTest, EncodingThreadTest) {
     auto ffmpeg = std::make_shared<FFmpegWrapper>();
 
     EncoderConfig config;
-    config.width = 640;
-    config.height = 480;
-    config.fps = 30;
-    config.bitrate = 800000;
-    config.outputFilePath = "test_encode_thread.mp4";
-    config.codec = "libx264";
-    config.enableAudio = false;
+    config.video.width = 640;
+    config.video.height = 480;
+    config.video.fps = 30;
+    config.video.bitrate = 800000;
+    config.video.outputFilePath = "test_encode_thread.mp4";
+    config.video.codec = "libx264";
+    config.audio.enabled = false;
 
     // 如果环境缺失 ffmpeg 库，跳过测试
     if (!ffmpeg->initialize(config)) {

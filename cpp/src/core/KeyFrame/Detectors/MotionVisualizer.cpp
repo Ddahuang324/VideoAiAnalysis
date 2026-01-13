@@ -1,5 +1,7 @@
 #include "MotionVisualizer.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <iomanip>
 #include <ios>
 #include <opencv2/core.hpp>
@@ -10,10 +12,16 @@
 #include <vector>
 
 #include "MotionDetector.h"
+#include "opencv2/core/hal/interface.h"
+#include "opencv2/core/mat.hpp"
+#include "opencv2/core/matx.hpp"
+#include "opencv2/core/types.hpp"
 
 namespace KeyFrame {
 
-// COCO 数据集 80 个类别
+// ========== COCO Class Names ==========
+// 80 classes from COCO dataset
+
 const char* MotionVisualizer::COCO_CLASSES[80] = {"person",        "bicycle",      "car",
                                                   "motorcycle",    "airplane",     "bus",
                                                   "train",         "truck",        "boat",
@@ -42,7 +50,11 @@ const char* MotionVisualizer::COCO_CLASSES[80] = {"person",        "bicycle",   
                                                   "vase",          "scissors",     "teddy bear",
                                                   "hair drier",    "toothbrush"};
 
+// ========== Constructor ==========
+
 MotionVisualizer::MotionVisualizer(const Config& config) : config_(config) {}
+
+// ========== Main Drawing Function ==========
 
 cv::Mat MotionVisualizer::draw(const cv::Mat& frame, const MotionDetector::Result& result,
                                int frameIndex) {
@@ -52,23 +64,19 @@ cv::Mat MotionVisualizer::draw(const cv::Mat& frame, const MotionDetector::Resul
 
     cv::Mat canvas = frame.clone();
 
-    // 更新轨迹历史
     if (config_.showTrackHistory) {
         updateTrackHistory(result.track);
         drawTrackHistory(canvas);
     }
 
-    // 绘制边界框
     if (config_.showBoundingBoxes) {
         drawBoundingBoxes(canvas, result.track);
     }
 
-    // 绘制速度向量
     if (config_.showVelocityArrows) {
         drawVelocityVectors(canvas, result.track);
     }
 
-    // 绘制 HUD
     if (config_.showHUD) {
         drawHUD(canvas, result, frameIndex);
     }
@@ -80,19 +88,22 @@ void MotionVisualizer::reset() {
     trackHistory_.clear();
 }
 
+// ========== Bounding Boxes ==========
+
 void MotionVisualizer::drawBoundingBoxes(cv::Mat& canvas,
                                          const std::vector<MotionDetector::Track>& tracks) {
     for (const auto& track : tracks) {
         cv::Scalar color = getColorByTrackId(track.trackId);
         cv::rectangle(canvas, track.box, color, config_.borderThickness);
 
-        // 构建标签文本
         std::string label = buildLabel(track);
         if (!label.empty()) {
             drawLabel(canvas, track.box, label, color);
         }
     }
 }
+
+// ========== Velocity Vectors ==========
 
 void MotionVisualizer::drawVelocityVectors(cv::Mat& canvas,
                                            const std::vector<MotionDetector::Track>& tracks) {
@@ -104,9 +115,12 @@ void MotionVisualizer::drawVelocityVectors(cv::Mat& canvas,
 
         cv::Point2f center = getBoxCenter(track.box);
         cv::Point2f endpoint = center + track.Velocity * config_.velocityScale;
+
         cv::arrowedLine(canvas, center, endpoint, cv::Scalar(0, 255, 255), 2, cv::LINE_AA, 0, 0.3);
     }
 }
+
+// ========== Track History ==========
 
 void MotionVisualizer::drawTrackHistory(cv::Mat& canvas) {
     for (const auto& [trackId, history] : trackHistory_) {
@@ -124,33 +138,60 @@ void MotionVisualizer::drawTrackHistory(cv::Mat& canvas) {
     }
 }
 
+void MotionVisualizer::updateTrackHistory(const std::vector<MotionDetector::Track>& tracks) {
+    std::set<int> activeTrackIds;
+
+    for (const auto& track : tracks) {
+        activeTrackIds.insert(track.trackId);
+        cv::Point center = getBoxCenter(track.box);
+
+        auto& history = trackHistory_[track.trackId];
+        history.push_back(center);
+
+        if (static_cast<int>(history.size()) > config_.historyLength) {
+            history.pop_front();
+        }
+    }
+
+    // Remove inactive track histories
+    for (auto it = trackHistory_.begin(); it != trackHistory_.end();) {
+        if (activeTrackIds.find(it->first) == activeTrackIds.end()) {
+            it = trackHistory_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// ========== HUD ==========
+
 void MotionVisualizer::drawHUD(cv::Mat& canvas, const MotionDetector::Result& result,
                                int frameIndex) {
-    const int hudX = 10;
-    const int hudY = 10;
-    const int hudWidth = 360;
-    const int hudHeight = 180;
+    constexpr int HUD_X = 10;
+    constexpr int HUD_Y = 10;
+    constexpr int HUD_WIDTH = 360;
+    constexpr int HUD_HEIGHT = 180;
 
-    // 创建半透明背景
+    // Create semi-transparent background
     cv::Mat overlay = canvas.clone();
-    cv::rectangle(overlay, cv::Point(hudX, hudY), cv::Point(hudX + hudWidth, hudY + hudHeight),
-                  cv::Scalar(0, 0, 0), -1);
+    cv::rectangle(overlay, cv::Point(HUD_X, HUD_Y),
+                  cv::Point(HUD_X + HUD_WIDTH, HUD_Y + HUD_HEIGHT), cv::Scalar(0, 0, 0), -1);
     cv::addWeighted(overlay, config_.hudOpacity, canvas, 1.0 - config_.hudOpacity, 0, canvas);
 
-    // 绘制边框
-    cv::rectangle(canvas, cv::Point(hudX, hudY), cv::Point(hudX + hudWidth, hudY + hudHeight),
+    // Draw border
+    cv::rectangle(canvas, cv::Point(HUD_X, HUD_Y), cv::Point(HUD_X + HUD_WIDTH, HUD_Y + HUD_HEIGHT),
                   cv::Scalar(0, 255, 0), 2);
 
-    // 绘制信息文本
-    int textY = hudY + 30;
-    const int textX = hudX + 15;
-    const int lineHeight = 25;
-    const cv::Scalar textColor(0, 255, 0);
+    // Draw info text
+    int textY = HUD_Y + 30;
+    constexpr int TEXT_X = HUD_X + 15;
+    constexpr int LINE_HEIGHT = 25;
+    const cv::Scalar TEXT_COLOR(0, 255, 0);
 
     auto drawText = [&](const std::string& text) {
-        cv::putText(canvas, text, cv::Point(textX, textY), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                    textColor, 1, cv::LINE_AA);
-        textY += lineHeight;
+        cv::putText(canvas, text, cv::Point(TEXT_X, textY), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                    TEXT_COLOR, 1, cv::LINE_AA);
+        textY += LINE_HEIGHT;
     };
 
     drawText("Frame: " + std::to_string(frameIndex));
@@ -161,6 +202,8 @@ void MotionVisualizer::drawHUD(cv::Mat& canvas, const MotionDetector::Result& re
     drawText(formatFloat("Pixel Motion", result.pixelMotionScore, 3));
     drawText(formatFloat("Avg Velocity", result.avgVelocity, 2) + " px/f");
 }
+
+// ========== Utility Functions ==========
 
 cv::Scalar MotionVisualizer::getColorByTrackId(int trackId) {
     const int hue = (trackId * 37) % 180;
@@ -177,31 +220,6 @@ std::string MotionVisualizer::getClassName(int classId) {
         return COCO_CLASSES[classId];
     }
     return "unknown";
-}
-
-void MotionVisualizer::updateTrackHistory(const std::vector<MotionDetector::Track>& tracks) {
-    std::set<int> activeTrackIds;
-
-    for (const auto& track : tracks) {
-        activeTrackIds.insert(track.trackId);
-        cv::Point center = getBoxCenter(track.box);
-
-        auto& history = trackHistory_[track.trackId];
-        history.push_back(center);
-
-        if (static_cast<int>(history.size()) > config_.historyLength) {
-            history.pop_front();
-        }
-    }
-
-    // 移除非活跃轨迹的历史
-    for (auto it = trackHistory_.begin(); it != trackHistory_.end();) {
-        if (activeTrackIds.find(it->first) == activeTrackIds.end()) {
-            it = trackHistory_.erase(it);
-        } else {
-            ++it;
-        }
-    }
 }
 
 std::string MotionVisualizer::buildLabel(const MotionDetector::Track& track) {
@@ -235,8 +253,8 @@ void MotionVisualizer::drawLabel(cv::Mat& canvas, const cv::Rect& box, const std
     cv::rectangle(canvas, cv::Point(box.x, labelY - textSize.height - 5),
                   cv::Point(box.x + textSize.width, labelY), color, -1);
 
-    cv::putText(canvas, label, cv::Point(box.x, labelY - 5), cv::FONT_HERSHEY_SIMPLEX,
-                0.5, cv::Scalar(255, 255, 255), 1);
+    cv::putText(canvas, label, cv::Point(box.x, labelY - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                cv::Scalar(255, 255, 255), 1);
 }
 
 cv::Point MotionVisualizer::getBoxCenter(const cv::Rect& box) {

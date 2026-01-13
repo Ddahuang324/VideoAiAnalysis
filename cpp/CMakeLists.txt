@@ -48,6 +48,9 @@ set(CORE_HEADERS
     include/Process/IPC/IIPCClientBase.h
     include/Process/IPC/IPCServer.h
     include/Process/IPC/RecorderProcessClient.h
+    include/core/Config/ConfigBase.h
+    include/core/Config/ConfigValidation.h
+    include/core/Config/UnifiedConfig.h
 )
 
 add_library(ai_video_core STATIC
@@ -99,6 +102,9 @@ add_library(ai_video_core STATIC
     src/Process/IPC/IIPCClientBase.cpp
     src/Process/IPC/IPCServer.cpp
     src/Process/IPC/RecorderProcessClient.cpp
+    src/core/Config/ConfigBase.cpp
+    src/core/Config/ConfigValidation.cpp
+    src/core/Config/UnifiedConfig.cpp
 )
 
 target_include_directories(ai_video_core PUBLIC
@@ -126,6 +132,7 @@ target_include_directories(ai_video_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/Analyzer
     ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/Recorder
     ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/IPC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/Config
 )
 
 # 链接 FFmpeg

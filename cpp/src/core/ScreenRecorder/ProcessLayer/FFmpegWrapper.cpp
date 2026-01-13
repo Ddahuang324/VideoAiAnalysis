@@ -1,4 +1,5 @@
 
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -8,10 +9,13 @@
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
+
 #include "libavcodec/codec.h"
 #include "libavcodec/codec_id.h"
 #include "libavcodec/packet.h"
-#include <libavformat/avformat.h>
 #include "libavformat/avio.h"
 #include "libavutil/audio_fifo.h"
 #include "libavutil/channel_layout.h"
@@ -22,8 +26,7 @@ extern "C" {
 #include "libavutil/pixfmt.h"
 #include "libavutil/rational.h"
 #include "libavutil/samplefmt.h"
-#include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
+
 }
 
 #include "FFmpegWrapper.h"
@@ -69,17 +72,17 @@ FFmpegWrapper::~FFmpegWrapper() {
 }
 
 bool FFmpegWrapper::initialize(const EncoderConfig& config) {
-    LOG_INFO("FFmpegWrapper initializing with config: " + config.outputFilePath);
+    LOG_INFO("FFmpegWrapper initializing with config: " + config.video.outputFilePath);
 
-    width_ = config.width;
-    height_ = config.height;
-    outputFilePath_ = config.outputFilePath;
+    width_ = config.video.width;
+    height_ = config.video.height;
+    outputFilePath_ = config.video.outputFilePath;
 
     if (!step1_allocateFormatContext()) {
         return false;
     }
 
-    if (!step2_openOutputFile(config.outputFilePath)) {
+    if (!step2_openOutputFile(config.video.outputFilePath)) {
         return false;
     }
 
@@ -87,7 +90,7 @@ bool FFmpegWrapper::initialize(const EncoderConfig& config) {
         return false;
     }
 
-    if (config.enableAudio) {
+    if (config.audio.enabled) {
         if (!step3_createAudioStreamAndEncoder(config)) {
             return false;
         }
@@ -163,10 +166,10 @@ bool FFmpegWrapper::step2_openOutputFile(const std::string& path) {
 bool FFmpegWrapper::step3_createVideoStreamAndEncoder(const EncoderConfig& config) {
     const AVCodec* codec = nullptr;
 
-    if (!config.codec.empty()) {
-        codec = avcodec_find_encoder_by_name(config.codec.c_str());
+    if (!config.video.codec.empty()) {
+        codec = avcodec_find_encoder_by_name(config.video.codec.c_str());
         if (!codec) {
-            LOG_WARN("Codec '" + config.codec + "' not found, falling back to H.264");
+            LOG_WARN("Codec '" + config.video.codec + "' not found, falling back to H.264");
         }
     }
 
@@ -196,19 +199,19 @@ bool FFmpegWrapper::step3_createVideoStreamAndEncoder(const EncoderConfig& confi
         return false;
     }
 
-    codecContext_->width = config.width;
-    codecContext_->height = config.height;
+    codecContext_->width = config.video.width;
+    codecContext_->height = config.video.height;
     codecContext_->pix_fmt = AV_PIX_FMT_YUV420P;
-    codecContext_->bit_rate = config.bitrate;
-    codecContext_->time_base = AVRational{1, config.fps};
-    codecContext_->framerate = AVRational{config.fps, 1};
+    codecContext_->bit_rate = config.video.bitrate;
+    codecContext_->time_base = AVRational{1, config.video.fps};
+    codecContext_->framerate = AVRational{config.video.fps, 1};
     videoStream_->time_base = codecContext_->time_base;
-    codecContext_->gop_size = config.fps;
+    codecContext_->gop_size = config.video.fps;
     codecContext_->max_b_frames = MAX_B_FRAMES;
 
     AVDictionary* opts = nullptr;
-    av_dict_set(&opts, "preset", config.preset.c_str(), 0);
-    av_dict_set(&opts, "crf", std::to_string(config.crf).c_str(), 0);
+    av_dict_set(&opts, "preset", config.video.preset.c_str(), 0);
+    av_dict_set(&opts, "crf", std::to_string(config.video.crf).c_str(), 0);
 
     int ret = avcodec_open2(codecContext_.get(), codec, &opts);
     av_dict_free(&opts);
@@ -231,7 +234,7 @@ bool FFmpegWrapper::step3_createVideoStreamAndEncoder(const EncoderConfig& confi
 }
 
 bool FFmpegWrapper::step3_createAudioStreamAndEncoder(const EncoderConfig& config) {
-    const AVCodec* codec = avcodec_find_encoder_by_name(config.audioCodec.c_str());
+    const AVCodec* codec = avcodec_find_encoder_by_name(config.audio.codec.c_str());
     if (!codec) {
         codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
     }
@@ -258,12 +261,12 @@ bool FFmpegWrapper::step3_createAudioStreamAndEncoder(const EncoderConfig& confi
 
     audioCodecContext_->sample_fmt =
         codec->sample_fmts ? codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
-    audioCodecContext_->bit_rate = config.audioBitrate;
-    audioCodecContext_->sample_rate = config.audioSampleRate;
+    audioCodecContext_->bit_rate = config.audio.bitrate;
+    audioCodecContext_->sample_rate = config.audio.sampleRate;
 
-    av_channel_layout_default(&audioCodecContext_->ch_layout, config.audioChannels);
+    av_channel_layout_default(&audioCodecContext_->ch_layout, config.audio.channels);
 
-    audioCodecContext_->time_base = AVRational{1, config.audioSampleRate};
+    audioCodecContext_->time_base = AVRational{1, config.audio.sampleRate};
     audioStream_->time_base = audioCodecContext_->time_base;
 
     int ret = avcodec_open2(audioCodecContext_.get(), codec, nullptr);
@@ -419,7 +422,8 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
             break;
         }
 
-        if (av_audio_fifo_read(audioFifo_.get(), (void**)audioFrame_->data, frameSize) < frameSize) {
+        if (av_audio_fifo_read(audioFifo_.get(), (void**)audioFrame_->data, frameSize) <
+            frameSize) {
             break;
         }
 

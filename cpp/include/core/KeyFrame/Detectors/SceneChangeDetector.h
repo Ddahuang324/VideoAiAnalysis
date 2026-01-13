@@ -9,22 +9,20 @@
 #include <string>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
 #include "ModelManager.h"
 
 namespace KeyFrame {
 
 class FrameResource;  // 前向声明
 
+// 使用统一配置系统的类型别名
+using SceneChangeDetectorConfig = Config::SceneChangeDetectorConfig;
+
 class SceneChangeDetector {
 public:
-    struct Config {
-        float similarityThreshold = 0.8f;  // 相似度阈值
-        int featureDim = 1000;             // 特征维度 (匹配 MobileNet-v3-Small 输出)
-        int inputsize = 224;               // 输入尺寸
-        bool enableCache = true;           // 启用缓存以加速处理
-
-        Config() {}
-    };
+    // 使用统一配置
+    using Config = SceneChangeDetectorConfig;
 
     struct Result {
         bool isSceneChange = false;         // 是否发生场景变化

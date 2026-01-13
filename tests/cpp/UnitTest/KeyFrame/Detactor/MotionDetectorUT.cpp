@@ -28,10 +28,8 @@
 #include "ModelManager.h"
 #include "MotionDetector.h"
 #include "MotionVisualizer.h"
-#include "VideoGrabber.h"
-
 #include "TestPathUtils.h"
-
+#include "VideoGrabber.h"
 
 namespace fs = std::filesystem;
 
@@ -183,8 +181,8 @@ TEST_F(MotionDetectorTest, RealImageDetection) {
         GTEST_SKIP() << "Test assets directory not found, skipping real image test";
     }
 
-    std::cout << "[Test] Using assets directory: "
-              << TestPathUtils::pathToUtf8String(assetsDir) << std::endl;
+    std::cout << "[Test] Using assets directory: " << TestPathUtils::pathToUtf8String(assetsDir)
+              << std::endl;
 
     auto imreadUnicode = [](const fs::path& path) {
         std::ifstream ifs(path, std::ios::binary | std::ios::ate);
@@ -332,8 +330,7 @@ TEST_F(MotionDetectorTest, GetTracksInterface) {
  */
 TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
     // 使用统一的路径工具查找测试视频
-    fs::path videoPath =
-        TestPathUtils::findTestVideo("recording_20251228_211312.mp4");
+    fs::path videoPath = TestPathUtils::findTestVideo("recording_20251228_211312.mp4");
 
     if (videoPath.empty()) {
         GTEST_SKIP() << "Test video 'recording_20251228_211312.mp4' not found";
@@ -344,8 +341,8 @@ TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
 
     // 打开视频
     cv::VideoCapture cap(TestPathUtils::pathToUtf8String(videoPath));
-    ASSERT_TRUE(cap.isOpened())
-        << "Failed to open video: " << TestPathUtils::pathToUtf8String(videoPath);
+    ASSERT_TRUE(cap.isOpened()) << "Failed to open video: "
+                                << TestPathUtils::pathToUtf8String(videoPath);
 
     // 获取视频属性
     int totalFrames = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
@@ -386,15 +383,15 @@ TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
     // 使用项目的 FFmpegWrapper 创建视频编码器
     auto ffmpegWrapper = std::make_shared<FFmpegWrapper>();
     EncoderConfig encoderConfig;
-    encoderConfig.outputFilePath = outputPath.string();
-    encoderConfig.width = encWidth;
-    encoderConfig.height = encHeight;
-    encoderConfig.fps = (fps > 0) ? static_cast<int>(fps) : 30;
-    encoderConfig.bitrate = 5000000;  // 5 Mbps
-    encoderConfig.crf = 23;
-    encoderConfig.preset = "medium";
-    encoderConfig.codec = "libx264";
-    encoderConfig.enableAudio = false;  // 测试视频不需要音频
+    encoderConfig.video.outputFilePath = outputPath.string();
+    encoderConfig.video.width = encWidth;
+    encoderConfig.video.height = encHeight;
+    encoderConfig.video.fps = (fps > 0) ? static_cast<int>(fps) : 30;
+    encoderConfig.video.bitrate = 5000000;  // 5 Mbps
+    encoderConfig.video.crf = 23;
+    encoderConfig.video.preset = "medium";
+    encoderConfig.video.codec = "libx264";
+    encoderConfig.audio.enabled = false;  // 测试视频不需要音频
 
     bool encoderInitialized = false;
     if (enableVideoOutput) {

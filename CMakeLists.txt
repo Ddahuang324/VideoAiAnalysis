@@ -39,11 +39,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 if(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # clang-cl: 使用 MSVC 风格的编译选项
     message(STATUS "Using clang-cl (MSVC compatible mode)")
+
     add_compile_options(
         /W3
         /EHsc
     )
-    
+
     if(CMAKE_BUILD_TYPE MATCHES "Debug")
         add_compile_options(/Od /Zi)
     else()
@@ -318,19 +319,40 @@ if(NOT OpenCV_FOUND)
         FetchContent_Populate(opencv_prebuilt)
         
         set(OpenCV_DIR "${opencv_prebuilt_SOURCE_DIR}")
-        set(OpenCV_INCLUDE_DIRS "${OpenCV_DIR}/include")
-        set(OpenCV_LIB_DIR "${OpenCV_DIR}/lib")
-        set(OpenCV_BIN_DIR "${OpenCV_DIR}/bin")
         
-        find_library(OpenCV_core_LIBRARY NAMES opencv_core480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
-        find_library(OpenCV_imgproc_LIBRARY NAMES opencv_imgproc480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
-        find_library(OpenCV_imgcodecs_LIBRARY NAMES opencv_imgcodecs480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
+        # 针对该预编译包的特殊结构 (可能有 Debug/Release 子目录)
+        if(EXISTS "${OpenCV_DIR}/Release")
+            set(OpenCV_BASE_REL "${OpenCV_DIR}/Release")
+        else()
+            set(OpenCV_BASE_REL "${OpenCV_DIR}")
+        endif()
         
+        if(EXISTS "${OpenCV_DIR}/Debug")
+            set(OpenCV_BASE_DBG "${OpenCV_DIR}/Debug")
+        else()
+            set(OpenCV_BASE_DBG "${OpenCV_DIR}")
+        endif()
+
+        # 根据当前的 CMAKE_BUILD_TYPE 选择基础目录
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(OpenCV_BASE "${OpenCV_BASE_DBG}")
+            set(CV_SUFFIX "d")
+        else()
+            set(OpenCV_BASE "${OpenCV_BASE_REL}")
+            set(CV_SUFFIX "")
+        endif()
+
+        set(OpenCV_INCLUDE_DIRS "${OpenCV_BASE}/include")
+        set(OpenCV_LIB_DIR "${OpenCV_BASE}/lib")
+        set(OpenCV_BIN_DIR "${OpenCV_BASE}/bin")
+        
+        # 查找所有库文件 (处理分立库及其所有依赖)
+        file(GLOB OpenCV_LIBS "${OpenCV_LIB_DIR}/*.lib")
         file(GLOB OpenCV_DLLS "${OpenCV_BIN_DIR}/*.dll")
         
-        if(OpenCV_core_LIBRARY)
+        if(OpenCV_LIBS)
             set(OpenCV_FOUND TRUE)
-            set(OpenCV_LIBS ${OpenCV_core_LIBRARY} ${OpenCV_imgproc_LIBRARY} ${OpenCV_imgcodecs_LIBRARY})
+            message(STATUS "✓ Found ${OpenCV_LIBS_COUNT} OpenCV libraries in ${OpenCV_LIB_DIR}")
         endif()
     endif()
 endif()

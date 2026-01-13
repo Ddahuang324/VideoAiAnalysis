@@ -2,16 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
 #ifdef _WIN32
-#include <Windows.h>
+#    include <Windows.h>
 #endif
 
 #include "Log.h"
@@ -21,22 +18,26 @@
 
 namespace KeyFrame {
 
-// Helper function to convert UTF-8 path to proper filesystem path for Windows
+// ========== UTF-8 Path Conversion (Windows) ==========
 #ifdef _WIN32
 static std::wstring utf8_to_wstring(const std::string& utf8_str) {
-    if (utf8_str.empty()) return std::wstring();
+    if (utf8_str.empty()) {
+        return std::wstring();
+    }
 
-    // Calculate required buffer size
     int size = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
-    if (size <= 0) return std::wstring();
+    if (size <= 0) {
+        return std::wstring();
+    }
 
-    // Convert UTF-8 to UTF-16 (wide string)
     std::wstring wstr(size - 1, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], size);
 
     return wstr;
 }
 #endif
+
+// ========== Constructor ==========
 
 ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Config& config)
     : env_(&env),
@@ -45,7 +46,8 @@ ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Conf
       config_(config) {
     Ort::SessionOptions sessionOptions;
     sessionOptions.SetIntraOpNumThreads(config.intraOpNumThreads);
-    sessionOptions.SetGraphOptimizationLevel(config.optimizationLevel);
+    sessionOptions.SetGraphOptimizationLevel(
+        static_cast<GraphOptimizationLevel>(config.optimizationLevel));
     sessionOptions.SetInterOpNumThreads(config.interOpNumThreads);
 
     if (config.enableCUDA) {
@@ -55,7 +57,6 @@ ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Conf
     }
 
 #ifdef _WIN32
-    // Convert UTF-8 path to wide string (UTF-16) to handle Chinese and other non-ASCII paths
     std::wstring widePath = utf8_to_wstring(modelPath);
     session_ = std::make_unique<Ort::Session>(*env_, widePath.c_str(), sessionOptions);
 #else
@@ -63,14 +64,15 @@ ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Conf
 #endif
 
     extractMetadata();
-
     modelName_ = extractModelName(modelPath);
 }
+
+// ========== Metadata Extraction ==========
 
 void ONNXSession::extractMetadata() {
     Ort::AllocatorWithDefaultOptions allocator;
 
-    // Inputs
+    // Extract input metadata
     size_t numInputs = session_->GetInputCount();
     for (size_t i = 0; i < numInputs; ++i) {
         auto name = session_->GetInputNameAllocated(i, allocator);
@@ -81,7 +83,7 @@ void ONNXSession::extractMetadata() {
         inputShapes_.push_back(tensorInfo.GetShape());
     }
 
-    // Outputs
+    // Extract output metadata
     size_t numOutputs = session_->GetOutputCount();
     for (size_t i = 0; i < numOutputs; ++i) {
         auto name = session_->GetOutputNameAllocated(i, allocator);
@@ -100,6 +102,8 @@ std::string ONNXSession::extractModelName(const std::string& path) {
     return std::filesystem::path(path).filename().string();
 #endif
 }
+
+// ========== Inference (No Buffer) ==========
 
 std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<float>>& inputs) {
     auto inputTensors = createInputTensors(inputs);
@@ -121,11 +125,13 @@ std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<f
     return extractOutputs(outputTensors);
 }
 
+// ========== Inference (With Buffer) ==========
+
 std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vector<float>>& inputs,
                                                       TensorBuffer& outputBuffer) {
     auto inputTensors = createInputTensors(inputs);
 
-    // 从第一个输入推断当前的 Batch Size
+    // Infer batch size from first input
     int64_t currentBatchSize = 1;
     if (!inputs.empty() && !inputShapes_.empty()) {
         std::vector<int64_t> shape = inputShapes_[0];
@@ -135,17 +141,14 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vec
         }
     }
 
-    std::vector<const char*> inputNames;
-    for (const auto& name : inputNodeNames_) {
+    // Prepare output name pointers
+    std::vector<const char*> inputNames, outputNames;
+    for (const auto& name : inputNodeNames_)
         inputNames.push_back(name.c_str());
-    }
-
-    std::vector<const char*> outputNames;
-    for (const auto& name : outputNodeNames_) {
+    for (const auto& name : outputNodeNames_)
         outputNames.push_back(name.c_str());
-    }
 
-    // 准备输出 Tensor，直接使用 TensorBuffer 的内存，避免二次拷贝
+    // Allocate output tensors directly in buffer
     std::vector<Ort::Value> outputTensors;
     std::vector<OutputInfo> outputInfos;
     std::vector<std::vector<int64_t>> actualOutputShapes;
@@ -163,7 +166,6 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vec
                                                                 actualOutputShapes.back().size()));
     }
 
-    // 执行推理，结果将直接写入 outputBuffer
     session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
                   inputTensors.size(), outputNames.data(), outputTensors.data(),
                   outputTensors.size());
@@ -176,23 +178,20 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
     const std::vector<std::vector<int64_t>>& inputShapes, TensorBuffer& outputBuffer) {
     auto inputTensors = createInputTensors(inputs, inputShapes);
 
-    // 从第一个输入推断当前的 Batch Size
+    // Infer batch size from first input shape
     int64_t currentBatchSize = 1;
     if (!inputShapes.empty() && !inputShapes[0].empty()) {
         currentBatchSize = inputShapes[0][0];
     }
 
-    std::vector<const char*> inputNames;
-    for (const auto& name : inputNodeNames_) {
+    // Prepare name pointers
+    std::vector<const char*> inputNames, outputNames;
+    for (const auto& name : inputNodeNames_)
         inputNames.push_back(name.c_str());
-    }
-
-    std::vector<const char*> outputNames;
-    for (const auto& name : outputNodeNames_) {
+    for (const auto& name : outputNodeNames_)
         outputNames.push_back(name.c_str());
-    }
 
-    // 检查是否可以预分配输出
+    // Check if we can pre-allocate outputs
     bool canPreAllocate = true;
     for (const auto& shape : outputShapes_) {
         for (size_t j = 1; j < shape.size(); ++j) {
@@ -206,7 +205,7 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
     }
 
     if (!canPreAllocate) {
-        // 无法预分配（存在非 Batch 维度的动态形状），让 ORT 分配
+        // Let ORT allocate for dynamic shapes
         auto outputTensors =
             session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
                           inputTensors.size(), outputNames.data(), outputNames.size());
@@ -220,13 +219,12 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
             float* tensorData = tensor.GetTensorMutableData<float>();
 
             std::copy(tensorData, tensorData + elementCount, ptr);
-
             outputInfos.push_back({ptr, elementCount});
         }
         return outputInfos;
     }
 
-    // 准备输出 Tensor，直接使用 TensorBuffer 的内存，避免二次拷贝
+    // Pre-allocate outputs in buffer
     std::vector<Ort::Value> outputTensors;
     std::vector<OutputInfo> outputInfos;
     std::vector<std::vector<int64_t>> actualOutputShapes;
@@ -244,7 +242,6 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
                                                                 actualOutputShapes.back().size()));
     }
 
-    // 执行推理，结果将直接写入 outputBuffer
     session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
                   inputTensors.size(), outputNames.data(), outputTensors.data(),
                   outputTensors.size());
@@ -252,26 +249,33 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
     return outputInfos;
 }
 
+// ========== Shape Queries ==========
+
 std::vector<int64_t> ONNXSession::getInputShape(size_t index) const {
-    if (index < inputShapes_.size())
+    if (index < inputShapes_.size()) {
         return inputShapes_[index];
+    }
     return {};
 }
 
 std::vector<int64_t> ONNXSession::getOutputShape(size_t index) const {
-    if (index < outputShapes_.size())
+    if (index < outputShapes_.size()) {
         return outputShapes_[index];
+    }
     return {};
 }
+
+// ========== Input Tensor Creation ==========
 
 std::vector<Ort::Value> ONNXSession::createInputTensors(
     const std::vector<std::vector<float>>& inputs) {
     std::vector<Ort::Value> tensors;
+
     for (size_t i = 0; i < inputs.size(); ++i) {
         const auto& data = inputs[i];
         std::vector<int64_t> actualShape = inputShapes_[i];
 
-        // 计算静态部分的元素乘积，并推断动态维度
+        // Compute static elements and infer dynamic dimension
         int64_t staticElements = 1;
         for (auto dim : actualShape) {
             if (dim > 0)
@@ -282,11 +286,11 @@ std::vector<Ort::Value> ONNXSession::createInputTensors(
             (staticElements > 0) ? static_cast<int64_t>(data.size() / staticElements) : 1;
         computeShapeAndCount(actualShape, dynamicValue);
 
-        // 把对应的输入数据和格式转换成ONNX的tensor
         tensors.push_back(
             Ort::Value::CreateTensor<float>(memoryInfo_, const_cast<float*>(data.data()),
                                             data.size(), actualShape.data(), actualShape.size()));
     }
+
     return tensors;
 }
 
@@ -294,29 +298,36 @@ std::vector<Ort::Value> ONNXSession::createInputTensors(
     const std::vector<std::vector<float>>& inputs,
     const std::vector<std::vector<int64_t>>& explicitShapes) {
     std::vector<Ort::Value> tensors;
+
     for (size_t i = 0; i < inputs.size(); ++i) {
         const auto& data = inputs[i];
-        std::vector<int64_t> actualShape = explicitShapes[i];
+        const std::vector<int64_t>& actualShape = explicitShapes[i];
 
-        // 把对应的输入数据和格式转换成ONNX的tensor
-        tensors.push_back(
-            Ort::Value::CreateTensor<float>(memoryInfo_, const_cast<float*>(data.data()),
-                                            data.size(), actualShape.data(), actualShape.size()));
+        tensors.push_back(Ort::Value::CreateTensor<float>(
+            memoryInfo_, const_cast<float*>(data.data()), data.size(),
+            const_cast<int64_t*>(actualShape.data()), actualShape.size()));
     }
+
     return tensors;
 }
+
+// ========== Output Extraction ==========
 
 std::vector<std::vector<float>> ONNXSession::extractOutputs(
     std::vector<Ort::Value>& outputTensors) {
     std::vector<std::vector<float>> outputs;
+
     for (auto& tensor : outputTensors) {
-        float* floatData = tensor.GetTensorMutableData<float>();  // 获取tensor的指针
-        auto tensorInfo = tensor.GetTensorTypeAndShapeInfo();     // 获取tensor的类型和形状信息
-        size_t count = tensorInfo.GetElementCount();              // 数据的大小
+        float* floatData = tensor.GetTensorMutableData<float>();
+        auto tensorInfo = tensor.GetTensorTypeAndShapeInfo();
+        size_t count = tensorInfo.GetElementCount();
         outputs.emplace_back(floatData, floatData + count);
     }
+
     return outputs;
 }
+
+// ========== Warm Up ==========
 
 void ONNXSession::warmUp() {
     if (inputShapes_.empty()) {
@@ -340,32 +351,36 @@ void ONNXSession::warmUp() {
     }
 }
 
+// ========== Shape Computation ==========
+
 size_t ONNXSession::computeShapeAndCount(std::vector<int64_t>& shape, int64_t dynamicValue) {
     size_t count = 1;
     int dynamicDimCount = 0;
+
     for (auto dim : shape) {
         if (dim <= 0)
             dynamicDimCount++;
     }
 
     if (dynamicDimCount > 1 && shape.size() == 4) {
-        // 针对 NCHW 图像输入的特殊处理
+        // Special handling for NCHW image input
         if (shape[0] <= 0) {
-            shape[0] = 1;  // 假设 Batch Size 为 1
+            shape[0] = 1;  // Assume batch size = 1
             dynamicDimCount--;
         }
 
         if (dynamicDimCount == 2) {
-            // 剩余两个动态维度（通常是 H 和 W）
+            // Two dynamic dimensions (usually H and W)
             int64_t remainingElements = dynamicValue;
             int64_t side = static_cast<int64_t>(std::sqrt(remainingElements));
+
             if (side * side == remainingElements) {
                 for (auto& dim : shape) {
                     if (dim <= 0)
                         dim = side;
                 }
             } else {
-                // 如果不能整开方，尝试分配给最后一个维度
+                // Allocate to last dimension
                 for (size_t i = 0; i < shape.size(); ++i) {
                     if (shape[i] <= 0) {
                         shape[i] = remainingElements;
@@ -389,6 +404,7 @@ size_t ONNXSession::computeShapeAndCount(std::vector<int64_t>& shape, int64_t dy
     for (auto dim : shape) {
         count *= static_cast<size_t>(dim);
     }
+
     return count;
 }
 

@@ -4,28 +4,19 @@
 #include <string>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
 #include "FrameScorer.h"
 #include "IFrameAnalyzer.h"
 
 namespace KeyFrame {
 
+// 使用统一配置系统的类型别名
+using KeyFrameDetectorConfig = Config::KeyFrameDetectorConfig;
+
 class KeyFrameDetector {
 public:
-    struct Config {
-        int targetKeyFrameCount = 50;         // 目标关键帧数量 (动态计算时作为默认值)
-        float targetCompressionRatio = 0.1f;  // 目标压缩比 (0.0 ~ 1.0)
-
-        int minKeyFrameCount = 5;    // 最小关键帧数量保底
-        int maxKeyFrameCount = 500;  // 最大关键帧数量上限
-
-        float minTemporalDistance = 1.0f;  // 最小时间间隔（秒）
-
-        bool useThresholdMode = true;        // 是否启用阈值模式
-        float highQualityThreshold = 0.75f;  // 高质量帧评分阈值出
-
-        float minScoreThreshold = 0.3f;         // 最小分数阈值 (低于此分直接过滤)
-        bool alwaysIncludeSceneChanges = true;  // 始终包含场景变化帧
-    };
+    // 使用统一配置
+    using Config = KeyFrameDetectorConfig;
 
     struct SelectionResult {
         std::vector<int> keyFrameIndices;        // 选中的关键帧索引

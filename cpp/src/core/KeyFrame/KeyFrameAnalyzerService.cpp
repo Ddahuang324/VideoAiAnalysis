@@ -1,10 +1,7 @@
 #include "core/KeyFrame/KeyFrameAnalyzerService.h"
 
-#include <opencv2/core/hal/interface.h>
-
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -32,6 +29,8 @@
 
 namespace KeyFrame {
 
+// ========== Constructor / Destructor ==========
+
 KeyFrameAnalyzerService::KeyFrameAnalyzerService(const Config& config) : config_(config) {
     initializeComponents();
 }
@@ -40,57 +39,63 @@ KeyFrameAnalyzerService::~KeyFrameAnalyzerService() {
     stop();
 }
 
-void KeyFrameAnalyzerService::initializeComponents() {
-    LOG_INFO("Initializing KeyFrameAnalyzerService components...");
+// ========== Initialization ==========
 
-    // 1. 初始化 ZMQ
+void KeyFrameAnalyzerService::initializeComponents() {
+    LOG_INFO("[KeyFrameAnalyzerService] Initializing components...");
+
+    // 1. Initialize ZMQ
     subscriber_ = std::make_unique<MQInfra::FrameSubscriber>();
     if (!subscriber_->initialize(config_.zmqSubscriber.endpoint)) {
-        LOG_ERROR("Failed to initialize FrameSubscriber at " + config_.zmqSubscriber.endpoint);
+        LOG_ERROR("[KeyFrameAnalyzerService] Failed to initialize FrameSubscriber at " +
+                  config_.zmqSubscriber.endpoint);
     }
 
     publisher_ = std::make_unique<MQInfra::KeyFrameMetaDataPublisher>();
     if (!publisher_->initialize(config_.zmqPublisher.endpoint)) {
-        LOG_ERROR("Failed to initialize KeyFrameMetaDataPublisher at " +
+        LOG_ERROR("[KeyFrameAnalyzerService] Failed to initialize KeyFrameMetaDataPublisher at " +
                   config_.zmqPublisher.endpoint);
     }
 
-    // 2. 加载模型到 ModelManager
+    // 2. Load models into ModelManager
     auto& modelMgr = ModelManager::GetInstance();
+
     if (!config_.models.sceneModelPath.empty()) {
         auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.sceneModelPath;
         modelMgr.loadModel("MobileNet-v3-Small", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
+
     if (!config_.models.motionModelPath.empty()) {
         auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.motionModelPath;
         modelMgr.loadModel("yolov8n.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
+
     if (!config_.models.textDetModelPath.empty()) {
         auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.textDetModelPath;
         modelMgr.loadModel("ch_PP-OCRv4_det_infer.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
-    // ⚠️ 文字识别模型是性能杀手，仅在显式启用时才加载
+
     if (config_.enableTextRecognition && !config_.models.textRecModelPath.empty()) {
         auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.textRecModelPath;
         modelMgr.loadModel("ch_PP-OCRv4_rec_infer.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
-        LOG_INFO("Text recognition model loaded. (Performance warning!)");
+        LOG_INFO("[KeyFrameAnalyzerService] Text recognition model loaded (performance warning)");
     } else {
-        LOG_INFO("Text recognition disabled (enableTextRecognition=false)");
+        LOG_INFO("[KeyFrameAnalyzerService] Text recognition disabled");
     }
 
-    // 3. 初始化分析器组件 (使用统一配置)
-    auto sceneDetector = std::make_shared<SceneChangeDetector>(modelMgr, {
+    // 3. Initialize detectors with unified config
+    auto sceneDetector = std::make_shared<SceneChangeDetector>(modelMgr, SceneChangeDetector::Config{
         config_.sceneDetector.similarityThreshold,
         config_.sceneDetector.featureDim,
         config_.sceneDetector.inputSize,
         config_.sceneDetector.enableCache
     });
 
-    auto motionDetector = std::make_shared<MotionDetector>(modelMgr, {
+    auto motionDetector = std::make_shared<MotionDetector>(modelMgr, MotionDetector::Config{
         config_.motionDetector.confidenceThreshold,
         config_.motionDetector.nmsThreshold,
         config_.motionDetector.inputWidth,
@@ -102,21 +107,21 @@ void KeyFrameAnalyzerService::initializeComponents() {
         config_.motionDetector.objectMotionWeight
     });
 
-    auto textDetector = std::make_shared<TextDetector>(modelMgr, {
+    auto textDetector = std::make_shared<TextDetector>(modelMgr, TextDetector::Config{
         config_.textDetector.detInputHeight,
         config_.textDetector.detInputWidth,
         config_.textDetector.recInputHeight,
         config_.textDetector.recInputWidth,
         config_.textDetector.detThreshold,
         config_.textDetector.recThreshold,
-        config_.enableTextRecognition,  // 使用全局开关
+        config_.enableTextRecognition,
         config_.textDetector.alpha,
         config_.textDetector.beta
     });
 
-    analyzer_ =
-        std::make_shared<StandardFrameAnalyzer>(sceneDetector, motionDetector, textDetector);
+    analyzer_ = std::make_shared<StandardFrameAnalyzer>(sceneDetector, motionDetector, textDetector);
 
+    // 4. Initialize scoring and selection components
     dynamicCalculator_ = std::make_shared<DynamicCalculator>(DynamicCalculator::Config{
         config_.dynamicCalculator.baseWeights,
         config_.dynamicCalculator.currentFrameWeight,
@@ -148,18 +153,20 @@ void KeyFrameAnalyzerService::initializeComponents() {
         config_.keyframeDetector.alwaysIncludeSceneChanges
     });
 
-    // 4. 初始化队列
+    // 5. Initialize queues
     frameQueue_ = std::make_unique<ThreadSafetyQueue<FrameItem>>(config_.pipeline.frameBufferSize);
     scoreQueue_ = std::make_unique<ThreadSafetyQueue<FrameScore>>(config_.pipeline.scoreBufferSize);
-    selectedFrameQueue_ =
-        std::make_unique<ThreadSafetyQueue<FrameScore>>(config_.pipeline.scoreBufferSize);
+    selectedFrameQueue_ = std::make_unique<ThreadSafetyQueue<FrameScore>>(config_.pipeline.scoreBufferSize);
 
-    LOG_INFO("KeyFrameAnalyzerService components initialized.");
+    LOG_INFO("[KeyFrameAnalyzerService] Components initialized");
 }
 
+// ========== Service Control ==========
+
 bool KeyFrameAnalyzerService::start() {
-    if (running_)
+    if (running_) {
         return true;
+    }
     running_ = true;
     startThreads();
     return true;
@@ -172,11 +179,13 @@ void KeyFrameAnalyzerService::run() {
 }
 
 void KeyFrameAnalyzerService::stop() {
-    if (!running_)
+    if (!running_) {
         return;
+    }
     running_ = false;
 
-    // 1. 先停止接收线程
+    // Stop in reverse order: receive -> analysis -> select -> publish
+
     if (subscriber_) {
         subscriber_->shutdown();
     }
@@ -184,16 +193,15 @@ void KeyFrameAnalyzerService::stop() {
         receiveThread_.join();
     }
 
-    // 2. 停止 frameQueue，唤醒并等待分析线程
     if (frameQueue_) {
         frameQueue_->stop();
     }
     for (auto& t : analysisThreads_) {
-        if (t.joinable())
+        if (t.joinable()) {
             t.join();
+        }
     }
 
-    // 3. 停止 scoreQueue，唤醒并等待选择线程 (选择线程退出前会 Flush 缓冲区)
     if (scoreQueue_) {
         scoreQueue_->stop();
     }
@@ -201,7 +209,6 @@ void KeyFrameAnalyzerService::stop() {
         selectThread_.join();
     }
 
-    // 4. 停止 selectedFrameQueue，唤醒并等待发布线程
     if (selectedFrameQueue_) {
         selectedFrameQueue_->stop();
     }
@@ -209,12 +216,11 @@ void KeyFrameAnalyzerService::stop() {
         publishThread_.join();
     }
 
-    // 5. 最后关闭发布者
     if (publisher_) {
         publisher_->shutdown();
     }
 
-    LOG_INFO("KeyFrameAnalyzerService stopped.");
+    LOG_INFO("[KeyFrameAnalyzerService] Stopped");
 }
 
 void KeyFrameAnalyzerService::startThreads() {
@@ -230,17 +236,23 @@ void KeyFrameAnalyzerService::startThreads() {
 }
 
 void KeyFrameAnalyzerService::waitThreads() {
-    if (receiveThread_.joinable())
+    if (receiveThread_.joinable()) {
         receiveThread_.join();
-    for (auto& t : analysisThreads_) {
-        if (t.joinable())
-            t.join();
     }
-    if (selectThread_.joinable())
+    for (auto& t : analysisThreads_) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
+    if (selectThread_.joinable()) {
         selectThread_.join();
-    if (publishThread_.joinable())
+    }
+    if (publishThread_.joinable()) {
         publishThread_.join();
+    }
 }
+
+// ========== State Access ==========
 
 AnalysisContext KeyFrameAnalyzerService::getContext() const {
     std::lock_guard<std::mutex> lock(contextMutex_);
@@ -261,27 +273,28 @@ void KeyFrameAnalyzerService::updateLatestKeyFrames(const FrameScore& score) {
     }
 }
 
+// ========== Thread Loops ==========
+
 void KeyFrameAnalyzerService::receiveLoop() {
-    LOG_INFO("Receive loop started.");
+    LOG_INFO("[KeyFrameAnalyzerService] Receive loop started");
+
     while (running_) {
         auto msg = subscriber_->receiveFrame(config_.zmqSubscriber.timeoutMs);
-        if (!msg)
+        if (!msg) {
             continue;
+        }
 
-        // 转换为 cv::Mat
+        // Convert to cv::Mat
         int type = (msg->header.channels == 3) ? CV_8UC3 : CV_8UC1;
         cv::Mat mat(msg->header.height, msg->header.width, type, (void*)msg->image_data.data());
 
-        // 创建 FrameResource
         auto resource = std::make_shared<FrameResource>(mat.clone());
 
-        // 构建上下文
         AnalysisContext ctx;
         ctx.frameIndex = msg->header.frameID;
         ctx.timestamp = static_cast<double>(msg->header.timestamp) / 1000.0;
         ctx.frameSize = mat.size();
 
-        // 更新服务全局上下文
         {
             std::lock_guard<std::mutex> lock(contextMutex_);
             context_.frameIndex = ctx.frameIndex;
@@ -291,13 +304,15 @@ void KeyFrameAnalyzerService::receiveLoop() {
         }
 
         if (!frameQueue_->push({resource, ctx}, std::chrono::milliseconds(100))) {
-            LOG_WARN("Frame queue full, dropping frame " + std::to_string(msg->header.frameID));
+            LOG_WARN("[KeyFrameAnalyzerService] Frame queue full, dropping " +
+                     std::to_string(msg->header.frameID));
         }
     }
 }
 
 void KeyFrameAnalyzerService::analysisLoop() {
-    LOG_INFO("Analysis loop started.");
+    LOG_INFO("[KeyFrameAnalyzerService] Analysis loop started");
+
     while (running_ || !frameQueue_->empty()) {
         FrameItem item;
         if (frameQueue_->pop(item, std::chrono::milliseconds(100))) {
@@ -305,7 +320,7 @@ void KeyFrameAnalyzerService::analysisLoop() {
             auto finalScore = scorer_->score(scores, item.context);
 
             if (!scoreQueue_->push(finalScore, std::chrono::milliseconds(100))) {
-                LOG_WARN("Score queue full, dropping score for frame " +
+                LOG_WARN("[KeyFrameAnalyzerService] Score queue full, dropping " +
                          std::to_string(finalScore.frameIndex));
             }
         }
@@ -313,7 +328,7 @@ void KeyFrameAnalyzerService::analysisLoop() {
 }
 
 void KeyFrameAnalyzerService::selectLoop() {
-    LOG_INFO("Select loop started (adaptive selection strategy).");
+    LOG_INFO("[KeyFrameAnalyzerService] Select loop started");
 
     std::vector<FrameScore> scoreBuffer;
     const size_t WINDOW_SIZE = 30;
@@ -326,9 +341,9 @@ void KeyFrameAnalyzerService::selectLoop() {
             if (scoreBuffer.size() >= WINDOW_SIZE) {
                 const auto& detConfig = config_.keyframeDetector;
                 int dynamicK = -1;
+
                 if (!detConfig.useThresholdMode) {
-                    dynamicK =
-                        static_cast<int>(scoreBuffer.size() * detConfig.targetCompressionRatio);
+                    dynamicK = static_cast<int>(scoreBuffer.size() * detConfig.targetCompressionRatio);
                     dynamicK = std::max(detConfig.minKeyFrameCount,
                                         std::min(detConfig.maxKeyFrameCount, dynamicK));
                 }
@@ -338,25 +353,25 @@ void KeyFrameAnalyzerService::selectLoop() {
                 for (const auto& selectedScore : selectionResult.KeyframeScores) {
                     updateLatestKeyFrames(selectedScore);
                     if (!selectedFrameQueue_->push(selectedScore, std::chrono::milliseconds(100))) {
-                        LOG_WARN("Selected frame queue full, dropping keyframe " +
+                        LOG_WARN("[KeyFrameAnalyzerService] Selected queue full, dropping " +
                                  std::to_string(selectedScore.frameIndex));
                     }
                 }
 
-                LOG_DEBUG("Keyframe selection: " + std::to_string(selectionResult.selectedFrames) +
-                          " / " + std::to_string(selectionResult.totalFrames) +
-                          " frames selected. " +
-                          (detConfig.useThresholdMode ? "[Threshold Mode]" : "[Top-K Mode]"));
+                LOG_DEBUG("[KeyFrameAnalyzerService] Selected: " +
+                          std::to_string(selectionResult.selectedFrames) + " / " +
+                          std::to_string(selectionResult.totalFrames));
 
                 scoreBuffer.clear();
             }
         }
     }
 
-    // 处理剩余的缓冲帧（进程退出时）
+    // Flush remaining buffer
     if (!scoreBuffer.empty()) {
         const auto& detConfig = config_.keyframeDetector;
         int dynamicK = -1;
+
         if (!detConfig.useThresholdMode) {
             dynamicK = static_cast<int>(scoreBuffer.size() * detConfig.targetCompressionRatio);
             dynamicK = std::max(detConfig.minKeyFrameCount,
@@ -369,11 +384,12 @@ void KeyFrameAnalyzerService::selectLoop() {
         }
     }
 
-    LOG_INFO("Select loop stopped.");
+    LOG_INFO("[KeyFrameAnalyzerService] Select loop stopped");
 }
 
 void KeyFrameAnalyzerService::publishLoop() {
-    LOG_INFO("Publish loop started.");
+    LOG_INFO("[KeyFrameAnalyzerService] Publish loop started");
+
     while (running_ || !selectedFrameQueue_->empty()) {
         FrameScore score;
         if (selectedFrameQueue_->pop(score, std::chrono::milliseconds(100))) {
@@ -386,7 +402,6 @@ void KeyFrameAnalyzerService::publishLoop() {
             meta.header.Text_Score = score.textContribution;
             meta.header.is_Scene_Change = score.rawScores.sceneChangeResult.isSceneChange ? 1 : 0;
 
-            // 计算 CRC
             meta.crc32 = Protocol::calculateCrc32(&meta.header, sizeof(meta.header));
 
             publisher_->publish(meta);

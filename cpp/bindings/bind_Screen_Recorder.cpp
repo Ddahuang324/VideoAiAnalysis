@@ -102,21 +102,68 @@ void bind_Screen_Recorder(py::module& m) {
                    " timestamp=" + std::to_string(frame.timestamp_ms) + "ms>";
         });
 
+    // 绑定 VideoEncoderConfig 结构体
+    py::class_<Config::VideoEncoderConfig>(m, "VideoEncoderConfig", "视频编码器配置")
+        .def(py::init<>())
+        .def_readwrite("outputFilePath", &Config::VideoEncoderConfig::outputFilePath,
+                       "输出文件路径")
+        .def_readwrite("width", &Config::VideoEncoderConfig::width, "视频宽度")
+        .def_readwrite("height", &Config::VideoEncoderConfig::height, "视频高度")
+        .def_readwrite("fps", &Config::VideoEncoderConfig::fps, "帧率")
+        .def_readwrite("bitrate", &Config::VideoEncoderConfig::bitrate, "码率")
+        .def_readwrite("crf", &Config::VideoEncoderConfig::crf, "质量参数(CRF)")
+        .def_readwrite("preset", &Config::VideoEncoderConfig::preset, "编码预设")
+        .def_readwrite("codec", &Config::VideoEncoderConfig::codec, "编码器名称");
+
+    // 绑定 AudioEncoderConfig 结构体
+    py::class_<Config::AudioEncoderConfig>(m, "AudioEncoderConfig", "音频编码器配置")
+        .def(py::init<>())
+        .def_readwrite("enabled", &Config::AudioEncoderConfig::enabled, "是否启用音频")
+        .def_readwrite("sampleRate", &Config::AudioEncoderConfig::sampleRate, "采样率")
+        .def_readwrite("channels", &Config::AudioEncoderConfig::channels, "通道数")
+        .def_readwrite("bitrate", &Config::AudioEncoderConfig::bitrate, "码率")
+        .def_readwrite("codec", &Config::AudioEncoderConfig::codec, "编码器名称");
+
     // 绑定 EncoderConfig 结构体
     py::class_<EncoderConfig>(m, "EncoderConfig", "编码器配置")
         .def(py::init<>(), "默认构造函数")
-        .def_readwrite("outputFilePath", &EncoderConfig::outputFilePath, "输出文件路径")
-        .def_readwrite("width", &EncoderConfig::width, "视频宽度")
-        .def_readwrite("height", &EncoderConfig::height, "视频高度")
-        .def_readwrite("fps", &EncoderConfig::fps, "帧率")
-        .def_readwrite("bitrate", &EncoderConfig::bitrate, "码率")
-        .def_readwrite("crf", &EncoderConfig::crf, "质量参数(CRF)")
-        .def_readwrite("preset", &EncoderConfig::preset, "编码预设")
-        .def_readwrite("codec", &EncoderConfig::codec, "编码器名称")
+        .def_readwrite("video", &EncoderConfig::video, "视频配置")
+        .def_readwrite("audio", &EncoderConfig::audio, "音频配置")
+        // 向后兼容属性
+        .def_property(
+            "outputFilePath", [](const EncoderConfig& c) { return c.video.outputFilePath; },
+            [](EncoderConfig& c, const std::string& v) { c.video.outputFilePath = v; },
+            "输出文件路径 (兼容旧 API)")
+        .def_property(
+            "width", [](const EncoderConfig& c) { return c.video.width; },
+            [](EncoderConfig& c, int v) { c.video.width = v; }, "视频宽度 (兼容旧 API)")
+        .def_property(
+            "height", [](const EncoderConfig& c) { return c.video.height; },
+            [](EncoderConfig& c, int v) { c.video.height = v; }, "视频高度 (兼容旧 API)")
+        .def_property(
+            "fps", [](const EncoderConfig& c) { return c.video.fps; },
+            [](EncoderConfig& c, int v) { c.video.fps = v; }, "帧率 (兼容旧 API)")
+        .def_property(
+            "bitrate", [](const EncoderConfig& c) { return c.video.bitrate; },
+            [](EncoderConfig& c, int v) { c.video.bitrate = v; }, "码率 (兼容旧 API)")
+        .def_property(
+            "crf", [](const EncoderConfig& c) { return c.video.crf; },
+            [](EncoderConfig& c, int v) { c.video.crf = v; }, "质量参数(CRF) (兼容旧 API)")
+        .def_property(
+            "preset", [](const EncoderConfig& c) { return c.video.preset; },
+            [](EncoderConfig& c, const std::string& v) { c.video.preset = v; },
+            "编码预设 (兼容旧 API)")
+        .def_property(
+            "codec", [](const EncoderConfig& c) { return c.video.codec; },
+            [](EncoderConfig& c, const std::string& v) { c.video.codec = v; },
+            "编码器名称 (兼容旧 API)")
+        .def_property(
+            "enableAudio", [](const EncoderConfig& c) { return c.audio.enabled; },
+            [](EncoderConfig& c, bool v) { c.audio.enabled = v; }, "是否启用音频 (兼容旧 API)")
         .def("__repr__", [](const EncoderConfig& config) {
-            return "<EncoderConfig " + std::to_string(config.width) + "x" +
-                   std::to_string(config.height) + "@" + std::to_string(config.fps) +
-                   "fps codec=" + config.codec + " preset=" + config.preset + ">";
+            return "<EncoderConfig video=" + std::to_string(config.video.width) + "x" +
+                   std::to_string(config.video.height) + "@" + std::to_string(config.video.fps) +
+                   "fps audio=" + (config.audio.enabled ? "on" : "off") + ">";
         });
 
     // 绑定默认配置函数

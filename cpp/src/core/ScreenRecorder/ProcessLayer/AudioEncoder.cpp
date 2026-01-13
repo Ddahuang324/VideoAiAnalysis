@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <utility>
 
 #include "AudioData.h"
 #include "FFmpegWrapper.h"
@@ -11,8 +12,7 @@
 
 AudioEncoder::AudioEncoder(std::shared_ptr<ThreadSafetyQueue<AudioData>> queue,
                            std::shared_ptr<FFmpegWrapper> encoder)
-    : queue_(std::move(queue)),
-      encoder_(std::move(encoder)) {
+    : queue_(std::move(queue)), encoder_(std::move(encoder)) {
     LOG_INFO("AudioEncoder constructed");
 }
 

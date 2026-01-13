@@ -1,12 +1,13 @@
 #pragma once
 
+#include <exception>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
-#include <fstream>
-#include <filesystem>
 
 #include "Log.h"
+#include "nlohmann/json_fwd.hpp"
 
 namespace Config {
 
@@ -21,9 +22,7 @@ struct ValidationResult {
         errors.push_back(error);
     }
 
-    void addWarning(const std::string& warning) {
-        warnings.push_back(warning);
-    }
+    void addWarning(const std::string& warning) { warnings.push_back(warning); }
 
     std::string toString() const {
         std::string result;
@@ -64,10 +63,10 @@ public:
     virtual ValidationResult validate() const = 0;
 
     // 从文件加载
-    virtual bool loadFromFile(const std::string& filepath);
+    virtual bool loadFromFile(const std::string& filepath) = 0;
 
     // 保存到文件
-    virtual bool saveToFile(const std::string& filepath) const;
+    virtual bool saveToFile(const std::string& filepath) const = 0;
 
     // 合并配置 (用于配置继承)
     virtual void merge(const IConfigBase& other) = 0;
@@ -77,7 +76,7 @@ public:
 };
 
 // CRTP 基类,提供默认实现
-template<typename Derived>
+template <typename Derived>
 class ConfigBase : public IConfigBase {
 public:
     bool loadFromFile(const std::string& filepath) override {
@@ -96,12 +95,13 @@ public:
             // 验证配置
             auto result = validate();
             if (!result.isValid) {
-                LOG_ERROR("Config validation failed for " + getConfigName() + ":\n" + result.toString());
+                LOG_ERROR("Config validation failed for " + getConfigName() + ":\n" +
+                          result.toString());
                 return false;
             }
 
             if (!result.warnings.empty()) {
-                LOG_WARNING("Config warnings for " + getConfigName() + ":\n" + result.toString());
+                LOG_WARN("Config warnings for " + getConfigName() + ":\n" + result.toString());
             }
 
             LOG_INFO("Config loaded successfully from " + filepath);

@@ -20,6 +20,10 @@ bool FrameSubscriber::initialize(const std::string& endpoint) {
     return true;
 }
 
+bool FrameSubscriber::initialize(const Config::ZMQConfig& config) {
+    return initialize(config.endpoint);
+}
+
 std::optional<Protocol::FrameMessage> FrameSubscriber::receiveFrame(int timeout_ms) {
     auto result = Protocol::receiveFrameMessageZeroCopy(subscriber_, timeout_ms);
 

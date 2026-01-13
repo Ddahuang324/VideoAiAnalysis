@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -21,8 +22,11 @@ extern "C" {
 
 #include "AudioData.h"
 #include "VideoGrabber.h"
+#include "core/Config/UnifiedConfig.h"
 
-struct EncoderConfig;
+// 使用统一配置系统的类型别名
+using EncoderConfig = Config::EncoderConfig;
+
 struct AVFormatContextDeleter {
     void operator()(AVFormatContext* ptr) noexcept {
         if (ptr) {
@@ -61,7 +65,7 @@ struct AVPacketDeleter {
 struct SwsContextDeleter {
     void operator()(SwsContext* ptr) noexcept {
         if (ptr) {
-            sws_freeContext(ptr);
+            sws_free_context(&ptr);
         }
     }
 };
@@ -171,44 +175,24 @@ private:
     mutable std::mutex muxerMutex_;
 };
 
-struct EncoderConfig {
-    std::string outputFilePath;
-
-    // 视频参数
-    int width;
-    int height;
-    int fps;
-    int bitrate;         // 视频码率
-    int crf;             // 质量参数
-    std::string preset;  // 编码预设
-    std::string codec;   // 视频编码器名称
-
-    // 音频参数
-    bool enableAudio = true;
-    int audioSampleRate = 48000;
-    int audioChannels = 2;
-    int audioBitrate = 128000;  // 128 kbps
-    std::string audioCodec = "aac";
-};
-
 // 默认配置（使用默认分辨率）
 inline EncoderConfig defaultEncoderConfig(int width = 1920, int height = 1080) {
     EncoderConfig config;
-    config.outputFilePath = "output.mp4";
-    config.width = width;
-    config.height = height;
-    config.fps = 30;
-    config.bitrate = 4000000;  // 4 Mbps
-    config.crf = 23;           // 默认质量
-    config.preset = "fast";    // 默认预设
-    config.codec = "libx264";  // 默认编码器
+    config.video.outputFilePath = "output.mp4";
+    config.video.width = width;
+    config.video.height = height;
+    config.video.fps = 30;
+    config.video.bitrate = 4000000;  // 4 Mbps
+    config.video.crf = 23;           // 默认质量
+    config.video.preset = "fast";    // 默认预设
+    config.video.codec = "libx264";  // 默认编码器
 
     // 音频默认值
-    config.enableAudio = true;
-    config.audioSampleRate = 48000;
-    config.audioChannels = 2;
-    config.audioBitrate = 128000;
-    config.audioCodec = "aac";
+    config.audio.enabled = true;
+    config.audio.sampleRate = 48000;
+    config.audio.channels = 2;
+    config.audio.bitrate = 128000;
+    config.audio.codec = "aac";
 
     return config;
 }
@@ -219,21 +203,21 @@ inline EncoderConfig encoderConfigFromGrabber(const VideoGrabber* grabber) {
         return defaultEncoderConfig();  // 回退到默认配置
     }
     EncoderConfig config;
-    config.outputFilePath = "output.mp4";
-    config.width = grabber->getWidth();
-    config.height = grabber->getHeight();
-    config.fps = grabber->getFps() > 0 ? grabber->getFps() : 30;  // 默认为 30 FPS
-    config.bitrate = 4000000;                                     // 4 Mbps
-    config.crf = 23;                                              // 默认质量
-    config.preset = "fast";                                       // 默认预设
-    config.codec = "libx264";                                     // 默认编码器
+    config.video.outputFilePath = "output.mp4";
+    config.video.width = grabber->getWidth();
+    config.video.height = grabber->getHeight();
+    config.video.fps = grabber->getFps() > 0 ? grabber->getFps() : 30;  // 默认为 30 FPS
+    config.video.bitrate = 4000000;                                     // 4 Mbps
+    config.video.crf = 23;                                              // 默认质量
+    config.video.preset = "fast";                                       // 默认预设
+    config.video.codec = "libx264";                                     // 默认编码器
 
     // 音频默认值
-    config.enableAudio = true;
-    config.audioSampleRate = 48000;
-    config.audioChannels = 2;
-    config.audioBitrate = 128000;
-    config.audioCodec = "aac";
+    config.audio.enabled = true;
+    config.audio.sampleRate = 48000;
+    config.audio.channels = 2;
+    config.audio.bitrate = 128000;
+    config.audio.codec = "aac";
 
     return config;
-};
+}

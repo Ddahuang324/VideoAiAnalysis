@@ -2,6 +2,12 @@
 
 #include <windows.h>
 
+#include "minwinbase.h"
+#include "windef.h"
+#include "wingdi.h"
+#include "winuser.h"
+
+
 #undef ERROR
 
 #include <memory>
@@ -33,7 +39,8 @@ public:
         bitmapInfo_.bmiHeader.biBitCount = 32;
         bitmapInfo_.bmiHeader.biCompression = BI_RGB;
 
-        hBitmap_ = CreateDIBSection(memoryHDC_, &bitmapInfo_, DIB_RGB_COLORS, &memoryBits_, nullptr, 0);
+        hBitmap_ =
+            CreateDIBSection(memoryHDC_, &bitmapInfo_, DIB_RGB_COLORS, &memoryBits_, nullptr, 0);
         if (!hBitmap_) {
             DeleteDC(memoryHDC_);
             ReleaseDC(nullptr, screenHdc_);

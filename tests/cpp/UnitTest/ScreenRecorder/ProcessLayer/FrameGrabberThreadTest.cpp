@@ -14,7 +14,6 @@
 #include "VideoGrabber.h"
 #include "VideoGrabberFactory.h"
 
-
 // Test fixture for FrameGrabberThread
 class FrameGrabberThreadTest : public ::testing::Test {
 protected:
@@ -102,18 +101,18 @@ TEST(IntegrationTest, RecordScreenToMP4) {
 
     // 4. Setup Encoder (Consumer) - get dimensions after grabber is initialized
     EncoderConfig config = encoderConfigFromGrabber(grabber.get());
-    config.outputFilePath = "integration_test_record.mp4";
+    config.video.outputFilePath = "integration_test_record.mp4";
 
     // Stop grabber temporarily (FrameGrabberThread will manage it)
     grabber->stop();
 
     // Delete existing file if any
-    if (std::filesystem::exists(config.outputFilePath)) {
-        std::filesystem::remove(config.outputFilePath);
+    if (std::filesystem::exists(config.video.outputFilePath)) {
+        std::filesystem::remove(config.video.outputFilePath);
     }
 
     // 5. Create FrameGrabberThread (Producer) and FrameEncoder (Consumer)
-    FrameGrabberThread grabberThread(grabber, *queue, config.fps);
+    FrameGrabberThread grabberThread(grabber, *queue, config.video.fps);
 
     auto ffmpeg = std::make_shared<FFmpegWrapper>();
     ffmpeg->initialize(config);
@@ -146,7 +145,7 @@ TEST(IntegrationTest, RecordScreenToMP4) {
     EXPECT_GT(encoder.getEncodedFrameCount(), 0);
 
     // Check file exists and size > 0
-    std::filesystem::path p(config.outputFilePath);
+    std::filesystem::path p(config.video.outputFilePath);
     ASSERT_TRUE(std::filesystem::exists(p));
     EXPECT_GT(std::filesystem::file_size(p), 1024);  // Should be > 1KB
 

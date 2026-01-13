@@ -5,10 +5,14 @@
 #include <queue>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
 #include "DynamicCalculator.h"
 #include "IFrameAnalyzer.h"
 
 namespace KeyFrame {
+
+// 使用统一配置系统的类型别名
+using FrameScorerConfig = Config::FrameScorerConfig;
 
 struct FrameScore {
     int frameIndex;    // 当前帧索引
@@ -25,26 +29,8 @@ struct FrameScore {
 
 class FrameScorer {
 public:
-    struct Config {
-        bool enableDynamicWeighting;  // 是否启用动态权重调整
-
-        bool enbaleSmoothing;     // 是否启用时间平滑
-        int smoothingWindowSize;  // 平滑窗口大小（帧数，用于 SMA）
-        float smoothingEMAAlpha;  // EMA 平滑系数 (0.0 - 1.0, 1.0 表示无平滑)，默认为 0 表示使用 SMA
-
-        float sceneChangeBoost;     // 场景变化时的分数提升因子
-        float motionIncreaseBoost;  // 运动增加时的分数提升因子
-        float textIncreaseBoost;    // 文本增加时的分数提升因子
-
-        Config()
-            : enableDynamicWeighting(true),
-              enbaleSmoothing(true),
-              smoothingWindowSize(3),
-              smoothingEMAAlpha(0.6f),
-              sceneChangeBoost(1.2f),
-              motionIncreaseBoost(1.1f),
-              textIncreaseBoost(1.1f) {}
-    };
+    // 使用统一配置
+    using Config = FrameScorerConfig;
 
     explicit FrameScorer(std::shared_ptr<DynamicCalculator> weightCalculator,
                          const Config& config = Config());

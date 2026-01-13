@@ -91,9 +91,9 @@ bool ScreenRecorder::startRecording(std::string& path) {
 
     EncoderConfig config = encoderConfigFromGrabber(grabber_.get());
     if (mode_ == RecorderMode::SNAPSHOT) {
-        config.fps = 1;
+        config.video.fps = 1;
     }
-    config.outputFilePath = path;
+    config.video.outputFilePath = path;
 
     // 初始化 FFmpegWrapper
     ffmpegWrapper_ = std::make_shared<FFmpegWrapper>();
@@ -108,7 +108,7 @@ bool ScreenRecorder::startRecording(std::string& path) {
     encoder_ = std::make_unique<FrameEncoder>(frameQueue_, ffmpegWrapper_, config);
 
     // 音频采集与编码 (如果启用)
-    if (config.enableAudio) {
+    if (config.audio.enabled) {
         audioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
 
         audioGrabber_ = std::make_shared<WasapiAudioGrabber>();
@@ -360,7 +360,7 @@ bool ScreenRecorder::startKeyFrameMetaDataReceiving(const std::string& keyFrameP
     // 初始化关键帧编码器
     if (grabber_) {
         EncoderConfig config = encoderConfigFromGrabber(grabber_.get());
-        config.outputFilePath = keyFrameOutputPath_;
+        config.video.outputFilePath = keyFrameOutputPath_;
         // 关键帧模式下，通常我们希望高质量，可以根据需要调整 FPS 或码率
         // 这里暂时复用主配置，但路径不同
 
@@ -371,7 +371,7 @@ bool ScreenRecorder::startKeyFrameMetaDataReceiving(const std::string& keyFrameP
             return false;
         }
 
-        if (config.enableAudio) {
+        if (config.audio.enabled) {
             keyFrameAudioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
             keyFrameAudioEncoder_ =
                 std::make_unique<AudioEncoder>(keyFrameAudioQueue_, keyFrameFFmpegWrapper_);

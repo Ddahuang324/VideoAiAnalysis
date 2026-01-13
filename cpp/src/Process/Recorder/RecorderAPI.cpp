@@ -10,6 +10,7 @@ namespace Recorder {
 
 struct RecorderAPI::Impl {
     std::unique_ptr<ScreenRecorder> recorder_;
+    RecorderConfig config_;
     RecordingStatus status_ = RecordingStatus::IDLE;
     std::chrono::steady_clock::time_point startTime_;
     std::string lastError_;
@@ -22,6 +23,7 @@ RecorderAPI::RecorderAPI() : impl_(std::make_unique<Impl>()) {}
 RecorderAPI::~RecorderAPI() = default;
 
 bool RecorderAPI::initialize(const RecorderConfig& config) {
+    impl_->config_ = config;
     impl_->recorder_ = std::make_unique<ScreenRecorder>();
     // 目前 ScreenRecorder 可能没有统一的 initialize，我们根据需要设置模式等
     // 如果后续 ScreenRecorder 增加了 Config 支持，代码将在这里调用
@@ -36,8 +38,8 @@ bool RecorderAPI::start() {
     if (!impl_->recorder_)
         return false;
 
-    // TODO: 从 config 获取路径或生成路径
-    std::string path = "output.mp4";
+    // 从 config 获取路径
+    std::string path = impl_->config_.video.outputFilePath;
 
     if (impl_->recorder_->startRecording(path)) {
         impl_->status_ = RecordingStatus::RECORDING;

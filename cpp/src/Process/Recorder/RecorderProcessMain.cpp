@@ -1,7 +1,6 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <thread>
@@ -24,42 +23,19 @@ void signalHandler(int signal) {
     g_shouldExit = true;
 }
 
-RecorderConfig loadConfig(const std::string& configpath) {
+// 使用统一配置系统加载配置
+RecorderConfig loadConfig(const std::string& configPath) {
     RecorderConfig config;
-    // set sensible defaults
-    config.output_file_path = "output.mp4";
-    config.width = 1920;
-    config.height = 1080;
-    config.enable_audio = false;
-    config.audio_sample_rate = 44100;
-    config.audio_channels = 2;
-    config.zmqPublisher_endpoint = "tcp://*:5555";
 
-    if (configpath.empty()) {
+    if (configPath.empty()) {
         LOG_INFO("No config file path provided, using default configuration.");
         return config;
     }
 
-    std::ifstream file(configpath);
-    if (!file.is_open()) {
-        LOG_ERROR("Failed to open config file: " + configpath + ", using defaults.");
-        return config;
-    }
-
-    try {
-        nlohmann::json j;
-        file >> j;
-        config.output_file_path = j.value("output_file_path", config.output_file_path);
-        config.width = j.value("width", config.width);
-        config.height = j.value("height", config.height);
-        config.enable_audio = j.value("enable_audio", config.enable_audio);
-        config.audio_sample_rate = j.value("audio_sample_rate", config.audio_sample_rate);
-        config.audio_channels = j.value("audio_channels", config.audio_channels);
-        config.zmqPublisher_endpoint =
-            j.value("zmqPublisher_endpoint", config.zmqPublisher_endpoint);
-        LOG_INFO("Configuration loaded from " + configpath);
-    } catch (const std::exception& ex) {
-        LOG_ERROR("Failed to parse config file: " + configpath + ", error: " + ex.what());
+    if (!config.loadFromFile(configPath)) {
+        LOG_ERROR("Failed to load config from " + configPath + ", using defaults.");
+    } else {
+        LOG_INFO("Configuration loaded from " + configPath);
     }
 
     return config;

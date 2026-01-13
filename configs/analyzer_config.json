@@ -46,7 +46,11 @@
     "beta": 0.4
   },
   "dynamicCalculator": {
-    "baseWeights": [0.45, 0.2, 0.35],
+    "baseWeights": [
+      0.45,
+      0.2,
+      0.35
+    ],
     "currentFrameWeight": 0.3,
     "activationInfluence": 0.5,
     "historyWindowSize": 30,

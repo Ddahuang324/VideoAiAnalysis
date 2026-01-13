@@ -15,6 +15,8 @@
 
 namespace KeyFrame {
 
+// ========== Constructor ==========
+
 StandardFrameAnalyzer::StandardFrameAnalyzer(std::shared_ptr<SceneChangeDetector> sceneDetector,
                                              std::shared_ptr<MotionDetector> motionDetector,
                                              std::shared_ptr<TextDetector> textDetector)
@@ -22,34 +24,38 @@ StandardFrameAnalyzer::StandardFrameAnalyzer(std::shared_ptr<SceneChangeDetector
       motionDetector_(std::move(motionDetector)),
       textDetector_(std::move(textDetector)) {}
 
+// ========== Analyzer Interface ==========
+
 std::string StandardFrameAnalyzer::getName() const {
     return "StandardFrameAnalyzer";
 }
 
 float StandardFrameAnalyzer::getBaseWeight() const {
-    return 1.0f;  // 标准分析器的基础权重为1.0
+    return 1.0f;
 }
 
 void StandardFrameAnalyzer::reset() {
     if (sceneDetector_) {
         sceneDetector_->reset();
-        LOG_INFO("ScenceDetector reset Successfully.");
+        LOG_INFO("[StandardFrameAnalyzer] SceneDetector reset");
     }
     if (motionDetector_) {
         motionDetector_->reset();
-        LOG_INFO("MotionDetector reset Successfully.");
+        LOG_INFO("[StandardFrameAnalyzer] MotionDetector reset");
     }
     if (textDetector_) {
         textDetector_->reset();
-        LOG_INFO("TextDetector reset Successfully.");
+        LOG_INFO("[StandardFrameAnalyzer] TextDetector reset");
     }
 }
+
+// ========== Frame Analysis ==========
 
 MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameResource> resource,
                                                         const AnalysisContext& context) {
     MultiDimensionScore scores;
 
-    // 使用 std::async 并行启动三个检测任务
+    // Launch three detection tasks in parallel
     auto sceneFuture = std::async(std::launch::async, [&]() {
         if (sceneDetector_) {
             auto result = sceneDetector_->detect(resource);
@@ -77,7 +83,7 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
         return std::make_pair(TextDetector::Result{}, 0.0f);
     });
 
-    // 等待所有任务完成并收集结果
+    // Collect results
     auto sceneRes = sceneFuture.get();
     scores.sceneChangeResult = sceneRes.first;
     scores.sceneScore = sceneRes.second;

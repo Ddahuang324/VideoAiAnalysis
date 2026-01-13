@@ -48,7 +48,7 @@ TEST(AnalyzerAPI_Lifecycle, FullFlow) {
     AnalyzerAPI api;
     AnalyzerConfig cfg;
     // 设置基础模型路径，这通常是初始化成功的关键
-    cfg.modelBasePath = "./Models";
+    cfg.models.basePath = "./Models";
 
     // 如果初始化失败（例如缺少模型文件），测试仍然自洽
     if (api.initialize(cfg)) {
@@ -109,7 +109,7 @@ TEST(RecorderAPI_Basic, InterfaceCompletion) {
 TEST(RecorderAPI_Lifecycle, FullFlow) {
     RecorderAPI r;
     RecorderConfig cfg;
-    cfg.output_file_path = "test_output.mp4";
+    cfg.video.outputFilePath = "test_output.mp4";
 
     ASSERT_TRUE(r.initialize(cfg));
 

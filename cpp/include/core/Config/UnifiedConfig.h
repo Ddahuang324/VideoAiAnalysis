@@ -1,9 +1,14 @@
 #pragma once
 
+#include <filesystem>
+#include <nlohmann/json.hpp>
+#include <string>
+#include <vector>
+
 #include "ConfigBase.h"
 #include "ConfigValidation.h"
-#include <nlohmann/json.hpp>
-#include <filesystem>
+#include "nlohmann/detail/macro_scope.hpp"
+#include "nlohmann/json_fwd.hpp"
 
 namespace Config {
 
@@ -34,15 +39,16 @@ struct ModelPathsConfig {
     std::string textDetModelPath;
     std::string textRecModelPath;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ModelPathsConfig, basePath, sceneModelPath,
-                                    motionModelPath, textDetModelPath, textRecModelPath)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ModelPathsConfig, basePath, sceneModelPath, motionModelPath,
+                                   textDetModelPath, textRecModelPath)
 
     ValidationResult validate() const {
         ValidationResult result;
         VALIDATE_NOT_EMPTY(result, basePath, "Model base path");
 
         // 如果指定了模型路径,检查文件是否存在
-        auto checkModelPath = [&result, this](const std::string& modelPath, const std::string& name) {
+        auto checkModelPath = [&result, this](const std::string& modelPath,
+                                              const std::string& name) {
             if (!modelPath.empty()) {
                 auto fullPath = std::filesystem::path(basePath) / modelPath;
                 VALIDATE_FILE_EXISTS(result, fullPath.string(), name);
@@ -76,9 +82,9 @@ struct MotionDetectorConfig {
     float objectMotionWeight = 0.2f;
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(MotionDetectorConfig, confidenceThreshold, nmsThreshold,
-                                    inputWidth, maxTrackedObjects, trackHighThreshold,
-                                    trackLowThreshold, trackBufferSize, pixelMotionWeight,
-                                    objectMotionWeight)
+                                   inputWidth, maxTrackedObjects, trackHighThreshold,
+                                   trackLowThreshold, trackBufferSize, pixelMotionWeight,
+                                   objectMotionWeight)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -106,8 +112,8 @@ struct SceneChangeDetectorConfig {
     int inputSize = 224;
     bool enableCache = true;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SceneChangeDetectorConfig, similarityThreshold,
-                                    featureDim, inputSize, enableCache)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SceneChangeDetectorConfig, similarityThreshold, featureDim,
+                                   inputSize, enableCache)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -133,8 +139,8 @@ struct TextDetectorConfig {
     float beta = 0.4f;   // 文本变化率权重
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(TextDetectorConfig, detInputHeight, detInputWidth,
-                                    recInputHeight, recInputWidth, detThreshold, recThreshold,
-                                    enableRecognition, alpha, beta)
+                                   recInputHeight, recInputWidth, detThreshold, recThreshold,
+                                   enableRecognition, alpha, beta)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -165,7 +171,7 @@ struct DynamicCalculatorConfig {
     float maxWeight = 0.7f;
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(DynamicCalculatorConfig, baseWeights, currentFrameWeight,
-                                    activationInfluence, historyWindowSize, minWeight, maxWeight)
+                                   activationInfluence, historyWindowSize, minWeight, maxWeight)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -204,8 +210,8 @@ struct FrameScorerConfig {
     float textIncreaseBoost = 1.1f;
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(FrameScorerConfig, enableDynamicWeighting, enableSmoothing,
-                                    smoothingWindowSize, smoothingEMAAlpha, sceneChangeBoost,
-                                    motionIncreaseBoost, textIncreaseBoost)
+                                   smoothingWindowSize, smoothingEMAAlpha, sceneChangeBoost,
+                                   motionIncreaseBoost, textIncreaseBoost)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -232,10 +238,10 @@ struct KeyFrameDetectorConfig {
     float minScoreThreshold = 0.3f;
     bool alwaysIncludeSceneChanges = true;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(KeyFrameDetectorConfig, targetKeyFrameCount, targetCompressionRatio,
-                                    minKeyFrameCount, maxKeyFrameCount, minTemporalDistance,
-                                    useThresholdMode, highQualityThreshold, minScoreThreshold,
-                                    alwaysIncludeSceneChanges)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(KeyFrameDetectorConfig, targetKeyFrameCount,
+                                   targetCompressionRatio, minKeyFrameCount, maxKeyFrameCount,
+                                   minTemporalDistance, useThresholdMode, highQualityThreshold,
+                                   minScoreThreshold, alwaysIncludeSceneChanges)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -244,9 +250,11 @@ struct KeyFrameDetectorConfig {
         VALIDATE_POSITIVE(result, minKeyFrameCount, "Min keyframe count");
         VALIDATE_POSITIVE(result, maxKeyFrameCount, "Max keyframe count");
 
-        VALIDATE_LESS_THAN_OR_EQUAL(result, minKeyFrameCount, maxKeyFrameCount, "Min keyframe count", "Max keyframe count");
+        VALIDATE_LESS_THAN_OR_EQUAL(result, minKeyFrameCount, maxKeyFrameCount,
+                                    "Min keyframe count", "Max keyframe count");
 
-        WARN_IF(result, targetKeyFrameCount < minKeyFrameCount || targetKeyFrameCount > maxKeyFrameCount,
+        WARN_IF(result,
+                targetKeyFrameCount < minKeyFrameCount || targetKeyFrameCount > maxKeyFrameCount,
                 "Target keyframe count is outside [min, max] range");
 
         VALIDATE_POSITIVE(result, minTemporalDistance, "Min temporal distance");
@@ -264,7 +272,8 @@ struct PipelineConfig {
     int frameBufferSize = 100;
     int scoreBufferSize = 200;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(PipelineConfig, analysisThreadCount, frameBufferSize, scoreBufferSize)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(PipelineConfig, analysisThreadCount, frameBufferSize,
+                                   scoreBufferSize)
 
     ValidationResult validate() const {
         ValidationResult result;
@@ -300,16 +309,13 @@ struct KeyFrameAnalyzerConfig : public ConfigBase<KeyFrameAnalyzerConfig> {
     PipelineConfig pipeline;
 
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(KeyFrameAnalyzerConfig, zmqSubscriber, zmqPublisher, models,
-                                    enableTextRecognition, motionDetector, sceneDetector, textDetector,
-                                    dynamicCalculator, frameScorer, keyframeDetector, pipeline)
+                                   enableTextRecognition, motionDetector, sceneDetector,
+                                   textDetector, dynamicCalculator, frameScorer, keyframeDetector,
+                                   pipeline)
 
-    void fromJson(const nlohmann::json& j) override {
-        *this = j.get<KeyFrameAnalyzerConfig>();
-    }
+    void fromJson(const nlohmann::json& j) override { *this = j.get<KeyFrameAnalyzerConfig>(); }
 
-    nlohmann::json toJson() const override {
-        return nlohmann::json(*this);
-    }
+    nlohmann::json toJson() const override { return nlohmann::json(*this); }
 
     ValidationResult validate() const override {
         ValidationResult result;
@@ -354,9 +360,170 @@ struct KeyFrameAnalyzerConfig : public ConfigBase<KeyFrameAnalyzerConfig> {
         // 其他字段可根据需要添加合并逻辑
     }
 
-    std::string getConfigName() const override {
-        return "KeyFrameAnalyzerConfig";
+    std::string getConfigName() const override { return "KeyFrameAnalyzerConfig"; }
+};
+
+// ==================== Foundation 配置 ====================
+
+// ONNX 会话配置
+struct ONNXSessionConfig {
+    int intraOpNumThreads = 4;
+    int interOpNumThreads = 2;
+    bool enableCUDA = false;
+    int cudaDeviceId = 0;
+    int optimizationLevel = 3;  // GraphOptimizationLevel::ORT_ENABLE_ALL
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ONNXSessionConfig, intraOpNumThreads, interOpNumThreads,
+                                   enableCUDA, cudaDeviceId, optimizationLevel)
+
+    ValidationResult validate() const {
+        ValidationResult result;
+        VALIDATE_POSITIVE(result, intraOpNumThreads, "Intra-op threads");
+        VALIDATE_POSITIVE(result, interOpNumThreads, "Inter-op threads");
+        VALIDATE_RANGE(result, cudaDeviceId, 0, 8, "CUDA device ID");
+        return result;
     }
+};
+
+// ==================== Visualizer 配置 ====================
+
+// 运动可视化配置
+struct MotionVisualizerConfig {
+    bool showBoundingBoxes = true;
+    bool showTrackIds = true;
+    bool showConfidence = false;
+    bool showVelocityArrows = false;
+    bool showTrackHistory = true;
+    int historyLength = 10;
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(MotionVisualizerConfig, showBoundingBoxes, showTrackIds,
+                                   showConfidence, showVelocityArrows, showTrackHistory,
+                                   historyLength)
+
+    ValidationResult validate() const {
+        ValidationResult result;
+        VALIDATE_POSITIVE(result, historyLength, "History length");
+        return result;
+    }
+};
+
+// ==================== Encoder 配置 ====================
+
+// 视频编码器配置
+struct VideoEncoderConfig {
+    std::string outputFilePath = "output.mp4";
+    int width = 1920;
+    int height = 1080;
+    int fps = 30;
+    int bitrate = 4000000;  // 4 Mbps
+    int crf = 23;
+    std::string preset = "fast";
+    std::string codec = "libx264";
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(VideoEncoderConfig, outputFilePath, width, height, fps, bitrate,
+                                   crf, preset, codec)
+
+    ValidationResult validate() const {
+        ValidationResult result;
+        VALIDATE_POSITIVE(result, width, "Video width");
+        VALIDATE_POSITIVE(result, height, "Video height");
+        VALIDATE_RANGE(result, fps, 1, 120, "Video FPS");
+        VALIDATE_POSITIVE(result, bitrate, "Video bitrate");
+        VALIDATE_RANGE(result, crf, 0, 51, "Video CRF");
+        VALIDATE_NOT_EMPTY(result, preset, "Video preset");
+        VALIDATE_NOT_EMPTY(result, codec, "Video codec");
+        return result;
+    }
+};
+
+// 音频编码器配置
+struct AudioEncoderConfig {
+    bool enabled = true;
+    int sampleRate = 48000;
+    int channels = 2;
+    int bitrate = 128000;  // 128 kbps
+    std::string codec = "aac";
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(AudioEncoderConfig, enabled, sampleRate, channels, bitrate,
+                                   codec)
+
+    ValidationResult validate() const {
+        ValidationResult result;
+        if (enabled) {
+            VALIDATE_RANGE(result, sampleRate, 8000, 192000, "Audio sample rate");
+            VALIDATE_RANGE(result, channels, 1, 8, "Audio channels");
+            VALIDATE_POSITIVE(result, bitrate, "Audio bitrate");
+            VALIDATE_NOT_EMPTY(result, codec, "Audio codec");
+        }
+        return result;
+    }
+};
+
+// 完整编码器配置 (视频 + 音频)
+struct EncoderConfig {
+    VideoEncoderConfig video;
+    AudioEncoderConfig audio;
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(EncoderConfig, video, audio)
+
+    ValidationResult validate() const {
+        ValidationResult result;
+        auto videoResult = video.validate();
+        auto audioResult = audio.validate();
+
+        result.errors.insert(result.errors.end(), videoResult.errors.begin(),
+                             videoResult.errors.end());
+        result.warnings.insert(result.warnings.end(), videoResult.warnings.begin(),
+                               videoResult.warnings.end());
+        result.errors.insert(result.errors.end(), audioResult.errors.begin(),
+                             audioResult.errors.end());
+        result.warnings.insert(result.warnings.end(), audioResult.warnings.begin(),
+                               audioResult.warnings.end());
+
+        result.isValid = result.errors.empty();
+        return result;
+    }
+};
+
+// Recorder 配置
+struct RecorderConfig : public ConfigBase<RecorderConfig> {
+    ZMQConfig zmqPublisher;
+    VideoEncoderConfig video;
+    AudioEncoderConfig audio;
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(RecorderConfig, zmqPublisher, video, audio)
+
+    void fromJson(const nlohmann::json& j) override { *this = j.get<RecorderConfig>(); }
+
+    nlohmann::json toJson() const override { return nlohmann::json(*this); }
+
+    ValidationResult validate() const override {
+        ValidationResult result;
+
+        auto validateSubConfig = [&result](const auto& config, const std::string& name) {
+            auto subResult = config.validate();
+            for (const auto& err : subResult.errors) {
+                result.addError("[" + name + "] " + err);
+            }
+            for (const auto& warn : subResult.warnings) {
+                result.addWarning("[" + name + "] " + warn);
+            }
+        };
+
+        validateSubConfig(zmqPublisher, "ZMQ Publisher");
+        validateSubConfig(video, "Video Encoder");
+        validateSubConfig(audio, "Audio Encoder");
+
+        result.isValid = result.errors.empty();
+        return result;
+    }
+
+    void merge(const IConfigBase& other) override {
+        // 简单覆盖策略
+        *this = dynamic_cast<const RecorderConfig&>(other);
+    }
+
+    std::string getConfigName() const override { return "RecorderConfig"; }
 };
 
 }  // namespace Config

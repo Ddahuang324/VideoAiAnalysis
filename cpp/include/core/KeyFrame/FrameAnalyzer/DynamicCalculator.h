@@ -3,23 +3,18 @@
 #include <deque>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
 #include "IFrameAnalyzer.h"
 
 namespace KeyFrame {
 
+// 使用统一配置系统的类型别名
+using DynamicCalculatorConfig = Config::DynamicCalculatorConfig;
+
 class DynamicCalculator {
 public:
-    struct Config {
-        std::vector<float> baseWeights = {0.45f, 0.2f, 0.35f};  // 场景、运动、文本的基础权重
-
-        float currentFrameWeight = 0.3f;   // 当前帧权重
-        float activationInfluence = 0.5f;  // 激活度的重要性
-
-        int historyWindowSize = 30;  // 历史帧数窗口大小
-
-        float minWeight = 0.05f;  // 单个维度最小的权重
-        float maxWeight = 0.7f;   // 单个维度最大的权重
-    };
+    // 使用统一配置
+    using Config = DynamicCalculatorConfig;
 
     struct ActivationStats {
         std::vector<float> activations;     // 各个维度的激活度

@@ -6,6 +6,7 @@
 #include <zmq.hpp>
 
 #include "Protocol.h"
+#include "core/Config/UnifiedConfig.h"
 
 namespace MQInfra {
 
@@ -21,6 +22,7 @@ public:
     ~FramePublisher() = default;
 
     bool initialize(const std::string& endpoint = "tcp://*:5555");
+    bool initialize(const Config::ZMQConfig& config);
 
     bool publish(const Protocol::FrameMessage& frame);
     bool publishRaw(const Protocol::FrameHeader& header, const void* data, size_t data_size,

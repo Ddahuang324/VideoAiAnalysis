@@ -5,6 +5,7 @@
 #include <zmq.hpp>
 
 #include "Protocol.h"
+#include "core/Config/UnifiedConfig.h"
 
 namespace MQInfra {
 
@@ -19,6 +20,7 @@ public:
     ~FrameSubscriber() = default;
 
     bool initialize(const std::string& endpoint = "tcp://localhost:5555");
+    bool initialize(const Config::ZMQConfig& config);
 
     std::optional<Protocol::FrameMessage> receiveFrame(int timeout_ms = 100);
 

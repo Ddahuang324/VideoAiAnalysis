@@ -11,28 +11,20 @@
 
 #include "DataConverter.h"
 #include "ModelManager.h"
+#include "core/Config/UnifiedConfig.h"
+
 
 namespace KeyFrame {
 
 class FrameResource;  // 前向声明
 
+// 使用统一配置系统的类型别名
+using MotionDetectorConfig = Config::MotionDetectorConfig;
+
 class MotionDetector {
 public:
-    struct Config {
-        float confidenceThreshold = 0.25f;  // 检测置信度阈值
-        float nmsThreshold = 0.45f;         // 非极大值抑制阈值
-        int inputWidth = 640;               // 模型输入宽度
-        int maxTrackedObjects = 50;         // 最大跟踪对象数
-
-        // ByteTrack参数
-        float trackHighThreshold = 0.6f;  // 跟踪高置信度阈值
-        float trackLowThreshold = 0.1f;   // 跟踪低置信度阈值
-        int trackBufferSize = 30;         // 跟踪缓冲区大小
-
-        // 运动评分权重
-        float pixelMotionWeight = 0.8f;   // 帧差法权重 (80%)
-        float objectMotionWeight = 0.2f;  // YOLO目标检测权重 (20%)
-    };
+    // 使用统一配置
+    using Config = MotionDetectorConfig;
 
     struct Detection {
         cv::Rect box;      // 目标边界框
@@ -97,18 +89,7 @@ private:
     float calculateIOU(const cv::Rect& box1, const cv::Rect& box2);
     float calculatePixelMotion(const cv::Mat& frame);
     float calculateAverageVelocity();
-
-    // 日志辅助函数
-    std::string formatLog(const std::string& prefix, int value);
-    std::string formatLog(const std::string& prefix1, int value1, const std::string& prefix2,
-                          int value2);
-    std::string formatLog(const std::string& prefix1, int value1, const std::string& prefix2,
-                          int value2, const std::string& prefix3, int value3);
-    std::string formatLog(const std::string& prefix, const std::string& value);
-    std::string formatLog(const std::string& prefix1, size_t value, const std::string& prefix2);
-    std::string formatLogFixed(const std::string& prefix, float value, int precision);
-    std::string formatLogFixed(const std::string& prefix1, int value, const std::string& prefix2,
-                               float floatValue, int precision);
+    std::string formatFloat(float value, int precision);
 
     std::string modelName_;
     ModelManager& modelManager_;

@@ -1,9 +1,4 @@
-#pragma once
-
-#include <cstdint>
-#include <functional>
-#include <memory>
-#include <string>
+#include "core/Config/UnifiedConfig.h"
 
 namespace Recorder {
 
@@ -18,15 +13,8 @@ struct RecordingStats {
     double duration_seconds;
 };
 
-struct RecorderConfig {
-    std::string output_file_path;
-    int width;
-    int height;
-    bool enable_audio;
-    int audio_sample_rate;
-    int audio_channels;
-    std::string zmqPublisher_endpoint = "tcp://*:5555";
-};
+// 使用统一配置系统的类型别名
+using RecorderConfig = Config::RecorderConfig;
 
 class RecorderAPI {
 public:

@@ -7,27 +7,19 @@
 #include <vector>
 
 #include "TensorBuffer.h"
-#include "onnxruntime_c_api.h"
+#include "core/Config/UnifiedConfig.h"
 #include "onnxruntime_cxx_api.h"
+
 
 namespace KeyFrame {
 
+// 使用统一配置系统的类型别名
+using ONNXSessionConfig = Config::ONNXSessionConfig;
+
 class ONNXSession {
 public:
-    struct Config {
-        int intraOpNumThreads;
-        int interOpNumThreads;
-        bool enableCUDA;
-        int cudaDeviceId;
-        GraphOptimizationLevel optimizationLevel;
-
-        Config()
-            : intraOpNumThreads(4),
-              interOpNumThreads(2),
-              enableCUDA(false),
-              cudaDeviceId(0),
-              optimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL) {}
-    };
+    // 使用统一配置
+    using Config = ONNXSessionConfig;
 
     // 输出信息结构体
     struct OutputInfo {

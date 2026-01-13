@@ -1,13 +1,12 @@
 #include "TextDetector.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <opencv2/core.hpp>
-#include <opencv2/core/mat.hpp>
-#include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -15,20 +14,27 @@
 #include "FrameResource.h"
 #include "Log.h"
 #include "ModelManager.h"
+#include "opencv2/core/hal/interface.h"
+#include "opencv2/core/mat.hpp"
+#include "opencv2/core/types.hpp"
 
 namespace KeyFrame {
+
+// ========== Constructor ==========
 
 TextDetector::TextDetector(ModelManager& modelManager) : TextDetector(modelManager, Config()) {}
 
 TextDetector::TextDetector(ModelManager& modelManager, const Config& config)
     : modelManager_(modelManager), config_(config) {
     if (!modelManager_.hasModel("ch_PP-OCRv4_det_infer.onnx")) {
-        LOG_WARN("Text detection model not loaded in ModelManager");
+        LOG_WARN("[TextDetector] Detection model not loaded");
     }
     if (!modelManager_.hasModel("ch_PP-OCRv4_rec_infer.onnx")) {
-        LOG_WARN("Text recognition model not loaded in ModelManager");
+        LOG_WARN("[TextDetector] Recognition model not loaded");
     }
 }
+
+// ========== Detection ==========
 
 TextDetector::Result TextDetector::detect(const cv::Mat& frame) {
     return detect(std::make_shared<FrameResource>(frame));
@@ -36,6 +42,7 @@ TextDetector::Result TextDetector::detect(const cv::Mat& frame) {
 
 TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resource) {
     std::lock_guard<std::mutex> lock(mutex_);
+
     const cv::Mat& frame = resource->getOriginalFrame();
     if (frame.empty()) {
         return Result();
@@ -67,6 +74,8 @@ void TextDetector::reset() {
     previousRegions_.clear();
 }
 
+// ========== Text Region Detection ==========
+
 std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Mat& frame) {
     std::vector<std::vector<cv::Point>> polygons;
 
@@ -78,6 +87,7 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
     std::vector<int64_t> inputShape = {1, 3, config_.detInputHeight, config_.detInputWidth};
     auto outputs =
         modelManager_.runInference("ch_PP-OCRv4_det_infer.onnx", {inputData}, {inputShape});
+
     if (outputs.empty() || outputs[0].empty()) {
         return polygons;
     }
@@ -85,25 +95,26 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
     int outH = config_.detInputHeight;
     int outW = config_.detInputWidth;
 
-    LOG_DEBUG(formatLog("[TextDetector] Det output size: ", outputs[0].size(),
-                        ", Expected: ", outH * outW));
+    LOG_DEBUG("[TextDetector] Output size: " + std::to_string(outputs[0].size()) +
+              ", Expected: " + std::to_string(outH * outW));
 
     if (outputs[0].size() != static_cast<size_t>(outH * outW)) {
-        LOG_ERROR("Detection model output size mismatch");
+        LOG_ERROR("[TextDetector] Model output size mismatch");
         return polygons;
     }
 
+    // Threshold to binary
     cv::Mat pred(outH, outW, CV_32F, const_cast<float*>(outputs[0].data()));
     cv::Mat bitMap;
     cv::threshold(pred, bitMap, config_.detThreshold, 255, cv::THRESH_BINARY);
     bitMap.convertTo(bitMap, CV_8U);
 
+    // Find contours
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(bitMap, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
 
     for (const auto& contour : contours) {
-        float area = cv::contourArea(contour);
-        if (area < 10) {
+        if (cv::contourArea(contour) < 10) {
             continue;
         }
 
@@ -113,6 +124,8 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
 
     return polygons;
 }
+
+// ========== Text Recognition ==========
 
 std::string TextDetector::recognizeText(const cv::Mat& textRegion) {
     int targetH = config_.recInputHeight;
@@ -133,13 +146,16 @@ std::string TextDetector::recognizeText(const cv::Mat& textRegion) {
     std::vector<int64_t> inputShape = {1, 3, targetH, targetW};
     auto outputs =
         modelManager_.runInference("ch_PP-OCRv4_rec_infer.onnx", {inputData}, {inputShape});
+
     if (outputs.empty() || outputs[0].empty()) {
         return "";
     }
 
-    // TODO: 实现完整的 CTC 解码和字典映射
+    // TODO: Implement full CTC decoding and dictionary mapping
     return "[Text]";
 }
+
+// ========== Score Computation ==========
 
 float TextDetector::computeCoverageRatio(const std::vector<TextRegion>& textRegions,
                                          const cv::Size& frameSize) {
@@ -185,6 +201,8 @@ float TextDetector::computeChangeRatio(const std::vector<TextRegion>& currentReg
     return 1.0f - matchRatio;
 }
 
+// ========== Region Processing ==========
+
 std::vector<TextDetector::TextRegion> TextDetector::processTextRegions(
     const cv::Mat& frame, const std::vector<std::vector<cv::Point>>& polygons) {
     std::vector<TextRegion> currentRegions;
@@ -192,6 +210,7 @@ std::vector<TextDetector::TextRegion> TextDetector::processTextRegions(
     for (const auto& poly : polygons) {
         cv::Rect rect = cv::boundingRect(poly);
         rect &= cv::Rect(0, 0, frame.cols, frame.rows);
+
         if (rect.width < 4 || rect.height < 4) {
             continue;
         }
@@ -217,19 +236,15 @@ std::vector<TextDetector::TextRegion> TextDetector::processTextRegions(
 std::vector<cv::Point> TextDetector::mapContourToOriginal(
     const std::vector<cv::Point>& contour, const DataConverter::LetterboxInfo& info) {
     std::vector<cv::Point> poly;
+    poly.reserve(contour.size());
+
     for (const auto& pt : contour) {
         float x = (pt.x - info.padLeft) / info.scale;
         float y = (pt.y - info.padTop) / info.scale;
         poly.push_back(cv::Point(static_cast<int>(x), static_cast<int>(y)));
     }
-    return poly;
-}
 
-std::string TextDetector::formatLog(const std::string& prefix1, size_t value1,
-                                    const std::string& prefix2, int value2) {
-    std::ostringstream oss;
-    oss << prefix1 << value1 << prefix2 << value2;
-    return oss.str();
+    return poly;
 }
 
 }  // namespace KeyFrame

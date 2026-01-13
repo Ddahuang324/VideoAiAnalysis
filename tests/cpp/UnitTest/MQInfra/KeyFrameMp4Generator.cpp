@@ -22,9 +22,10 @@
 #include "Log.h"
 #include "Protocol.h"
 #include "RingFrameBuffer.h"
+#include "TestPathUtils.h"
 #include "VideoGrabber.h"
 #include "core/KeyFrame/KeyFrameAnalyzerService.h"
-#include "TestPathUtils.h"
+
 
 namespace fs = std::filesystem;
 
@@ -65,8 +66,8 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
 
     // 1. 初始化 KeyFrameAnalyzerService (替换模拟的AI端)
     KeyFrame::KeyFrameAnalyzerService::Config serviceConfig;
-    serviceConfig.zmq.frameSubEndpoint = "tcp://localhost:5555";
-    serviceConfig.zmq.keyframePubEndpoint = "tcp://*:5556";
+    serviceConfig.zmqSubscriber.endpoint = "tcp://localhost:5555";
+    serviceConfig.zmqPublisher.endpoint = "tcp://*:5556";
 
     // 模型路径 - 使用 u8string() 确保 UTF-8 编码
     serviceConfig.models.sceneModelPath = sceneModelPath.u8string();
@@ -79,9 +80,9 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
     serviceConfig.pipeline.analysisThreadCount = 2;
 
     // 选择策略：使用阈值模式以过滤重复/低分帧
-    serviceConfig.detectorConfig.useThresholdMode = true;
-    serviceConfig.detectorConfig.highQualityThreshold = 0.6f;
-    serviceConfig.detectorConfig.minScoreThreshold = 0.3f;
+    serviceConfig.keyframeDetector.useThresholdMode = true;
+    serviceConfig.keyframeDetector.highQualityThreshold = 0.6f;
+    serviceConfig.keyframeDetector.minScoreThreshold = 0.3f;
 
     auto analyzerService = std::make_unique<KeyFrame::KeyFrameAnalyzerService>(serviceConfig);
     ASSERT_TRUE(analyzerService->start());
@@ -98,15 +99,15 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
     // 初始化 FFmpeg 编码器 (用于生成关键帧 MP4)
     auto ffmpegEncoder = std::make_shared<FFmpegWrapper>();
     EncoderConfig config;
-    config.outputFilePath = "simulated_keyframes.mp4";
-    config.width = 1920;   // 假设宽度
-    config.height = 1080;  // 假设高度
-    config.fps = 10;       // 关键帧视频 fps 设置低一些也没关系
-    config.bitrate = 4000000;
-    config.crf = 23;
-    config.preset = "fast";
-    config.codec = "libx264";
-    config.enableAudio = false;
+    config.video.outputFilePath = "simulated_keyframes.mp4";
+    config.video.width = 1920;   // 假设宽度
+    config.video.height = 1080;  // 假设高度
+    config.video.fps = 10;       // 关键帧视频 fps 设置低一些也没关系
+    config.video.bitrate = 4000000;
+    config.video.crf = 23;
+    config.video.preset = "fast";
+    config.video.codec = "libx264";
+    config.audio.enabled = false;
 
     // 等待 ZMQ 连接建立
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -149,7 +150,8 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
         uint32_t final_crc = computed_crc ^ 0xFFFFFFFF;
 
         capturePublisher.publishRaw(header, frame.data, header.data_size, final_crc);
-        LOG_INFO("Capture: Published frame " + std::to_string(frameId) + " -> " + fullPath.u8string());
+        LOG_INFO("Capture: Published frame " + std::to_string(frameId) + " -> " +
+                 fullPath.u8string());
 
         // 给一点处理间隔,让Service有时间分析
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -227,8 +229,8 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
         auto keyFrameMat = ringBuffer.get(recId, ts);
         if (keyFrameMat) {
             if (!encoderInitialized) {
-                config.width = keyFrameMat->cols & ~1;
-                config.height = keyFrameMat->rows & ~1;
+                config.video.width = keyFrameMat->cols & ~1;
+                config.video.height = keyFrameMat->rows & ~1;
                 ASSERT_TRUE(ffmpegEncoder->initialize(config));
                 encoderInitialized = true;
             }

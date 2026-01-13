@@ -5,7 +5,9 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include "FFmpegWrapper.h"
 #include "Log.h"
@@ -20,12 +22,9 @@ constexpr int PROGRESS_NOTIFY_INTERVAL = 30;  // Notify every 30 frames
 }  // namespace
 
 FrameEncoder::FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue,
-                           std::shared_ptr<FFmpegWrapper> encoder,
-                           const EncoderConfig& config)
-    : queue_(std::move(queue)),
-      encoder_(std::move(encoder)),
-      config_(config) {
-    LOG_INFO("FrameEncoder constructed with output path: " + config_.outputFilePath);
+                           std::shared_ptr<FFmpegWrapper> encoder, const EncoderConfig& config)
+    : queue_(std::move(queue)), encoder_(std::move(encoder)), config_(config) {
+    LOG_INFO("FrameEncoder constructed with output path: " + config_.video.outputFilePath);
 }
 
 FrameEncoder::~FrameEncoder() {
@@ -144,7 +143,7 @@ void FrameEncoder::notifyFinished() {
     }
 
     try {
-        finishedCallback_(encodedFrameCount_.load(), config_.outputFilePath);
+        finishedCallback_(encodedFrameCount_.load(), config_.video.outputFilePath);
     } catch (const std::exception& e) {
         LOG_ERROR("Exception in finished callback: " + std::string(e.what()));
     }

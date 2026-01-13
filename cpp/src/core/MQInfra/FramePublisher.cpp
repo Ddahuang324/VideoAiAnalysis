@@ -21,6 +21,10 @@ bool FramePublisher::initialize(const std::string& endpoint) {
     return true;
 }
 
+bool FramePublisher::initialize(const Config::ZMQConfig& config) {
+    return initialize(config.endpoint);
+}
+
 bool FramePublisher::publish(const Protocol::FrameMessage& frame) {
     return publishRaw(frame.header, frame.image_data.data(), frame.image_data.size(), frame.crc32);
 }

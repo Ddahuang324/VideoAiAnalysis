@@ -18,12 +18,13 @@
 #    include <windows.h>
 #endif
 
+#include "TestPathUtils.h"
 #include "core/KeyFrame/Foundation/DataConverter.h"
 #include "core/KeyFrame/KeyFrameAnalyzerService.h"
 #include "core/MQInfra/FramePublisher.h"
 #include "core/MQInfra/KeyFrameMetaDataSubscriber.h"
 #include "core/MQInfra/Protocol.h"
-#include "TestPathUtils.h"
+
 
 namespace {
 const std::string FRAME_ENDPOINT = "tcp://127.0.0.1:5560";
@@ -47,8 +48,8 @@ protected:
 
         // 配置 Service
         KeyFrame::KeyFrameAnalyzerService::Config config;
-        config.zmq.frameSubEndpoint = FRAME_ENDPOINT;
-        config.zmq.keyframePubEndpoint = META_ENDPOINT;
+        config.zmqSubscriber.endpoint = FRAME_ENDPOINT;
+        config.zmqPublisher.endpoint = META_ENDPOINT;
 
         // 模型路径 - 使用 u8string() 确保 UTF-8 编码
         config.models.sceneModelPath = sceneModelPath.u8string();
@@ -61,9 +62,9 @@ protected:
         config.pipeline.analysisThreadCount = 2;
 
         // 选择策略：使用阈值模式以过滤重复/低分帧
-        config.detectorConfig.useThresholdMode = true;
-        config.detectorConfig.highQualityThreshold = 0.6f;
-        config.detectorConfig.minScoreThreshold = 0.3f;
+        config.keyframeDetector.useThresholdMode = true;
+        config.keyframeDetector.highQualityThreshold = 0.6f;
+        config.keyframeDetector.minScoreThreshold = 0.3f;
 
         service_ = std::make_unique<KeyFrame::KeyFrameAnalyzerService>(config);
     }
