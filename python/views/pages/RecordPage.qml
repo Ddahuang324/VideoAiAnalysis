@@ -1,208 +1,49 @@
 // RecordPage.qml - 录制页面
-// 显示录制控制和屏幕预览
+// 参考 videosys-ai 设计风格
+// 大预览区域 + 底部控制栏
 
-import QtQuick 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
 import "../styles" as Styles
-import "../components" as Components
+import "../components"
 
 Rectangle {
     id: root
     anchors.fill: parent
-    color: Styles.ThemeManager.bgPrimary
+    color: "transparent"
 
-    // ==================== 状态 ====================
-
-    // 使用 videoViewModel 的录制状态
-    property bool isRecording: videoViewModel.isRecording
+    // 录制状态 (需要连接到 ViewModel)
+    property bool isRecording: false
+    property bool isPaused: false
     property int recordingTime: 0  // 秒
+    property string outputPath: ""
 
-    // 监听录制状态变化
-    Connections {
-        target: videoViewModel
-        function onRecordingStateChanged(recording) {
-            if (!recording) {
-                recordingTime = 0;
-            }
-        }
-
-        function onRecordingError(errorMsg) {
-            console.error("[RecordPage] Recording error:", errorMsg);
-        }
-    }
-
-    // ==================== 录制计时器 ====================
-
+    // 录制计时器
     Timer {
         id: recordingTimer
         interval: 1000
         repeat: true
-        running: isRecording
-        onTriggered: {
-            recordingTime++;
-            // 定期更新录制统计信息
-            videoViewModel.updateRecordingStats();
-        }
+        running: isRecording && !isPaused
+        onTriggered: recordingTime++
     }
 
-    // 格式化时间
-    function formatTime(seconds) {
-        var mins = Math.floor(seconds / 60);
-        var secs = seconds % 60;
-        return mins.toString().padStart(2, '0') + ":" + secs.toString().padStart(2, '0');
-    }
+    // ==================== 主布局 ====================
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Styles.ThemeManager.spacingLg
-        spacing: Styles.ThemeManager.spacingLg
+        spacing: 0
 
-        // 标题行
-        RowLayout {
-            Layout.fillWidth: true
-
-            Text {
-                text: "Screen Recorder"
-                color: Styles.ThemeManager.textPrimary
-                font.pixelSize: Styles.ThemeManager.fontSizeH2
-                font.weight: Font.ExtraBold
-                font.family: Styles.ThemeManager.fontFamily
-                // font.letterSpacing: -0.5
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
-
-            // 录制模式切换器 (Minimalist Toggle)
-            Rectangle {
-                width: 200
-                height: 36
-                radius: 18
-                color: Styles.ThemeManager.bgCard
-                border.width: 1
-                border.color: Styles.ThemeManager.border
-                visible: !isRecording  // 录制时隐藏
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 3
-                    spacing: 0
-
-                    // VIDEO 模式按钮
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 15
-                        color: videoViewModel.recorderMode === 0 ? Styles.ThemeManager.primary : "transparent"
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: 200
-                            }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "VIDEO"
-                            color: videoViewModel.recorderMode === 0 ? "#FFFFFF" : Styles.ThemeManager.textSecondary
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            font.family: Styles.ThemeManager.fontFamily
-                            font.letterSpacing: 0.5
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                console.log("[RecordPage] Switching to VIDEO mode");
-                                videoViewModel.setRecorderMode(0);
-                            }
-                        }
-                    }
-
-                    // SNAPSHOT 模式按钮
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 15
-                        color: videoViewModel.recorderMode === 1 ? Styles.ThemeManager.primary : "transparent"
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: 200
-                            }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "SNAPSHOT"
-                            color: videoViewModel.recorderMode === 1 ? "#FFFFFF" : Styles.ThemeManager.textSecondary
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            font.family: Styles.ThemeManager.fontFamily
-                            font.letterSpacing: 0.5
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                console.log("[RecordPage] Switching to SNAPSHOT mode");
-                                videoViewModel.setRecorderMode(1);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 录制状态指示 (Minimalist)
-            Row {
-                spacing: Styles.ThemeManager.spacingSm
-                visible: isRecording
-
-                Rectangle {
-                    width: 10
-                    height: 10
-                    radius: 5
-                    color: Styles.ThemeManager.error
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    SequentialAnimation on opacity {
-                        running: isRecording
-                        loops: Animation.Infinite
-                        NumberAnimation {
-                            to: 0.2
-                            duration: 600
-                            easing.type: Easing.InOutQuad
-                        }
-                        NumberAnimation {
-                            to: 1.0
-                            duration: 600
-                            easing.type: Easing.InOutQuad
-                        }
-                    }
-                }
-
-                Text {
-                    text: "REC " + formatTime(recordingTime)
-                    color: Styles.ThemeManager.error
-                    font.pixelSize: Styles.ThemeManager.fontSizeSmall
-                    font.family: Styles.ThemeManager.fontFamily
-                    font.weight: Font.Bold
-                }
-            }
-        }
-
-        // 屏幕预览区域
+        // ========== 预览区域 (占主要空间) ==========
         Rectangle {
+            id: previewArea
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Styles.ThemeManager.radiusLg
-            color: Styles.ThemeManager.bgCard
+            Layout.margins: 24
+            radius: Styles.ThemeManager.radiusXl
+            color: Styles.ThemeManager.bgSurface
             border.width: isRecording ? 2 : 1
-            border.color: isRecording ? Styles.ThemeManager.error : Styles.ThemeManager.border
+            border.color: isRecording ? Styles.ThemeManager.accent : Styles.ThemeManager.border
 
             Behavior on border.color {
                 ColorAnimation {
@@ -210,153 +51,544 @@ Rectangle {
                 }
             }
 
-            // Grid Pattern for technical look
-            Image {
-                anchors.fill: parent
-                source: "" // Placeholder for grid pattern if available, otherwise just bgCard
-                opacity: 0.05
+            Behavior on border.width {
+                NumberAnimation {
+                    duration: 300
+                }
             }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                spacing: Styles.ThemeManager.spacingMd
+            clip: true
 
-                // Placeholder preview visual (Minimalist Frame)
-                Rectangle {
-                    width: 120
-                    height: 80
-                    color: "transparent"
-                    border.width: 2
-                    border.color: isRecording ? Styles.ThemeManager.error : Styles.ThemeManager.textMuted
-                    radius: 4
-                    opacity: 0.5
+            // 网格背景图案
+            Canvas {
+                anchors.fill: parent
+                opacity: 0.03
+                onPaint: {
+                    var ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.strokeStyle = Styles.ThemeManager.text;
+                    ctx.lineWidth = 1;
+
+                    var gridSize = 40;
+
+                    // 垂直线
+                    for (var x = 0; x < width; x += gridSize) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, 0);
+                        ctx.lineTo(x, height);
+                        ctx.stroke();
+                    }
+
+                    // 水平线
+                    for (var y = 0; y < height; y += gridSize) {
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(width, y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            // ========== 录制中指示器 (左上角) ==========
+            Row {
+                visible: isRecording
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.margins: 24
+                spacing: 12
+
+                // 脉冲红点
+                Item {
+                    width: 12
+                    height: 12
+                    anchors.verticalCenter: parent.verticalCenter
 
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 40
-                        height: 40
-                        radius: 20
-                        color: isRecording ? Styles.ThemeManager.error : "transparent"
-                        border.width: isRecording ? 0 : 2
-                        border.color: Styles.ThemeManager.textMuted
-                        opacity: isRecording ? 1.0 : 0.5
+                        width: 12
+                        height: 12
+                        radius: 6
+                        color: Styles.ThemeManager.accent
+                    }
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        radius: 6
+                        color: Styles.ThemeManager.accent
+
+                        SequentialAnimation on scale {
+                            loops: Animation.Infinite
+                            NumberAnimation {
+                                to: 2
+                                duration: 1000
+                            }
+                            NumberAnimation {
+                                to: 1
+                                duration: 0
+                            }
+                        }
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite
+                            NumberAnimation {
+                                to: 0
+                                duration: 1000
+                            }
+                            NumberAnimation {
+                                to: 1
+                                duration: 0
+                            }
+                        }
                     }
                 }
 
                 Text {
-                    text: isRecording ? "Recording in progress..." : "Preview Area"
-                    color: Styles.ThemeManager.textSecondary
-                    font.pixelSize: Styles.ThemeManager.fontSizeBody
-                    font.family: Styles.ThemeManager.fontFamily
-                    Layout.alignment: Qt.AlignHCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "REC " + formatTime(recordingTime)
+                    color: Styles.ThemeManager.accent
+                    font.pixelSize: 13
+                    font.family: "monospace"
+                    font.letterSpacing: 2
+                }
+            }
+
+            // ========== 空闲状态中心提示 ==========
+            Column {
+                visible: !isRecording
+                anchors.centerIn: parent
+                spacing: 16
+
+                opacity: 0.3
+
+                Canvas {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 64
+                    height: 64
+                    onPaint: {
+                        var ctx = getContext("2d");
+                        ctx.reset();
+                        ctx.strokeStyle = Styles.ThemeManager.text;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.arc(32, 32, 12, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    }
                 }
 
                 Text {
-                    text: {
-                        var modeText = videoViewModel.getRecorderModeName();
-                        var modeDesc = modeText === "VIDEO" ? "30 FPS" : "1 FPS";
-                        return "Mode: " + modeText + " (" + modeDesc + ") | Audio: On";
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "READY TO CAPTURE"
+                    color: Styles.ThemeManager.text
+                    font.pixelSize: 12
+                    font.letterSpacing: 3
+                }
+            }
+
+            // ========== 右上角模式和Prompt选择 (New) ==========
+            Row {
+                visible: !isRecording
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 24
+                spacing: 12
+
+                // Prompt 选择
+                Rectangle {
+                    width: 180
+                    height: 36
+                    radius: 8
+                    color: Styles.ThemeManager.overlayDark
+                    border.width: 1
+                    border.color: Styles.ThemeManager.border
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+
+                        Text {
+                            text: "PROMPT:"
+                            color: Styles.ThemeManager.textMuted
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Default Analysis"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            text: "▾"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 12
+                        }
                     }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: console.log("Open Prompt Selector")
+                    }
+                }
+
+                // 模式选择
+                Rectangle {
+                    width: 140
+                    height: 36
+                    radius: 8
+                    color: Styles.ThemeManager.overlayDark
+                    border.width: 1
+                    border.color: Styles.ThemeManager.border
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+
+                        Text {
+                            id: modeText
+                            Layout.fillWidth: true
+                            text: "VIDEO MODE"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+
+                        Text {
+                            text: "▾"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            modeText.text = (modeText.text === "VIDEO MODE") ? "SNAPCHAT MODE" : "VIDEO MODE";
+                        }
+                    }
+                }
+            }
+
+            // ========== 左下角基础信息 (New) ==========
+            Column {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.margins: 24
+                spacing: 8
+
+                Row {
+                    spacing: 12
+                    opacity: 0.7
+
+                    // 分辨率
+                    Row {
+                        spacing: 6
+                        Rectangle {
+                            width: 12
+                            height: 12
+                            radius: 2
+                            color: "transparent"
+                            border.width: 1.5
+                            border.color: Styles.ThemeManager.textSecondary
+                            anchors.verticalCenter: parent.verticalCenter
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 4
+                                height: 4
+                                radius: 1
+                                color: Styles.ThemeManager.textSecondary
+                            }
+                        }
+                        Text {
+                            text: "1080P"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    // 帧率
+                    Row {
+                        spacing: 6
+                        Text {
+                            text: "FPS"
+                            color: Styles.ThemeManager.textMuted
+                            font.pixelSize: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: "60"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    // 格式
+                    Row {
+                        spacing: 6
+                        Text {
+                            text: "EXT"
+                            color: Styles.ThemeManager.textMuted
+                            font.pixelSize: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: "MP4"
+                            color: Styles.ThemeManager.textSecondary
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                        }
+                    }
+                }
+
+                Text {
+                    text: "OUTPUT: " + (outputPath || "C:/Users/Administrator/Videos")
                     color: Styles.ThemeManager.textMuted
-                    font.pixelSize: Styles.ThemeManager.fontSizeSmall
-                    font.family: Styles.ThemeManager.fontFamily
-                    Layout.alignment: Qt.AlignHCenter
+                    font.pixelSize: 10
+                    opacity: 0.5
                 }
             }
         }
 
-        // 控制按钮行
-        RowLayout {
+        // ========== 底部控制栏 ==========
+        Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 80
-            spacing: Styles.ThemeManager.spacingMd
+            Layout.preferredHeight: 120
 
-            Item {
-                Layout.fillWidth: true
-            }
-
-            // Clean Control Bar
-            Components.GlassButton {
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 48
-                text: isRecording ? "STOP RECORDING" : "START RECORDING"
-
-                // Override colors logic inside GlassButton usage or just let it be standard?
-                // GlassButton doesn't support easy color override without property alias.
-                // Let's stick to using a custom Rectangle here for the Primary Action since it needs specific colors (Red/Primary).
-                visible: false // Hiding GlassButton to use custom button below
-            }
-
-            // Custom Primary Action Button
+            // 控制按钮容器
             Rectangle {
-                width: 240
-                height: 56
-                radius: 28 // Pill shape
-                color: isRecording ? Styles.ThemeManager.surfaceHover : Styles.ThemeManager.primary
-                border.width: isRecording ? 2 : 0
-                border.color: Styles.ThemeManager.error
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: 200
-                    }
-                }
+                anchors.centerIn: parent
+                width: 320
+                height: 72
+                radius: 36
+                color: Styles.ThemeManager.bgSurface
+                border.width: 1
+                border.color: Styles.ThemeManager.border
 
                 RowLayout {
-                    anchors.centerIn: parent
-                    spacing: 12
-
-                    // Icon
-                    Rectangle {
-                        width: 16
-                        height: 16
-                        radius: isRecording ? 2 : 8 // Square when recording (Stop), Circle when idle (Record)
-                        color: isRecording ? Styles.ThemeManager.error : "#FFFFFF"
-                        Behavior on radius {
-                            NumberAnimation {
-                                duration: 200
-                            }
-                        }
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: 200
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: isRecording ? "STOP RECORDING" : "START RECORDING"
-                        color: isRecording ? Styles.ThemeManager.error : "#FFFFFF"
-                        font.pixelSize: 14
-                        font.weight: Font.ExtraBold
-                        font.family: Styles.ThemeManager.fontFamily
-                        font.letterSpacing: 1
-                    }
-                }
-
-                MouseArea {
+                    id: controlRow
                     anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    hoverEnabled: true
-                    onEntered: parent.opacity = 0.9
-                    onExited: parent.opacity = 1.0
-                    onClicked: {
-                        if (root.isRecording) {
-                            // 停止录制
-                            console.log("[Record] Stopping recording...");
-                            videoViewModel.stopRecording();
-                        } else {
-                            // 开始录制
-                            console.log("[Record] Starting recording...");
-                            videoViewModel.startRecording();
+                    anchors.leftMargin: 24
+                    anchors.rightMargin: 24
+                    spacing: 0
+
+                    // 截图按钮
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 44
+                            height: 44
+                            radius: 22
+                            color: screenshotMA.containsMouse ? Styles.ThemeManager.bgInput : "transparent"
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 200
+                                }
+                            }
+
+                            Canvas {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                onPaint: {
+                                    var ctx = getContext("2d");
+                                    ctx.reset();
+                                    ctx.strokeStyle = Styles.ThemeManager.text;
+                                    ctx.lineWidth = 1.5;
+                                    ctx.strokeRect(2, 4, 16, 12);
+                                    ctx.beginPath();
+                                    ctx.arc(10, 10, 3, 0, 2 * Math.PI);
+                                    ctx.stroke();
+                                    ctx.strokeRect(14, 2, 2, 2);
+                                }
+                            }
+
+                            MouseArea {
+                                id: screenshotMA
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: console.log("Screenshot")
+                            }
+                        }
+                    }
+
+                    // 主录制按钮
+                    Item {
+                        Layout.preferredWidth: 80
+                        Layout.preferredHeight: 80
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 64
+                            height: 64
+                            radius: 32
+                            color: "transparent"
+                            border.width: 4
+                            border.color: Styles.ThemeManager.border
+
+                            // 内部内容
+                            Rectangle {
+                                id: recordButtonInner
+                                anchors.centerIn: parent
+                                width: isRecording ? 24 : 48
+                                height: isRecording ? 24 : 48
+                                radius: isRecording ? 4 : 24
+                                color: isRecording ? Styles.ThemeManager.accent : Styles.ThemeManager.primary
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 300
+                                        easing.type: Easing.InOutCubic
+                                    }
+                                }
+                                Behavior on height {
+                                    NumberAnimation {
+                                        duration: 300
+                                        easing.type: Easing.InOutCubic
+                                    }
+                                }
+                                Behavior on radius {
+                                    NumberAnimation {
+                                        duration: 300
+                                    }
+                                }
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: 300
+                                    }
+                                }
+                            }
+
+                            // 呼吸动画 (未录制时)
+                            Rectangle {
+                                visible: !isRecording
+                                anchors.centerIn: parent
+                                width: 48
+                                height: 48
+                                radius: 24
+                                color: Styles.ThemeManager.primary
+                                opacity: 0.3
+                                SequentialAnimation on opacity {
+                                    loops: Animation.Infinite
+                                    NumberAnimation {
+                                        to: 0.6
+                                        duration: 1500
+                                    }
+                                    NumberAnimation {
+                                        to: 0.3
+                                        duration: 1500
+                                    }
+                                }
+                                SequentialAnimation on scale {
+                                    loops: Animation.Infinite
+                                    NumberAnimation {
+                                        to: 1.2
+                                        duration: 1500
+                                    }
+                                    NumberAnimation {
+                                        to: 1.0
+                                        duration: 1500
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (isRecording) {
+                                        root.isRecording = false;
+                                        root.isPaused = false;
+                                        recordingTime = 0;
+                                    } else {
+                                        root.isRecording = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 暂停/恢复按钮
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+                        opacity: isRecording ? 1 : 0.3
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 44
+                            height: 44
+                            radius: 22
+                            color: pauseMA.containsMouse ? Styles.ThemeManager.bgInput : "transparent"
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 200
+                                }
+                            }
+
+                            Canvas {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                onPaint: {
+                                    var ctx = getContext("2d");
+                                    ctx.reset();
+                                    ctx.fillStyle = Styles.ThemeManager.text;
+                                    if (isPaused) {
+                                        // Play triangle
+                                        ctx.beginPath();
+                                        ctx.moveTo(6, 4);
+                                        ctx.lineTo(16, 10);
+                                        ctx.lineTo(6, 16);
+                                        ctx.closePath();
+                                        ctx.fill();
+                                    } else {
+                                        // Pause bars
+                                        ctx.fillRect(6, 4, 3, 12);
+                                        ctx.fillRect(11, 4, 3, 12);
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                id: pauseMA
+                                anchors.fill: parent
+                                enabled: isRecording
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.isPaused = !root.isPaused
+                            }
                         }
                     }
                 }
-            }
-
-            Item {
-                Layout.fillWidth: true
             }
         }
+    }
+
+    // ==================== 辅助函数 ====================
+
+    function formatTime(seconds) {
+        var mins = Math.floor(seconds / 60);
+        var secs = seconds % 60;
+        return mins.toString().padStart(2, '0') + ":" + secs.toString().padStart(2, '0');
     }
 }
