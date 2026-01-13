@@ -6,10 +6,11 @@
 #include <string>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
+
 namespace Analyzer {
 
 // 分析状态枚举
-
 enum class AnalysisStatus { IDLE, INITIALIZING, RUNNING, STOPPING, ERROR };
 
 // 关键帧简要记录
@@ -38,27 +39,8 @@ struct AnalysisStats {
     double avgProcessingTime = 0.0;  // 平均处理时间（ms）
 };
 
-// 分析配置
-
-struct AnalyzerConfig {
-    std::string zmqSubscribeEndpoint = "tcp://localhost:5555";
-
-    std::string zmqPublishEndpoint = "tcp://*:5556";
-
-    std::string modelBasePath;
-
-    bool enableTextRecognition = false;
-
-    // 模型路径
-
-    std::string sceneModelPath;
-
-    std::string motionModelPath;
-
-    std::string textDetModelPath;
-
-    std::string textRecModelPath;
-};
+// 使用统一配置系统的类型别名
+using AnalyzerConfig = Config::KeyFrameAnalyzerConfig;
 
 class AnalyzerAPI {
 public:
@@ -67,7 +49,6 @@ public:
     ~AnalyzerAPI();
 
     // 生命周期管理
-
     bool initialize(const AnalyzerConfig& config);
 
     bool start();
@@ -77,7 +58,6 @@ public:
     void shutdown();
 
     // 状态查询
-
     AnalysisStatus getStatus() const;
 
     AnalysisStats getStats() const;
@@ -85,7 +65,6 @@ public:
     std::string getLastError() const;
 
     // 回调设置
-
     using StatusCallback = std::function<void(AnalysisStatus)>;
 
     using KeyFrameCallback = std::function<void(int64_t frameIndex)>;

@@ -44,19 +44,9 @@ AnalyzerAPI::~AnalyzerAPI() {
 bool AnalyzerAPI::initialize(const AnalyzerConfig& config) {
     LOG_INFO("Initializing AnalyzerAPI...");
 
-    // 转换配置
-    KeyFrame::KeyFrameAnalyzerService::Config serviceConfig;
-    serviceConfig.zmq.frameSubEndpoint = config.zmqSubscribeEndpoint;
-    serviceConfig.zmq.keyframePubEndpoint = config.zmqPublishEndpoint;
-    serviceConfig.enableTextRecognition = config.enableTextRecognition;
-
-    serviceConfig.models.sceneModelPath = config.sceneModelPath;
-    serviceConfig.models.motionModelPath = config.motionModelPath;
-    serviceConfig.models.textDetModelPath = config.textDetModelPath;
-    serviceConfig.models.textRecModelPath = config.textRecModelPath;
-
     try {
-        impl_->service_ = std::make_unique<KeyFrame::KeyFrameAnalyzerService>(serviceConfig);
+        // 直接使用统一配置创建服务
+        impl_->service_ = std::make_unique<KeyFrame::KeyFrameAnalyzerService>(config);
         impl_->updateStatus(AnalysisStatus::IDLE);
         return true;
     } catch (const std::exception& e) {
@@ -123,6 +113,7 @@ AnalysisStats AnalyzerAPI::getStats() const {
         }
         impl_->stats_.keyframeCount = impl_->service_->getTotalKeyFramesCount();
 
+        // 从统一配置中获取信息
         const auto& config = impl_->service_->getConfig();
         impl_->stats_.activeConfig.textRecognitionEnabled = config.enableTextRecognition;
         impl_->stats_.activeConfig.threadCount = config.pipeline.analysisThreadCount;

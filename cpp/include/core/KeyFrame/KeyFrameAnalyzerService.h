@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include "IFrameAnalyzer.h"
+#include "core/Config/UnifiedConfig.h"
 #include "core/KeyFrame/Detectors/MotionDetector.h"
 #include "core/KeyFrame/Detectors/SceneChangeDetector.h"
 #include "core/KeyFrame/Detectors/TextDetector.h"
@@ -24,41 +24,8 @@ namespace KeyFrame {
 
 class KeyFrameAnalyzerService {
 public:
-    struct Config {
-        // ZMQ 通信配置
-        struct ZMQConfig {
-            std::string frameSubEndpoint = "tcp://localhost:5555";
-            std::string keyframePubEndpoint = "tcp://*:5556";
-            int receiveTimeoutMs = 100;
-        } zmq;
-
-        // 模型路径配置
-        struct ModelPaths {
-            std::string sceneModelPath;
-            std::string motionModelPath;
-            std::string textDetModelPath;
-            std::string textRecModelPath;
-        } models;
-
-        // 管道与线程配置
-        struct PipelineConfig {
-            int analysisThreadCount =
-                1;  // 由于 MotionDetector 依赖顺序，默认单线程或由分析器内部并行
-            int frameBufferSize = 100;
-            int scoreBufferSize = 200;
-        } pipeline;
-
-        // 功能开关
-        bool enableTextRecognition = false;  // 文字识别是性能杀手，默认关闭
-
-        // 各组件具体配置
-        SceneChangeDetector::Config sceneConfig;
-        MotionDetector::Config motionConfig;
-        TextDetector::Config textConfig;
-        DynamicCalculator::Config dynamicConfig;
-        FrameScorer::Config scorerConfig;
-        KeyFrameDetector::Config detectorConfig;
-    };
+    // 使用统一配置系统
+    using Config = Config::KeyFrameAnalyzerConfig;
 
     explicit KeyFrameAnalyzerService(const Config& config);
     ~KeyFrameAnalyzerService();

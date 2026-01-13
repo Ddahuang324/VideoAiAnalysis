@@ -45,52 +45,108 @@ void KeyFrameAnalyzerService::initializeComponents() {
 
     // 1. 初始化 ZMQ
     subscriber_ = std::make_unique<MQInfra::FrameSubscriber>();
-    if (!subscriber_->initialize(config_.zmq.frameSubEndpoint)) {
-        LOG_ERROR("Failed to initialize FrameSubscriber at " + config_.zmq.frameSubEndpoint);
+    if (!subscriber_->initialize(config_.zmqSubscriber.endpoint)) {
+        LOG_ERROR("Failed to initialize FrameSubscriber at " + config_.zmqSubscriber.endpoint);
     }
 
     publisher_ = std::make_unique<MQInfra::KeyFrameMetaDataPublisher>();
-    if (!publisher_->initialize(config_.zmq.keyframePubEndpoint)) {
+    if (!publisher_->initialize(config_.zmqPublisher.endpoint)) {
         LOG_ERROR("Failed to initialize KeyFrameMetaDataPublisher at " +
-                  config_.zmq.keyframePubEndpoint);
+                  config_.zmqPublisher.endpoint);
     }
 
     // 2. 加载模型到 ModelManager
     auto& modelMgr = ModelManager::GetInstance();
     if (!config_.models.sceneModelPath.empty()) {
-        modelMgr.loadModel("MobileNet-v3-Small", config_.models.sceneModelPath,
+        auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.sceneModelPath;
+        modelMgr.loadModel("MobileNet-v3-Small", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
     if (!config_.models.motionModelPath.empty()) {
-        modelMgr.loadModel("yolov8n.onnx", config_.models.motionModelPath,
+        auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.motionModelPath;
+        modelMgr.loadModel("yolov8n.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
     if (!config_.models.textDetModelPath.empty()) {
-        modelMgr.loadModel("ch_PP-OCRv4_det_infer.onnx", config_.models.textDetModelPath,
+        auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.textDetModelPath;
+        modelMgr.loadModel("ch_PP-OCRv4_det_infer.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
     }
     // ⚠️ 文字识别模型是性能杀手，仅在显式启用时才加载
     if (config_.enableTextRecognition && !config_.models.textRecModelPath.empty()) {
-        modelMgr.loadModel("ch_PP-OCRv4_rec_infer.onnx", config_.models.textRecModelPath,
+        auto fullPath = std::filesystem::path(config_.models.basePath) / config_.models.textRecModelPath;
+        modelMgr.loadModel("ch_PP-OCRv4_rec_infer.onnx", fullPath.string(),
                            ModelManager::FrameWorkType::ONNXRuntime);
         LOG_INFO("Text recognition model loaded. (Performance warning!)");
     } else {
         LOG_INFO("Text recognition disabled (enableTextRecognition=false)");
     }
 
-    // 3. 初始化分析器组件
-    auto sceneDetector = std::make_shared<SceneChangeDetector>(modelMgr, config_.sceneConfig);
-    auto motionDetector = std::make_shared<MotionDetector>(modelMgr, config_.motionConfig);
-    // 传入 TextDetector 配置，确保其也知道是否启用识别
-    auto textConfig = config_.textConfig;
-    textConfig.enableRecognition = config_.enableTextRecognition;
-    auto textDetector = std::make_shared<TextDetector>(modelMgr, textConfig);
+    // 3. 初始化分析器组件 (使用统一配置)
+    auto sceneDetector = std::make_shared<SceneChangeDetector>(modelMgr, {
+        config_.sceneDetector.similarityThreshold,
+        config_.sceneDetector.featureDim,
+        config_.sceneDetector.inputSize,
+        config_.sceneDetector.enableCache
+    });
+
+    auto motionDetector = std::make_shared<MotionDetector>(modelMgr, {
+        config_.motionDetector.confidenceThreshold,
+        config_.motionDetector.nmsThreshold,
+        config_.motionDetector.inputWidth,
+        config_.motionDetector.maxTrackedObjects,
+        config_.motionDetector.trackHighThreshold,
+        config_.motionDetector.trackLowThreshold,
+        config_.motionDetector.trackBufferSize,
+        config_.motionDetector.pixelMotionWeight,
+        config_.motionDetector.objectMotionWeight
+    });
+
+    auto textDetector = std::make_shared<TextDetector>(modelMgr, {
+        config_.textDetector.detInputHeight,
+        config_.textDetector.detInputWidth,
+        config_.textDetector.recInputHeight,
+        config_.textDetector.recInputWidth,
+        config_.textDetector.detThreshold,
+        config_.textDetector.recThreshold,
+        config_.enableTextRecognition,  // 使用全局开关
+        config_.textDetector.alpha,
+        config_.textDetector.beta
+    });
 
     analyzer_ =
         std::make_shared<StandardFrameAnalyzer>(sceneDetector, motionDetector, textDetector);
-    dynamicCalculator_ = std::make_shared<DynamicCalculator>(config_.dynamicConfig);
-    scorer_ = std::make_shared<FrameScorer>(dynamicCalculator_, config_.scorerConfig);
-    keyframeDetector_ = std::make_shared<KeyFrameDetector>(config_.detectorConfig);
+
+    dynamicCalculator_ = std::make_shared<DynamicCalculator>(DynamicCalculator::Config{
+        config_.dynamicCalculator.baseWeights,
+        config_.dynamicCalculator.currentFrameWeight,
+        config_.dynamicCalculator.activationInfluence,
+        config_.dynamicCalculator.historyWindowSize,
+        config_.dynamicCalculator.minWeight,
+        config_.dynamicCalculator.maxWeight
+    });
+
+    scorer_ = std::make_shared<FrameScorer>(dynamicCalculator_, FrameScorer::Config{
+        config_.frameScorer.enableDynamicWeighting,
+        config_.frameScorer.enableSmoothing,
+        config_.frameScorer.smoothingWindowSize,
+        config_.frameScorer.smoothingEMAAlpha,
+        config_.frameScorer.sceneChangeBoost,
+        config_.frameScorer.motionIncreaseBoost,
+        config_.frameScorer.textIncreaseBoost
+    });
+
+    keyframeDetector_ = std::make_shared<KeyFrameDetector>(KeyFrameDetector::Config{
+        config_.keyframeDetector.targetKeyFrameCount,
+        config_.keyframeDetector.targetCompressionRatio,
+        config_.keyframeDetector.minKeyFrameCount,
+        config_.keyframeDetector.maxKeyFrameCount,
+        config_.keyframeDetector.minTemporalDistance,
+        config_.keyframeDetector.useThresholdMode,
+        config_.keyframeDetector.highQualityThreshold,
+        config_.keyframeDetector.minScoreThreshold,
+        config_.keyframeDetector.alwaysIncludeSceneChanges
+    });
 
     // 4. 初始化队列
     frameQueue_ = std::make_unique<ThreadSafetyQueue<FrameItem>>(config_.pipeline.frameBufferSize);
@@ -208,7 +264,7 @@ void KeyFrameAnalyzerService::updateLatestKeyFrames(const FrameScore& score) {
 void KeyFrameAnalyzerService::receiveLoop() {
     LOG_INFO("Receive loop started.");
     while (running_) {
-        auto msg = subscriber_->receiveFrame(config_.zmq.receiveTimeoutMs);
+        auto msg = subscriber_->receiveFrame(config_.zmqSubscriber.timeoutMs);
         if (!msg)
             continue;
 
@@ -268,7 +324,7 @@ void KeyFrameAnalyzerService::selectLoop() {
             scoreBuffer.push_back(score);
 
             if (scoreBuffer.size() >= WINDOW_SIZE) {
-                const auto& detConfig = config_.detectorConfig;
+                const auto& detConfig = config_.keyframeDetector;
                 int dynamicK = -1;
                 if (!detConfig.useThresholdMode) {
                     dynamicK =
@@ -299,7 +355,7 @@ void KeyFrameAnalyzerService::selectLoop() {
 
     // 处理剩余的缓冲帧（进程退出时）
     if (!scoreBuffer.empty()) {
-        const auto& detConfig = config_.detectorConfig;
+        const auto& detConfig = config_.keyframeDetector;
         int dynamicK = -1;
         if (!detConfig.useThresholdMode) {
             dynamicK = static_cast<int>(scoreBuffer.size() * detConfig.targetCompressionRatio);

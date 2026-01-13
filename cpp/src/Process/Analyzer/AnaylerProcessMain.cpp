@@ -11,7 +11,6 @@
 #include "CommandProtocol.h"
 #include "IPCServer.h"
 #include "Infra/Log.h"
-#include "nlohmann/json_fwd.hpp"
 
 using namespace Analyzer;
 using namespace IPC;
@@ -25,49 +24,17 @@ void signalHandler(int signal) {
     g_shouldExit = true;
 }
 
+// 使用统一配置系统加载配置 (简化版)
 AnalyzerConfig loadConfig(const std::string& configPath) {
     AnalyzerConfig config;
 
-    // 设置默认值
-    config.zmqSubscribeEndpoint = "tcp://localhost:5555";
-    config.zmqPublishEndpoint = "tcp://*:5556";
-    config.modelBasePath = "Models";
-    config.enableTextRecognition = false;
-
     if (configPath.empty()) {
         LOG_INFO("No config file path provided, using default configuration.");
-        return config;
+        return config;  // 使用默认值
     }
 
-    std::ifstream file(configPath);
-    if (!file.is_open()) {
-        LOG_ERROR("Failed to open config file: " + configPath + ", using defaults.");
-        return config;
-    }
-
-    try {
-        nlohmann::json j;
-        file >> j;
-
-        config.zmqSubscribeEndpoint =
-            j.value("zmq_subscribe_endpoint", config.zmqSubscribeEndpoint);
-        config.zmqPublishEndpoint = j.value("zmq_publish_endpoint", config.zmqPublishEndpoint);
-        config.modelBasePath = j.value("model_base_path", config.modelBasePath);
-        config.enableTextRecognition =
-            j.value("enable_text_recognition", config.enableTextRecognition);
-
-        // 模型路径
-        if (j.contains("models")) {
-            auto models = j["models"];
-            config.sceneModelPath = models.value("scene_model_path", "");
-            config.motionModelPath = models.value("motion_model_path", "");
-            config.textDetModelPath = models.value("text_det_model_path", "");
-            config.textRecModelPath = models.value("text_rec_model_path", "");
-        }
-
-        LOG_INFO("Configuration loaded from " + configPath);
-    } catch (const std::exception& ex) {
-        LOG_ERROR("Failed to parse config file: " + configPath + ", error: " + ex.what());
+    if (!config.loadFromFile(configPath)) {
+        LOG_ERROR("Failed to load config from " + configPath + ", using defaults.");
     }
 
     return config;
@@ -100,30 +67,30 @@ void registerIPCHandlers(IPCServer& server, AnalyzerAPI& api) {
         });
 
     // GET_STATUS
-    server.registerHandler(CommandType::GET_STATUS,
-                           [&api](const CommandRequest& request) -> CommandResponse {
-                               nlohmann::json data;
-                               data["status"] = static_cast<int>(api.getStatus());
-                               return {ResponseCode::SUCCESS, "Status retrieved", data};
-                           });
+    server.registerHandler(
+        CommandType::GET_STATUS, [&api](const CommandRequest& request) -> CommandResponse {
+            nlohmann::json data;
+            data["status"] = static_cast<int>(api.getStatus());
+            return {ResponseCode::SUCCESS, "Status retrieved", data};
+        });
 
     // GET_STATS
-    server.registerHandler(CommandType::GET_STATS,
-                           [&api](const CommandRequest& request) -> CommandResponse {
-                               AnalysisStats stats = api.getStats();
-                               nlohmann::json data;
-                               data["analyzed_frame_count"] = stats.analyzedFrameCount;
-                               data["keyframe_count"] = stats.keyframeCount;
+    server.registerHandler(
+        CommandType::GET_STATS, [&api](const CommandRequest& request) -> CommandResponse {
+            AnalysisStats stats = api.getStats();
+            nlohmann::json data;
+            data["analyzed_frame_count"] = stats.analyzedFrameCount;
+            data["keyframe_count"] = stats.keyframeCount;
 
-                               nlohmann::json kfList = nlohmann::json::array();
-                               for (const auto& kf : stats.latestKeyFrames) {
-                                   kfList.push_back({{"frame_index", kf.frameIndex},
-                                                     {"score", kf.score},
-                                                     {"timestamp", kf.timestamp}});
-                               }
-                               data["latest_keyframes"] = kfList;
-                               return {ResponseCode::SUCCESS, "Stats retrieved", data};
-                           });
+            nlohmann::json kfList = nlohmann::json::array();
+            for (const auto& kf : stats.latestKeyFrames) {
+                kfList.push_back({{"frame_index", kf.frameIndex},
+                                 {"score", kf.score},
+                                 {"timestamp", kf.timestamp}});
+            }
+            data["latest_keyframes"] = kfList;
+            return {ResponseCode::SUCCESS, "Stats retrieved", data};
+        });
 
     // SHUTDOWN
     server.registerHandler(
@@ -159,7 +126,7 @@ int main(int argc, char* argv[]) {
     // 初始化 API
     g_analyzerAPI = std::make_unique<AnalyzerAPI>();
 
-    // 从配置文件加载配置
+    // 使用统一配置系统加载配置 (自动验证)
     AnalyzerConfig config = loadConfig(configPath);
 
     if (!g_analyzerAPI->initialize(config)) {
