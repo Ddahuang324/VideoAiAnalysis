@@ -31,130 +31,130 @@ ScreenRecorder::~ScreenRecorder() {
     // 确保所有辅助线程都已停止，防止在对象析构时发生 std::terminate 或访问已释放资源
     stopPublishing();
     stopKeyFrameMetaDataReceiving();
-    if (m_isRecording.load()) {
+    if (isRecording_.load()) {
         stopRecording();
     }
 }
 
 bool ScreenRecorder::startRecording(std::string& path) {
-    if (m_isRecording.load()) {
+    if (isRecording_.load()) {
         return false;  // 已经在录制中
     }
     // TODO: 实现录制逻辑
-    m_isRecording.store(true);
+    isRecording_.store(true);
 
     // 根据模式选择采集器
     GrabberType preferredType =
-        (m_mode == RecorderMode::SNAPSHOT) ? GrabberType::GDI : GrabberType::AUTO;
-    m_grabber_ = VideoGrabberFactory::createGrabber(preferredType);
+        (mode_ == RecorderMode::SNAPSHOT) ? GrabberType::GDI : GrabberType::AUTO;
+    grabber_ = VideoGrabberFactory::createGrabber(preferredType);
 
-    if (!m_grabber_) {
-        m_lastError = "Failed to create screen grabber";
-        LOG_ERROR(m_lastError);
-        m_isRecording.store(false);
+    if (!grabber_) {
+        lastError_ = "Failed to create screen grabber";
+        LOG_ERROR(lastError_);
+        isRecording_.store(false);
         return false;
     }
 
-    m_frameQueue_ = std::make_shared<ThreadSafetyQueue<FrameData>>(30);
-    m_videoRingBuffer_ = std::make_unique<RingFrameBuffer>(300);  // 缓存最近300帧(约10秒)
+    frameQueue_ = std::make_shared<ThreadSafetyQueue<FrameData>>(30);
+    videoRingBuffer_ = std::make_unique<RingFrameBuffer>(300);  // 缓存最近300帧(约10秒)
 
     // 在获取配置前先启动 Grabber，以确保能够获取到正确的分辨率和 FPS
-    if (!m_grabber_->start()) {
-        m_lastError = "Failed to start screen grabber";
-        LOG_ERROR(m_lastError);
-        m_isRecording.store(false);
+    if (!grabber_->start()) {
+        lastError_ = "Failed to start screen grabber";
+        LOG_ERROR(lastError_);
+        isRecording_.store(false);
         return false;
     }
 
     // 根据模式设定目标帧率
-    int target_fps = (m_mode == RecorderMode::SNAPSHOT) ? 1 : m_grabber_->getFps();
+    int target_fps = (mode_ == RecorderMode::SNAPSHOT) ? 1 : grabber_->getFps();
     if (target_fps <= 0)
         target_fps = 30;  // 后备方案
 
-    grabber_thread_ = std::make_shared<FrameGrabberThread>(m_grabber_, *m_frameQueue_, target_fps);
+    grabberThread_ = std::make_shared<FrameGrabberThread>(grabber_, *frameQueue_, target_fps);
 
-    grabber_thread_->setFrameCallback(
+    grabberThread_->setFrameCallback(
         [this](const FrameData& data) { this->pushToPublishQueue(data); });
 
-    grabber_thread_->setProgressCallback([](int64_t frames, int queue_size, double fps) {
+    grabberThread_->setProgressCallback([](int64_t frames, int queue_size, double fps) {
         LOG_INFO("Grabber progress - Frames: " + std::to_string(frames) +
                  ", Queue Size: " + std::to_string(queue_size) + ", FPS: " + std::to_string(fps));
     });
 
-    grabber_thread_->setErrorCallback([this](const std::string& errorMessage) {
-        m_lastError = errorMessage;
+    grabberThread_->setErrorCallback([this](const std::string& errorMessage) {
+        lastError_ = errorMessage;
         LOG_ERROR("Grabber error: " + errorMessage);
-        if (m_errorCallback) {
-            m_errorCallback(errorMessage);
+        if (errorCallback_) {
+            errorCallback_(errorMessage);
         }
     });
 
-    EncoderConfig config = encoderConfigFromGrabber(m_grabber_.get());
-    if (m_mode == RecorderMode::SNAPSHOT) {
+    EncoderConfig config = encoderConfigFromGrabber(grabber_.get());
+    if (mode_ == RecorderMode::SNAPSHOT) {
         config.fps = 1;
     }
     config.outputFilePath = path;
 
     // 初始化 FFmpegWrapper
-    m_ffmpegWrapper_ = std::make_shared<FFmpegWrapper>();
-    if (!m_ffmpegWrapper_->initialize(config)) {
-        m_lastError = "Failed to initialize FFmpeg: " + m_ffmpegWrapper_->getLastError();
-        LOG_ERROR(m_lastError);
-        m_isRecording.store(false);
+    ffmpegWrapper_ = std::make_shared<FFmpegWrapper>();
+    if (!ffmpegWrapper_->initialize(config)) {
+        lastError_ = "Failed to initialize FFmpeg: " + ffmpegWrapper_->getLastError();
+        LOG_ERROR(lastError_);
+        isRecording_.store(false);
         return false;
     }
 
     // 视频编码器
-    m_encoder_ = std::make_unique<FrameEncoder>(m_frameQueue_, m_ffmpegWrapper_, config);
+    encoder_ = std::make_unique<FrameEncoder>(frameQueue_, ffmpegWrapper_, config);
 
     // 音频采集与编码 (如果启用)
     if (config.enableAudio) {
-        m_audioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
+        audioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
 
-        m_audioGrabber_ = std::make_shared<WasapiAudioGrabber>();
-        m_audioGrabber_->setCallback([this](const AudioData& data) {
-            if (m_audioQueue_) {
-                m_audioQueue_->push(data, std::chrono::milliseconds(100));
+        audioGrabber_ = std::make_shared<WasapiAudioGrabber>();
+        audioGrabber_->setCallback([this](const AudioData& data) {
+            if (audioQueue_) {
+                audioQueue_->push(data, std::chrono::milliseconds(100));
             }
-            if (m_keyFrameAudioQueue_) {
+            if (keyFrameAudioQueue_) {
                 // 使用较短超时以不阻塞主录像采集
-                m_keyFrameAudioQueue_->push(data, std::chrono::milliseconds(5));
+                keyFrameAudioQueue_->push(data, std::chrono::milliseconds(5));
             }
         });
 
-        if (m_audioGrabber_->start()) {
-            m_audioEncoder_ = std::make_unique<AudioEncoder>(m_audioQueue_, m_ffmpegWrapper_);
-            m_audioEncoder_->start();
+        if (audioGrabber_->start()) {
+            audioEncoder_ = std::make_unique<AudioEncoder>(audioQueue_, ffmpegWrapper_);
+            audioEncoder_->start();
         } else {
             LOG_WARN("Failed to start audio grabber, recording video only");
         }
     }
 
-    m_encoder_->setProgressCallback([this](int64_t frames, int64_t size) {
+    encoder_->setProgressCallback([this](int64_t frames, int64_t size) {
         LOG_INFO("Encoder progress - Frames: " + std::to_string(frames) +
                  ", Size: " + std::to_string(size));
-        if (m_progressCallback) {
-            m_progressCallback(frames, size);
+        if (progressCallback_) {
+            progressCallback_(frames, size);
         }
     });
 
-    m_encoder_->setErrorCallback([this](const std::string& errorMessage) {
-        m_lastError = errorMessage;
+    encoder_->setErrorCallback([this](const std::string& errorMessage) {
+        lastError_ = errorMessage;
         LOG_ERROR("Encoder error: " + errorMessage);
-        if (m_errorCallback) {
-            m_errorCallback(errorMessage);
+        if (errorCallback_) {
+            errorCallback_(errorMessage);
         }
     });
 
-    grabber_thread_->start();
+    grabberThread_->start();
 
-    m_encoder_->start();
+    encoder_->start();
 
     return true;
 }
 
 void ScreenRecorder::stopRecording() {
-    if (!m_isRecording.load()) {
+    if (!isRecording_.load()) {
         return;  // 不在录制中
     }
 
@@ -163,165 +163,165 @@ void ScreenRecorder::stopRecording() {
     // 1. 先停止依赖外部资源的异步线程，防止竞态条件（如主循环还在写入 RingBuffer 或发送 ZMQ 消息）
     stopPublishing();
     stopKeyFrameMetaDataReceiving();
-    if (grabber_thread_) {
-        grabber_thread_->stop();
-        grabber_thread_.reset();
+    if (grabberThread_) {
+        grabberThread_->stop();
+        grabberThread_.reset();
     }
 
-    if (m_audioGrabber_) {
-        m_audioGrabber_->stop();
-        m_audioGrabber_.reset();
+    if (audioGrabber_) {
+        audioGrabber_->stop();
+        audioGrabber_.reset();
     }
 
-    if (m_encoder_) {
-        m_encoder_->stop();
-        m_encoder_.reset();
+    if (encoder_) {
+        encoder_->stop();
+        encoder_.reset();
     }
 
-    if (m_audioEncoder_) {
-        m_audioEncoder_->stop();
-        m_audioEncoder_.reset();
+    if (audioEncoder_) {
+        audioEncoder_->stop();
+        audioEncoder_.reset();
     }
 
-    if (m_ffmpegWrapper_) {
-        m_ffmpegWrapper_->finalize();
-        m_ffmpegWrapper_.reset();
+    if (ffmpegWrapper_) {
+        ffmpegWrapper_->finalize();
+        ffmpegWrapper_.reset();
     }
 
-    m_frameQueue_.reset();
-    m_audioQueue_.reset();
-    m_videoRingBuffer_.reset();
-    m_grabber_.reset();
+    frameQueue_.reset();
+    audioQueue_.reset();
+    videoRingBuffer_.reset();
+    grabber_.reset();
 
-    m_isRecording.store(false);
+    isRecording_.store(false);
     LOG_INFO("[ScreenRecorder] Recording Stopped");
 }
 
 void ScreenRecorder::pauseRecording() {
-    if (grabber_thread_) {
-        grabber_thread_->pause();
+    if (grabberThread_) {
+        grabberThread_->pause();
     }
 }
 
 void ScreenRecorder::resumeRecording() {
-    if (grabber_thread_) {
-        grabber_thread_->resume();
+    if (grabberThread_) {
+        grabberThread_->resume();
     }
 }
 
 int64_t ScreenRecorder::getFrameCount() const {
-    if (grabber_thread_) {
-        return grabber_thread_->getCapturedFrameCount();
+    if (grabberThread_) {
+        return grabberThread_->getCapturedFrameCount();
     }
     return 0;
 }
 
 int64_t ScreenRecorder::getEncodedCount() const {
-    if (m_encoder_) {
-        return m_encoder_->getEncodedFrameCount();
+    if (encoder_) {
+        return encoder_->getEncodedFrameCount();
     }
     return 0;
 }
 
 int64_t ScreenRecorder::getDroppedCount() const {
-    if (grabber_thread_) {
-        return grabber_thread_->getDroppedFrameCount();
+    if (grabberThread_) {
+        return grabberThread_->getDroppedFrameCount();
     }
     return 0;
 }
 
 int64_t ScreenRecorder::getOutputFileSize() const {
-    if (m_ffmpegWrapper_) {
-        return m_ffmpegWrapper_->getOutputFileSize();
+    if (ffmpegWrapper_) {
+        return ffmpegWrapper_->getOutputFileSize();
     }
     return 0;
 }
 
 double ScreenRecorder::getCurrentFps() const {
-    if (grabber_thread_) {
-        return grabber_thread_->getCurrentFps();
+    if (grabberThread_) {
+        return grabberThread_->getCurrentFps();
     }
     return 0.0;
 }
 
-bool ScreenRecorder::is_Recording() const {
-    return m_isRecording.load();
+bool ScreenRecorder::isRecording() const {
+    return isRecording_.load();
 }
 
 void ScreenRecorder::setProgressCallback(ProgressCallback callback) {
-    m_progressCallback = callback;
+    progressCallback_ = callback;
 }
 
 void ScreenRecorder::setErrorCallback(ErrorCallback callback) {
-    m_errorCallback = callback;
+    errorCallback_ = callback;
 }
 void ScreenRecorder::setRecorderMode(RecorderMode mode) {
-    m_mode = mode;
+    mode_ = mode;
 }
 
 RecorderMode ScreenRecorder::getRecorderMode() const {
-    return m_mode;
+    return mode_;
 }
 
 //================发布线程================//
 bool ScreenRecorder::startPublishing() {
-    if (publishrunning_)
+    if (publishingRunning_)
         return false;
-    publishrunning_ = true;
-    m_publishingThread = std::thread(&ScreenRecorder::publishingLoop, this);
+    publishingRunning_ = true;
+    publishingThread_ = std::thread(&ScreenRecorder::publishingLoop, this);
     return true;
 }
 
 void ScreenRecorder::stopPublishing() {
-    publishrunning_ = false;
-    m_publishCondVar.notify_all();
-    if (m_publishingThread.joinable()) {
-        m_publishingThread.join();
+    publishingRunning_ = false;
+    publishCondVar_.notify_all();
+    if (publishingThread_.joinable()) {
+        publishingThread_.join();
     }
 }
 
 void ScreenRecorder::pushToPublishQueue(const FrameData& data) {
     {
-        std::lock_guard<std::mutex> lock(m_publishMutex);
-        if (m_publishqueue.size() >= 30) {
-            m_publishqueue.pop();
+        std::lock_guard<std::mutex> lock(publishMutex_);
+        if (publishQueue_.size() >= 30) {
+            publishQueue_.pop();
         }
-        m_publishqueue.push(data);  // 浅拷贝 FrameData，包含共享指针和Mat引用
+        publishQueue_.push(data);  // 浅拷贝 FrameData，包含共享指针和Mat引用
     }
-    m_publishCondVar.notify_one();
+    publishCondVar_.notify_one();
 }
 
 void ScreenRecorder::publishingLoop() {
-    m_framePublisher = std::make_unique<MQInfra::FramePublisher>();
+    framePublisher_ = std::make_unique<MQInfra::FramePublisher>();
 
-    if (!m_framePublisher->initialize("tcp://*:5555")) {
+    if (!framePublisher_->initialize("tcp://*:5555")) {
         LOG_ERROR("Failed to initialize FramePublisher.");
         return;
     }
 
     LOG_INFO("Publish thread Started");
 
-    while (publishrunning_) {
+    while (publishingRunning_) {
         FrameData frame;
         {
-            std::unique_lock<std::mutex> lock(m_publishMutex);
+            std::unique_lock<std::mutex> lock(publishMutex_);
 
-            if (!m_publishCondVar.wait_for(lock, std::chrono::milliseconds(100), [this] {
-                    return !m_publishqueue.empty() || !publishrunning_;
+            if (!publishCondVar_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+                    return !publishQueue_.empty() || !publishingRunning_;
                 })) {
                 continue;  // 超时，继续等待
             }
 
-            if (!publishrunning_)
+            if (!publishingRunning_)
                 break;
 
-            frame = std::move(m_publishqueue.front());
-            m_publishqueue.pop();
+            frame = std::move(publishQueue_.front());
+            publishQueue_.pop();
         }
 
         // 同时推送到环形缓冲区，供关键帧编码使用
-        if (m_videoRingBuffer_) {
-            m_videoRingBuffer_->push(frame.frame_ID, frame.frame, frame.timestamp_ms);
+        if (videoRingBuffer_) {
+            videoRingBuffer_->push(frame.frame_ID, frame.frame, frame.timestamp_ms);
         }
 
         Protocol::FrameHeader msgheader;
@@ -341,41 +341,41 @@ void ScreenRecorder::publishingLoop() {
         uint32_t crc32 = Protocol::calculateCrc32(frame.frame.data, dataSize) ^ 0xFFFFFFFF;
 
         // 使用零拷贝发布
-        if (!m_framePublisher->publishRaw(msgheader, frame.frame.data, dataSize, crc32)) {
+        if (!framePublisher_->publishRaw(msgheader, frame.frame.data, dataSize, crc32)) {
             LOG_ERROR("Failed to publish frame ID: " + std::to_string(frame.frame_ID));
         }
     }
-    m_framePublisher->shutdown();
+    framePublisher_->shutdown();
     LOG_INFO("Publish Thread Stopped");
 }
 
 //================接受线程================//
 bool ScreenRecorder::startKeyFrameMetaDataReceiving(const std::string& keyFramePath) {
-    if (receiverunning_) {
+    if (receivingRunning_) {
         return false;  // 已经在接收中
     }
 
-    m_keyFrameOutputPath_ = keyFramePath;
+    keyFrameOutputPath_ = keyFramePath;
 
     // 初始化关键帧编码器
-    if (m_grabber_) {
-        EncoderConfig config = encoderConfigFromGrabber(m_grabber_.get());
-        config.outputFilePath = m_keyFrameOutputPath_;
+    if (grabber_) {
+        EncoderConfig config = encoderConfigFromGrabber(grabber_.get());
+        config.outputFilePath = keyFrameOutputPath_;
         // 关键帧模式下，通常我们希望高质量，可以根据需要调整 FPS 或码率
         // 这里暂时复用主配置，但路径不同
 
-        m_keyFrameFFmpegWrapper_ = std::make_shared<FFmpegWrapper>();
-        if (!m_keyFrameFFmpegWrapper_->initialize(config)) {
+        keyFrameFFmpegWrapper_ = std::make_shared<FFmpegWrapper>();
+        if (!keyFrameFFmpegWrapper_->initialize(config)) {
             LOG_ERROR("Failed to initialize KeyFrame FFmpegWrapper: " +
-                      m_keyFrameFFmpegWrapper_->getLastError());
+                      keyFrameFFmpegWrapper_->getLastError());
             return false;
         }
 
         if (config.enableAudio) {
-            m_keyFrameAudioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
-            m_keyFrameAudioEncoder_ =
-                std::make_unique<AudioEncoder>(m_keyFrameAudioQueue_, m_keyFrameFFmpegWrapper_);
-            m_keyFrameAudioEncoder_->start();
+            keyFrameAudioQueue_ = std::make_shared<ThreadSafetyQueue<AudioData>>(100);
+            keyFrameAudioEncoder_ =
+                std::make_unique<AudioEncoder>(keyFrameAudioQueue_, keyFrameFFmpegWrapper_);
+            keyFrameAudioEncoder_->start();
         }
     }
 
@@ -387,7 +387,7 @@ bool ScreenRecorder::startKeyFrameMetaDataReceiving(const std::string& keyFrameP
         return false;
     }
 
-    receiverunning_ = true;
+    receivingRunning_ = true;
     keyFrameReceiveThread_ = std::thread(&ScreenRecorder::keyFrameMetaDataReceiveLoop, this);
 
     return true;
@@ -398,25 +398,25 @@ bool ScreenRecorder::stopKeyFrameMetaDataReceiving() {
         return false;  // 不在接收中
     }
 
-    receiverunning_ = false;
+    receivingRunning_ = false;
     keyFrameMetaDataCondVar_.notify_all();
     if (keyFrameReceiveThread_.joinable()) {
         keyFrameReceiveThread_.join();
     }
 
-    if (m_keyFrameAudioEncoder_) {
-        m_keyFrameAudioEncoder_->stop();
-        m_keyFrameAudioEncoder_.reset();
+    if (keyFrameAudioEncoder_) {
+        keyFrameAudioEncoder_->stop();
+        keyFrameAudioEncoder_.reset();
     }
 
-    if (m_keyFrameFFmpegWrapper_) {
-        m_keyFrameFFmpegWrapper_->finalize();
-        m_keyFrameFFmpegWrapper_.reset();
+    if (keyFrameFFmpegWrapper_) {
+        keyFrameFFmpegWrapper_->finalize();
+        keyFrameFFmpegWrapper_.reset();
     }
 
-    if (m_keyFrameAudioQueue_) {
-        m_keyFrameAudioQueue_->stop();
-        m_keyFrameAudioQueue_.reset();
+    if (keyFrameAudioQueue_) {
+        keyFrameAudioQueue_->stop();
+        keyFrameAudioQueue_.reset();
     }
 
     keyFrameMetaDataSubscriber_->shutdown();
@@ -428,7 +428,7 @@ bool ScreenRecorder::stopKeyFrameMetaDataReceiving() {
 void ScreenRecorder::keyFrameMetaDataReceiveLoop() {
     LOG_INFO("Key Frame MetaData Receive Thread Started");
 
-    while (receiverunning_) {
+    while (receivingRunning_) {
         auto msg = keyFrameMetaDataSubscriber_->receiveMetaData(100);
 
         if (!msg) {
@@ -452,16 +452,16 @@ void ScreenRecorder::keyFrameMetaDataReceiveLoop() {
         }
 
         // 独立的关键帧编码处理
-        if (m_keyFrameFFmpegWrapper_ && m_videoRingBuffer_) {
+        if (keyFrameFFmpegWrapper_ && videoRingBuffer_) {
             uint64_t timestamp = 0;
-            auto frameMat = m_videoRingBuffer_->get(header.frameID, timestamp);
+            auto frameMat = videoRingBuffer_->get(header.frameID, timestamp);
             if (frameMat) {
                 FrameData fd;
                 fd.frame = *frameMat;
                 fd.frame_ID = header.frameID;
                 fd.timestamp_ms = timestamp;
 
-                if (!m_keyFrameFFmpegWrapper_->encoderFrame(fd)) {
+                if (!keyFrameFFmpegWrapper_->encoderFrame(fd)) {
                     LOG_ERROR("Failed to encode key frame ID: " + std::to_string(header.frameID));
                 }
             }

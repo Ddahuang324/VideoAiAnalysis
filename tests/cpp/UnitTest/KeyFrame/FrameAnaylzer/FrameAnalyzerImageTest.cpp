@@ -28,6 +28,8 @@
 #include "StandardFrameAnalyzer.h"
 #include "TextDetector.h"
 
+#include "TestPathUtils.h"
+
 namespace fs = std::filesystem;
 
 class FrameAnalyzerImageTest : public ::testing::Test {
@@ -36,30 +38,25 @@ protected:
 #ifdef _WIN32
         SetConsoleOutputCP(CP_UTF8);
 #endif
-        // Setup paths
-        fs::path exePath = fs::current_path();
 
-        // 1. Locate Models
-        std::vector<fs::path> possibleModelDirs = {
-            fs::u8path(TEST_MODELS_DIR), exePath / "Models",
-            exePath.parent_path().parent_path() / "Models",
-            fs::u8path("D:/编程/项目/AiVideoAnalsysSystem/Models")};
-
-        fs::path yoloPath, mobileNetPath, ocrDetPath, ocrRecPath;
-
-        for (const auto& dir : possibleModelDirs) {
-            if (fs::exists(dir / "yolov8n.onnx"))
-                yoloPath = dir / "yolov8n.onnx";
-            if (fs::exists(dir / "MobileNet-v3-Small.onnx"))
-                mobileNetPath = dir / "MobileNet-v3-Small.onnx";
-            if (fs::exists(dir / "ch_PP-OCRv4_det_infer.onnx"))
-                ocrDetPath = dir / "ch_PP-OCRv4_det_infer.onnx";
-            if (fs::exists(dir / "ch_PP-OCRv4_rec_infer.onnx"))
-                ocrRecPath = dir / "ch_PP-OCRv4_rec_infer.onnx";
-        }
+        // 使用统一的路径工具查找模型文件
+        fs::path yoloPath = TestPathUtils::findModelFile("yolov8n.onnx");
+        fs::path mobileNetPath = TestPathUtils::findModelFile("MobileNet-v3-Small.onnx");
+        fs::path ocrDetPath = TestPathUtils::findModelFile("ch_PP-OCRv4_det_infer.onnx");
+        fs::path ocrRecPath = TestPathUtils::findModelFile("ch_PP-OCRv4_rec_infer.onnx");
 
         if (yoloPath.empty() || mobileNetPath.empty() || ocrDetPath.empty() || ocrRecPath.empty()) {
             std::cout << "[警告] 未找到部分模型，测试可能会失败或被跳过。" << std::endl;
+            if (yoloPath.empty())
+                std::cerr << "[警告] 未找到: yolov8n.onnx" << std::endl;
+            if (mobileNetPath.empty())
+                std::cerr << "[警告] 未找到: MobileNet-v3-Small.onnx" << std::endl;
+            if (ocrDetPath.empty())
+                std::cerr << "[警告] 未找到: ch_PP-OCRv4_det_infer.onnx" << std::endl;
+            if (ocrRecPath.empty())
+                std::cerr << "[警告] 未找到: ch_PP-OCRv4_rec_infer.onnx" << std::endl;
+        } else {
+            std::cout << "[设置] 所有模型文件已找到" << std::endl;
         }
 
         // 2. Initialize ModelManager
@@ -105,23 +102,11 @@ protected:
 };
 
 TEST_F(FrameAnalyzerImageTest, AnalyzeImages1To6) {
-    // 1. Locate Assets
-    fs::path exePath = fs::current_path();
-    std::vector<fs::path> possibleAssetDirs = {
-        fs::u8path(TEST_ASSETS_DIR), exePath / "tests/cpp/UnitTest/KeyFrame/TestImage",
-        exePath.parent_path().parent_path() / "tests/cpp/UnitTest/KeyFrame/TestImage",
-        fs::u8path("D:/编程/项目/AiVideoAnalsysSystem/tests/cpp/UnitTest/KeyFrame/TestImage")};
-
-    fs::path assetsDir;
-    for (const auto& dir : possibleAssetDirs) {
-        if (fs::exists(dir / "1-anytype.png")) {
-            assetsDir = dir;
-            break;
-        }
-    }
+    // 使用统一的路径工具查找测试资源目录
+    fs::path assetsDir = TestPathUtils::findAssetsDir("1-anytype.png");
 
     ASSERT_FALSE(assetsDir.empty()) << "未找到测试图像目录。";
-    std::cout << "[测试] 使用资源目录: " << assetsDir.string() << std::endl;
+    std::cout << "[测试] 使用资源目录: " << TestPathUtils::pathToUtf8String(assetsDir) << std::endl;
 
     struct TestImage {
         std::string filename;

@@ -18,10 +18,7 @@
 #include "core/MQInfra/KeyFrameMetaDataPublisher.h"
 #include "core/MQInfra/KeyFrameMetaDataSubscriber.h"
 #include "core/MQInfra/Protocol.h"
-
-#ifndef TEST_ASSETS_DIR
-#    define TEST_ASSETS_DIR "tests/cpp/UnitTest/KeyFrame/TestImage"
-#endif
+#include "TestPathUtils.h"
 
 class ZMQConnectionTest : public ::testing::Test {
 protected:
@@ -30,6 +27,10 @@ protected:
 };
 
 TEST_F(ZMQConnectionTest, FrameImageTransmissionTest) {
+    // 使用 TestPathUtils 查找测试资源目录
+    auto testAssetsDir = TestPathUtils::findAssetsDir("1-anytype.png");
+    ASSERT_FALSE(testAssetsDir.empty()) << "Test assets directory not found!";
+
     MQInfra::FramePublisher publisher;
     MQInfra::FrameSubscriber subscriber;
     const std::string endpoint = "tcp://127.0.0.1:5557";
@@ -39,13 +40,13 @@ TEST_F(ZMQConnectionTest, FrameImageTransmissionTest) {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    std::string imagePath = std::string(TEST_ASSETS_DIR) + "/1-anytype.png";
-    cv::Mat img = KeyFrame::DataConverter::readImage(imagePath);
-    ASSERT_FALSE(img.empty()) << "Failed to load image: " << imagePath;
+    auto imagePath = testAssetsDir / "1-anytype.png";
+    cv::Mat img = KeyFrame::DataConverter::readImage(imagePath.u8string());
+    ASSERT_FALSE(img.empty()) << "Failed to load image: " << imagePath.u8string();
 
     // 2. 准备测试数据
-    std::cout << "Successfully loaded image: " << imagePath << " [" << img.cols << "x" << img.rows
-              << "]" << std::endl;
+    std::cout << "Successfully loaded image: " << imagePath.u8string() << " [" << img.cols << "x"
+              << img.rows << "]" << std::endl;
 
     Protocol::FrameMessage sendMsg;
     sendMsg.header.frameID = 1001;

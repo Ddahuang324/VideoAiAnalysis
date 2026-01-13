@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <opencv2/core/mat.hpp>
@@ -12,18 +13,19 @@
 #include <string>
 #include <vector>
 
+
 #ifdef _WIN32
 #    include <windows.h>
 #    include <winnls.h>
 
 #    include "consoleapi2.h"
 
-
 #endif
 
 #include "DataConverter.h"
 #include "ModelManager.h"
 #include "TextDetector.h"
+#include "TestPathUtils.h"
 
 namespace fs = std::filesystem;
 
@@ -35,42 +37,40 @@ protected:
         SetConsoleOutputCP(CP_UTF8);
 #endif
 
-        // 尝试多个可能的路径查找模型
-        fs::path exePath = fs::current_path();
-        std::vector<fs::path> possibleModelsDirs = {
-            fs::path(TEST_MODELS_DIR), exePath / "Models",
-            exePath.parent_path().parent_path() / "Models",
-            fs::path("D:/编程/项目/AiVideoAnalsysSystem/Models")};
-
-        fs::path detModelPath;
-        fs::path recModelPath;
-
-        for (const auto& dir : possibleModelsDirs) {
-            if (fs::exists(dir / "ch_PP-OCRv4_det_infer.onnx")) {
-                detModelPath = dir / "ch_PP-OCRv4_det_infer.onnx";
-                recModelPath = dir / "ch_PP-OCRv4_rec_infer.onnx";
-                break;
-            }
+        // 使用 TestPathUtils 查找模型目录
+        fs::path modelsDir = TestPathUtils::findModelFile("ch_PP-OCRv4_det_infer.onnx");
+        if (modelsDir.empty()) {
+            FAIL() << "OCR detection model not found. Current path: "
+                   << TestPathUtils::pathToUtf8String(fs::current_path());
         }
+        modelsDir = modelsDir.parent_path();
 
-        ASSERT_FALSE(detModelPath.empty())
-            << "Detection model not found. Checked paths include: " << TEST_MODELS_DIR;
-        ASSERT_FALSE(recModelPath.empty()) << "Recognition model not found.";
+        fs::path detModelPath = modelsDir / "ch_PP-OCRv4_det_infer.onnx";
+        fs::path recModelPath = modelsDir / "ch_PP-OCRv4_rec_infer.onnx";
 
-        std::cout << "[Setup] Using Det Model: " << detModelPath.string() << std::endl;
-        std::cout << "[Setup] Using Rec Model: " << recModelPath.string() << std::endl;
+        ASSERT_TRUE(fs::exists(detModelPath))
+            << "Detection model not found at: "
+            << TestPathUtils::pathToUtf8String(detModelPath);
+        ASSERT_TRUE(fs::exists(recModelPath))
+            << "Recognition model not found at: "
+            << TestPathUtils::pathToUtf8String(recModelPath);
+
+        std::cout << "[Setup] Using Det Model: "
+                  << TestPathUtils::pathToUtf8String(detModelPath) << std::endl;
+        std::cout << "[Setup] Using Rec Model: "
+                  << TestPathUtils::pathToUtf8String(recModelPath) << std::endl;
 
         modelManager_ = &KeyFrame::ModelManager::GetInstance();
 
         // 加载检测模型
         if (!modelManager_->hasModel("ch_PP-OCRv4_det_infer.onnx")) {
-            modelManager_->loadModel("ch_PP-OCRv4_det_infer.onnx", detModelPath.string(),
+            modelManager_->loadModel("ch_PP-OCRv4_det_infer.onnx", detModelPath.u8string(),
                                      KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
         }
 
         // 加载识别模型
         if (!modelManager_->hasModel("ch_PP-OCRv4_rec_infer.onnx")) {
-            modelManager_->loadModel("ch_PP-OCRv4_rec_infer.onnx", recModelPath.string(),
+            modelManager_->loadModel("ch_PP-OCRv4_rec_infer.onnx", recModelPath.u8string(),
                                      KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
         }
 
@@ -82,28 +82,28 @@ protected:
 };
 
 TEST_F(TextDetectorTest, ImageComparisonTest) {
-    // 尝试多个可能的路径查找测试图片
-    fs::path exePath = fs::current_path();
-    std::vector<fs::path> possibleAssetsDirs = {
-        fs::path(TEST_ASSETS_DIR), exePath / "tests/cpp/UnitTest/KeyFrame/TestImage",
-        exePath.parent_path().parent_path() / "tests/cpp/UnitTest/KeyFrame/TestImage",
-        fs::path("D:/编程/项目/AiVideoAnalsysSystem/tests/cpp/UnitTest/KeyFrame/TestImage")};
+    // 使用 TestPathUtils 查找测试资源目录
+    fs::path testImageDir = TestPathUtils::findAssetsDir("1-anytype.png");
 
-    fs::path testImageDir;
-    for (const auto& dir : possibleAssetsDirs) {
-        if (fs::exists(dir / "1-anytype.png")) {
-            testImageDir = dir;
-            break;
-        }
-    }
+    ASSERT_FALSE(testImageDir.empty()) << "Test images not found!";
+    std::cout << "[Test] Using Assets Dir: "
+              << TestPathUtils::pathToUtf8String(testImageDir) << std::endl;
 
-    ASSERT_FALSE(testImageDir.empty())
-        << "Test images not found. Checked paths include: " << TEST_ASSETS_DIR;
-    std::cout << "[Test] Using Assets Dir: " << testImageDir.string() << std::endl;
+    auto imreadUnicode = [](const fs::path& path) {
+        std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+        if (!ifs.is_open())
+            return cv::Mat();
+        auto size = ifs.tellg();
+        ifs.seekg(0, std::ios::beg);
+        std::vector<char> buffer(size);
+        if (!ifs.read(buffer.data(), size))
+            return cv::Mat();
+        return cv::imdecode(buffer, cv::IMREAD_COLOR);
+    };
 
-    cv::Mat img1 = cv::imread((testImageDir / "image1.png").string());
-    cv::Mat img2 = cv::imread((testImageDir / "image2.png").string());
-    cv::Mat img3 = cv::imread((testImageDir / "image3.png").string());
+    cv::Mat img1 = imreadUnicode(testImageDir / "1-anytype.png");
+    cv::Mat img2 = imreadUnicode(testImageDir / "2-code.png");
+    cv::Mat img3 = imreadUnicode(testImageDir / "3-codeWithSmallChange.png");
 
     ASSERT_FALSE(img1.empty()) << "Failed to load image1.png";
     ASSERT_FALSE(img2.empty()) << "Failed to load image2.png";

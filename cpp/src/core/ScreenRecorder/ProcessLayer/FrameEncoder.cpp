@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
-#include <string>
 #include <thread>
 
 #include "FFmpegWrapper.h"
@@ -13,10 +12,20 @@
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
+namespace {
+
+constexpr auto POP_TIMEOUT = std::chrono::milliseconds(1000);
+constexpr int PROGRESS_NOTIFY_INTERVAL = 30;  // Notify every 30 frames
+
+}  // namespace
+
 FrameEncoder::FrameEncoder(std::shared_ptr<ThreadSafetyQueue<FrameData>> queue,
-                           std::shared_ptr<FFmpegWrapper> encoder, const EncoderConfig& config)
-    : queue_(queue), encoder_(encoder), config_(config) {
-    LOG_INFO("FrameEncoder constructed with output path: " + config.outputFilePath);
+                           std::shared_ptr<FFmpegWrapper> encoder,
+                           const EncoderConfig& config)
+    : queue_(std::move(queue)),
+      encoder_(std::move(encoder)),
+      config_(config) {
+    LOG_INFO("FrameEncoder constructed with output path: " + config_.outputFilePath);
 }
 
 FrameEncoder::~FrameEncoder() {
@@ -35,8 +44,7 @@ void FrameEncoder::start() {
     isRunning_.store(true);
     encodedFrameCount_.store(0);
 
-    // 启动编码线程
-    thread_ = std::make_unique<std::thread>([this]() { encodeLoop(); });
+    thread_ = std::make_unique<std::thread>(&FrameEncoder::encodeLoop, this);
 
     LOG_INFO("FrameEncoder started");
 }
@@ -49,15 +57,17 @@ void FrameEncoder::stop() {
 
     isRunning_.store(false);
 
-    // 通知队列停止，避免线程永久等待
     if (queue_) {
         queue_->stop();
     }
 
-    // 等待编码线程完成
     if (thread_ && thread_->joinable()) {
         thread_->join();
         thread_.reset();
+    }
+
+    if (encoder_) {
+        encoder_->finalize();
     }
 
     LOG_INFO("FrameEncoder stopped. Total encoded frames: " +
@@ -77,21 +87,17 @@ void FrameEncoder::encodeLoop() {
     while (isRunning_.load()) {
         FrameData frameData;
 
-        // 从队列中获取帧数据，超时时间为1秒
-        if (!queue_->pop(frameData, std::chrono::milliseconds(1000))) {
-            // 超时或队列停止，检查是否应该继续
+        if (!queue_->pop(frameData, POP_TIMEOUT)) {
             if (!isRunning_.load()) {
                 break;
             }
-            continue;  // 继续等待
+            continue;
         }
 
-        // 处理帧数据
-        if (ProcessFrame(frameData)) {
+        if (processFrame(frameData)) {
             encodedFrameCount_++;
 
-            // 每处理N帧或特定时间间隔通知一次进度
-            if (encodedFrameCount_.load() % 30 == 0) {  // 每30帧通知一次
+            if (encodedFrameCount_.load() % PROGRESS_NOTIFY_INTERVAL == 0) {
                 notifyProgress();
             }
         } else {
@@ -100,20 +106,18 @@ void FrameEncoder::encodeLoop() {
         }
     }
 
-    // 编码完成，通知完成
     notifyFinished();
 
     LOG_INFO("FrameEncoder encode loop finished. Total frames encoded: " +
              std::to_string(encodedFrameCount_.load()));
 }
 
-bool FrameEncoder::ProcessFrame(const FrameData& frameData) {
+bool FrameEncoder::processFrame(const FrameData& frameData) {
     if (!encoder_ || !encoder_->isInitialized()) {
         LOG_ERROR("Encoder is not initialized");
         return false;
     }
 
-    // 调用FFmpegWrapper的编码接口
     if (!encoder_->encoderFrame(frameData)) {
         LOG_ERROR("FFmpegWrapper failed to encode frame: " + encoder_->getLastError());
         return false;
@@ -123,33 +127,39 @@ bool FrameEncoder::ProcessFrame(const FrameData& frameData) {
 }
 
 void FrameEncoder::notifyProgress() {
-    if (progressCallback_) {
-        try {
-            progressCallback_(encodedFrameCount_.load(), getOutputFileSize());
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in progress callback: " + std::string(e.what()));
-        }
+    if (!progressCallback_) {
+        return;
+    }
+
+    try {
+        progressCallback_(encodedFrameCount_.load(), getOutputFileSize());
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in progress callback: " + std::string(e.what()));
     }
 }
 
 void FrameEncoder::notifyFinished() {
-    if (finishedCallback_) {
-        try {
-            finishedCallback_(encodedFrameCount_.load(), config_.outputFilePath);
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in finished callback: " + std::string(e.what()));
-        }
+    if (!finishedCallback_) {
+        return;
+    }
+
+    try {
+        finishedCallback_(encodedFrameCount_.load(), config_.outputFilePath);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in finished callback: " + std::string(e.what()));
     }
 }
 
 void FrameEncoder::notifyError(const std::string& errorMessage) {
     LOG_ERROR("FrameEncoder error: " + errorMessage);
 
-    if (errorCallback_) {
-        try {
-            errorCallback_(errorMessage);
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception in error callback: " + std::string(e.what()));
-        }
+    if (!errorCallback_) {
+        return;
+    }
+
+    try {
+        errorCallback_(errorMessage);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Exception in error callback: " + std::string(e.what()));
     }
 }

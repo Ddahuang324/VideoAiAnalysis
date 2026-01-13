@@ -10,12 +10,33 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 #include "Log.h"
 #include "TensorBuffer.h"
 #include "onnxruntime_c_api.h"
 #include "onnxruntime_cxx_api.h"
 
 namespace KeyFrame {
+
+// Helper function to convert UTF-8 path to proper filesystem path for Windows
+#ifdef _WIN32
+static std::wstring utf8_to_wstring(const std::string& utf8_str) {
+    if (utf8_str.empty()) return std::wstring();
+
+    // Calculate required buffer size
+    int size = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
+    if (size <= 0) return std::wstring();
+
+    // Convert UTF-8 to UTF-16 (wide string)
+    std::wstring wstr(size - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], size);
+
+    return wstr;
+}
+#endif
 
 ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Config& config)
     : env_(&env),
@@ -34,8 +55,9 @@ ONNXSession::ONNXSession(Ort::Env& env, const std::string& modelPath, const Conf
     }
 
 #ifdef _WIN32
-    session_ = std::make_unique<Ort::Session>(*env_, std::filesystem::u8path(modelPath).c_str(),
-                                              sessionOptions);
+    // Convert UTF-8 path to wide string (UTF-16) to handle Chinese and other non-ASCII paths
+    std::wstring widePath = utf8_to_wstring(modelPath);
+    session_ = std::make_unique<Ort::Session>(*env_, widePath.c_str(), sessionOptions);
 #else
     session_ = std::make_unique<Ort::Session>(*env_, modelPath.c_str(), sessionOptions);
 #endif
@@ -73,7 +95,7 @@ void ONNXSession::extractMetadata() {
 
 std::string ONNXSession::extractModelName(const std::string& path) {
 #ifdef _WIN32
-    return std::filesystem::u8path(path).filename().u8string();
+    return std::filesystem::path(path).filename().u8string();
 #else
     return std::filesystem::path(path).filename().string();
 #endif

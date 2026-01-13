@@ -23,14 +23,7 @@
 #include "core/MQInfra/FramePublisher.h"
 #include "core/MQInfra/KeyFrameMetaDataSubscriber.h"
 #include "core/MQInfra/Protocol.h"
-
-#ifndef TEST_ASSETS_DIR
-#    define TEST_ASSETS_DIR "tests/cpp/UnitTest/KeyFrame/TestImage"
-#endif
-
-#ifndef TEST_MODELS_DIR
-#    define TEST_MODELS_DIR "Models"
-#endif
+#include "TestPathUtils.h"
 
 namespace {
 const std::string FRAME_ENDPOINT = "tcp://127.0.0.1:5560";
@@ -43,16 +36,24 @@ protected:
 #ifdef _WIN32
         SetConsoleOutputCP(CP_UTF8);
 #endif
+        // 使用 TestPathUtils 查找模型路径
+        auto sceneModelPath = TestPathUtils::findModelFile("MobileNet-v3-Small.onnx");
+        auto motionModelPath = TestPathUtils::findModelFile("yolov8n.onnx");
+        auto textDetModelPath = TestPathUtils::findModelFile("ch_PP-OCRv4_det_infer.onnx");
+
+        ASSERT_FALSE(sceneModelPath.empty()) << "Scene model not found!";
+        ASSERT_FALSE(motionModelPath.empty()) << "Motion model not found!";
+        ASSERT_FALSE(textDetModelPath.empty()) << "Text detection model not found!";
+
         // 配置 Service
         KeyFrame::KeyFrameAnalyzerService::Config config;
         config.zmq.frameSubEndpoint = FRAME_ENDPOINT;
         config.zmq.keyframePubEndpoint = META_ENDPOINT;
 
-        // 模型路径
-        config.models.sceneModelPath = std::string(TEST_MODELS_DIR) + "/MobileNet-v3-Small.onnx";
-        config.models.motionModelPath = std::string(TEST_MODELS_DIR) + "/yolov8n.onnx";
-        config.models.textDetModelPath =
-            std::string(TEST_MODELS_DIR) + "/ch_PP-OCRv4_det_infer.onnx";
+        // 模型路径 - 使用 u8string() 确保 UTF-8 编码
+        config.models.sceneModelPath = sceneModelPath.u8string();
+        config.models.motionModelPath = motionModelPath.u8string();
+        config.models.textDetModelPath = textDetModelPath.u8string();
 
         // 管道配置
         config.pipeline.frameBufferSize = 10;
@@ -77,6 +78,10 @@ protected:
 };
 
 TEST_F(ZMQKEYFRameSelectorTest, EndToEndPipelineTest) {
+    // 使用 TestPathUtils 查找测试资源目录
+    auto testAssetsDir = TestPathUtils::findAssetsDir("1-anytype.png");
+    ASSERT_FALSE(testAssetsDir.empty()) << "Test assets directory not found!";
+
     // 1. 启动服务
     ASSERT_TRUE(service_->start());
 
@@ -98,8 +103,8 @@ TEST_F(ZMQKEYFRameSelectorTest, EndToEndPipelineTest) {
     std::cout << "[Test] Starting to send " << imageFiles.size() << " frames..." << std::endl;
 
     for (size_t i = 0; i < imageFiles.size(); ++i) {
-        std::string path = std::string(TEST_ASSETS_DIR) + "/" + imageFiles[i];
-        cv::Mat img = KeyFrame::DataConverter::readImage(path);
+        auto path = testAssetsDir / imageFiles[i];
+        cv::Mat img = KeyFrame::DataConverter::readImage(path.u8string());
         ASSERT_FALSE(img.empty()) << "Failed to load: " << path;
 
         Protocol::FrameMessage msg;

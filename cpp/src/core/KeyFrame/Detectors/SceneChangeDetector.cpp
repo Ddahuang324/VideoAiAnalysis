@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <opencv2/core/mat.hpp>
@@ -19,7 +18,6 @@ namespace KeyFrame {
 
 SceneChangeDetector::SceneChangeDetector(ModelManager& modelManager, const Config& config)
     : modelManager_(modelManager), config_(config), modelName_("MobileNet-v3-Small") {
-    // 可选：预分配缓存空间
     if (config_.enableCache) {
         featureCache_.clear();
     }
@@ -32,9 +30,7 @@ SceneChangeDetector::Result SceneChangeDetector::detect(const cv::Mat& frame) {
 SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameResource> resource) {
     std::lock_guard<std::mutex> lock(mutex_);
     Result result;
-    std::vector<float> inputData;
 
-    // 使用 FrameResource 缓存预处理后的 Tensor
     std::string cacheKey = "scene_tensor_" + std::to_string(config_.inputsize);
     auto cachedTensor = resource->getOrGenerate<std::vector<float>>(cacheKey, [&]() {
         return std::make_shared<std::vector<float>>(preProcessFrame(resource->getOriginalFrame()));
@@ -45,10 +41,7 @@ SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameRes
         return result;
     }
 
-    inputData = *cachedTensor;
-
-    // 提取特征向量
-    std::vector<float> currentFeature = extractFeature(inputData);
+    std::vector<float> currentFeature = extractFeature(*cachedTensor);
     if (currentFeature.empty()) {
         LOG_ERROR("Failed to extract feature for scene change detection.");
         return result;
@@ -56,33 +49,20 @@ SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameRes
 
     result.currentFeature = currentFeature;
 
-    // 计算相似度
     if (!featureCache_.empty()) {
         float similarity = computeCosineSimilarity(featureCache_.back(), currentFeature);
         result.similarity = similarity;
-
-        // 分数归一化：将压缩的余弦距离映射到 [0, 1] 区间
-        // MobileNet 分类向量的余弦相似度通常在 [0.6, 1.0] 范围内
-        // 我们将这个范围归一化到 [0, 1]，使分数在多维加权时更有区分度
-        constexpr float minSimilarity = 0.6f;   // 经验值：完全不同的场景
-        constexpr float maxSimilarity = 0.98f;  // 经验值：几乎相同的帧
-
-        // 线性归一化: (max - similarity) / (max - min)
-        float rawScore = (maxSimilarity - similarity) / (maxSimilarity - minSimilarity);
-        result.score = std::clamp(rawScore, 0.0f, 1.0f);  // 限制在 [0, 1] 范围
-
+        result.score = normalizeScore(similarity);
         result.isSceneChange = (similarity < config_.similarityThreshold);
     } else {
-        // 第一帧：视为场景切换，因为它打破了之前的“无画面”状态
-        result.similarity = 0.0f;     // 第一帧没有前序帧，相似度定义为 0
-        result.score = 1.0f;          // 第一帧的分数应最高
-        result.isSceneChange = true;  // 必须判断为场景切换，以确保第一帧被捕获
+        result.similarity = 1.0f;
+        result.score = 0.0f;
+        result.isSceneChange = false;
     }
 
-    // 更新缓存
     if (config_.enableCache) {
         featureCache_.push_back(currentFeature);
-        if (featureCache_.size() > 5) {  // 限制缓存大小
+        if (featureCache_.size() > 5) {
             featureCache_.pop_front();
         }
     }
@@ -104,7 +84,6 @@ std::vector<float> SceneChangeDetector::preProcessFrame(const cv::Mat& frame) {
         DataConverter::matToTensor(frame, cv::Size(config_.inputsize, config_.inputsize), true,
                                    {0.485f, 0.456f, 0.406f}, {0.229f, 0.224f, 0.225f});
 
-    // 2. 将 HWC 转换为 NCHW 格式
     return DataConverter::hwcToNchw(hwcData, config_.inputsize, config_.inputsize, 3);
 }
 
@@ -113,7 +92,6 @@ std::vector<float> SceneChangeDetector::extractFeature(const std::vector<float>&
         return {};
     }
 
-    // 通过 ModelManager 统一执行推理，
     std::vector<std::vector<float>> inputs = {inputData};
     auto outputs = modelManager_.runInference(modelName_, inputs);
 
@@ -145,5 +123,12 @@ float SceneChangeDetector::computeCosineSimilarity(const std::vector<float>& fea
     }
 
     return dotProduct / (std::sqrt(normA) * std::sqrt(normB));
+}
+
+float SceneChangeDetector::normalizeScore(float similarity) {
+    constexpr float minSimilarity = 0.6f;
+    constexpr float maxSimilarity = 0.98f;
+    float rawScore = (maxSimilarity - similarity) / (maxSimilarity - minSimilarity);
+    return std::clamp(rawScore, 0.0f, 1.0f);
 }
 }  // namespace KeyFrame

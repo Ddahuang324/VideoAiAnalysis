@@ -24,8 +24,8 @@
 #include "VideoGrabber.h"
 
 enum class RecorderMode {
-    VIDEO,    // 视频模式 (普通帧率, 如 30fps)
-    SNAPSHOT  // 快照模式 (低帧率, 如 1fps)
+    VIDEO,
+    SNAPSHOT
 };
 
 class ScreenRecorder {
@@ -44,7 +44,7 @@ public:
     int64_t getOutputFileSize() const;
     double getCurrentFps() const;
 
-    bool is_Recording() const;
+    bool isRecording() const;
 
     void setRecorderMode(RecorderMode mode);
     RecorderMode getRecorderMode() const;
@@ -57,64 +57,57 @@ public:
     void setErrorCallback(ErrorCallback callback);
     void setFrameCallback(FrameCallback callback);
 
-    std::string getLastError() const { return m_lastError; }
+    std::string getLastError() const { return lastError_; }
 
-    //================发布线程================//
     bool startPublishing();
     void stopPublishing();
     void pushToPublishQueue(const FrameData& frame);
 
-    //================接受线程================//
     bool startKeyFrameMetaDataReceiving(const std::string& keyFramePath);
     bool stopKeyFrameMetaDataReceiving();
 
 private:
-    std::shared_ptr<VideoGrabber> m_grabber_;  // 改为 shared_ptr 以便与 FrameGrabberThread 共享
-    std::shared_ptr<AudioGrabber> m_audioGrabber_;
-
-    std::shared_ptr<FFmpegWrapper> m_ffmpegWrapper_;
-    std::unique_ptr<FrameEncoder> m_encoder_;
-    std::unique_ptr<AudioEncoder> m_audioEncoder_;
-
-    std::shared_ptr<ThreadSafetyQueue<FrameData>> m_frameQueue_;
-    std::shared_ptr<ThreadSafetyQueue<AudioData>> m_audioQueue_;
-
-    std::shared_ptr<FrameGrabberThread> grabber_thread_;
-    std::atomic<bool> m_isRecording{false};
-    RecorderMode m_mode{RecorderMode::VIDEO};
-    std::string m_lastError;
-    ProgressCallback m_progressCallback;
-    ErrorCallback m_errorCallback;
-    FrameCallback m_frameCallback;
-
-    //================发布线程================//
-
-    std::thread m_publishingThread;
-    std::queue<FrameData> m_publishqueue;
-    std::mutex m_publishMutex;
-    std::condition_variable m_publishCondVar;
-    std::unique_ptr<MQInfra::FramePublisher> m_framePublisher;
-    std::atomic<bool> publishrunning_{false};
-
     void publishingLoop();
+    void keyFrameMetaDataReceiveLoop();
 
-    //================接受线程================//
+    // Core recording components
+    std::shared_ptr<VideoGrabber> grabber_;
+    std::shared_ptr<AudioGrabber> audioGrabber_;
+    std::shared_ptr<FFmpegWrapper> ffmpegWrapper_;
+    std::unique_ptr<FrameEncoder> encoder_;
+    std::unique_ptr<AudioEncoder> audioEncoder_;
+    std::shared_ptr<ThreadSafetyQueue<FrameData>> frameQueue_;
+    std::shared_ptr<ThreadSafetyQueue<AudioData>> audioQueue_;
+    std::shared_ptr<FrameGrabberThread> grabberThread_;
 
+    // Recording state
+    std::atomic<bool> isRecording_{false};
+    RecorderMode mode_{RecorderMode::VIDEO};
+    std::string lastError_;
+    ProgressCallback progressCallback_;
+    ErrorCallback errorCallback_;
+    FrameCallback frameCallback_;
+
+    // Publishing thread
+    std::thread publishingThread_;
+    std::queue<FrameData> publishQueue_;
+    std::mutex publishMutex_;
+    std::condition_variable publishCondVar_;
+    std::unique_ptr<MQInfra::FramePublisher> framePublisher_;
+    std::atomic<bool> publishingRunning_{false};
+
+    // Key frame receiving thread
     std::thread keyFrameReceiveThread_;
     std::queue<Protocol::KeyFrameMetaDataHeader> keyFrameMetaDataQueue_;
     std::mutex keyFrameMetaDataMutex_;
     std::condition_variable keyFrameMetaDataCondVar_;
     std::unique_ptr<MQInfra::KeyFrameMetaDataSubscriber> keyFrameMetaDataSubscriber_;
-    std::atomic<bool> receiverunning_{false};
+    std::atomic<bool> receivingRunning_{false};
 
-    void keyFrameMetaDataReceiveLoop();
-
-    //==================关键帧编码===================//
-    std::shared_ptr<FFmpegWrapper> m_keyFrameFFmpegWrapper_;
-    std::shared_ptr<ThreadSafetyQueue<AudioData>> m_keyFrameAudioQueue_;
-    std::unique_ptr<AudioEncoder> m_keyFrameAudioEncoder_;
-    std::unique_ptr<RingFrameBuffer> m_videoRingBuffer_;
-    std::string m_keyFrameOutputPath_;
-
-    //==================编码线程===================//
+    // Key frame encoding components
+    std::shared_ptr<FFmpegWrapper> keyFrameFFmpegWrapper_;
+    std::shared_ptr<ThreadSafetyQueue<AudioData>> keyFrameAudioQueue_;
+    std::unique_ptr<AudioEncoder> keyFrameAudioEncoder_;
+    std::unique_ptr<RingFrameBuffer> videoRingBuffer_;
+    std::string keyFrameOutputPath_;
 };

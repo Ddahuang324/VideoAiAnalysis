@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include <opencv2/core/hal/interface.h>
+#include <windows.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -28,51 +30,36 @@
 #include "MotionVisualizer.h"
 #include "VideoGrabber.h"
 
+#include "TestPathUtils.h"
+
+
 namespace fs = std::filesystem;
 
 class MotionDetectorTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // 智能查找模型路径，支持多种运行场景
-        fs::path exePath = fs::current_path();
-        fs::path modelPath;
+        // 设置控制台编码为 UTF-8 以支持中文路径输出
+        // SetConsoleOutputCP(CP_UTF8);
+        // SetConsoleCP(CP_UTF8);
 
-        // 尝试多个可能的路径 (YOLOv8n 模型)
-        std::vector<fs::path> possiblePaths = {
-            // 1. 当前目录就是项目根目录
-            exePath / "Models" / "yolov8n.onnx",
-            // 2. 从 build/bin 目录运行，回退两级
-            exePath.parent_path().parent_path() / "Models" / "yolov8n.onnx",
-            // 3. 模型文件在 build/bin 目录下
-            exePath / "yolov8n.onnx",
-            // 4. 使用 CMake 定义的宏
-            fs::path(TEST_MODELS_DIR) / "yolov8n.onnx"};
+        // 使用统一的路径工具查找模型文件
+        fs::path modelPath = TestPathUtils::findModelFile("yolov8n.onnx");
 
-        bool found = false;
-        for (const auto& path : possiblePaths) {
-            if (fs::exists(path)) {
-                modelPath = path;
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
+        if (modelPath.empty()) {
             std::ostringstream oss;
-            oss << "YOLOv8n model file not found. Tried paths:\n";
-            for (size_t i = 0; i < possiblePaths.size(); ++i) {
-                oss << "  " << (i + 1) << ". " << possiblePaths[i].string() << "\n";
-            }
-            oss << "Current path: " << fs::current_path().string();
+            oss << "YOLOv8n model file not found.\n";
+            oss << "Current path: " << TestPathUtils::pathToUtf8String(fs::current_path());
             FAIL() << oss.str();
         }
 
-        std::cout << "[Setup] Using YOLOv8n model path: " << modelPath.string() << std::endl;
+        // 只输出文件名以避免编码问题
+        std::cout << "[Setup] Using YOLOv8n model: "
+                  << TestPathUtils::pathToUtf8String(modelPath.filename()) << std::endl;
 
         // 初始化 ModelManager 并加载模型
         modelManager_ = &KeyFrame::ModelManager::GetInstance();
         if (!modelManager_->hasModel("yolov8n.onnx")) {
-            modelManager_->loadModel("yolov8n.onnx", modelPath.string(),
+            modelManager_->loadModel("yolov8n.onnx", modelPath.u8string(),
                                      KeyFrame::ModelManager::FrameWorkType::ONNXRuntime);
         }
 
@@ -189,32 +176,29 @@ TEST_F(MotionDetectorTest, ResultStructureIntegrity) {
  * 使用 TestImage 目录中的图片进行检测测试
  */
 TEST_F(MotionDetectorTest, RealImageDetection) {
-    // 智能查找测试资源目录
-    fs::path exePath = fs::current_path();
-    fs::path assetsDir;
+    // 使用统一的路径工具查找测试资源目录
+    fs::path assetsDir = TestPathUtils::findAssetsDir("1-anytype.png");
 
-    std::vector<fs::path> possibleAssetDirs = {
-        exePath / "tests" / "cpp" / "UnitTest" / "KeyFrame" / "TestImage",
-        exePath.parent_path().parent_path() / "tests" / "cpp" / "UnitTest" / "KeyFrame" /
-            "TestImage",
-        fs::path(TEST_ASSETS_DIR)};
-
-    bool found = false;
-    for (const auto& dir : possibleAssetDirs) {
-        if (fs::exists(dir)) {
-            assetsDir = dir;
-            found = true;
-            break;
-        }
-    }
-
-    if (!found) {
+    if (assetsDir.empty()) {
         GTEST_SKIP() << "Test assets directory not found, skipping real image test";
     }
 
-    std::cout << "[Test] Using assets directory: " << assetsDir.string() << std::endl;
+    std::cout << "[Test] Using assets directory: "
+              << TestPathUtils::pathToUtf8String(assetsDir) << std::endl;
 
-    cv::Mat img1 = cv::imread((assetsDir / "1-anytype.png").string());
+    auto imreadUnicode = [](const fs::path& path) {
+        std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+        if (!ifs.is_open())
+            return cv::Mat();
+        auto size = ifs.tellg();
+        ifs.seekg(0, std::ios::beg);
+        std::vector<char> buffer(size);
+        if (!ifs.read(buffer.data(), size))
+            return cv::Mat();
+        return cv::imdecode(buffer, cv::IMREAD_COLOR);
+    };
+
+    cv::Mat img1 = imreadUnicode(assetsDir / "1-anytype.png");
     if (img1.empty()) {
         GTEST_SKIP() << "Test image 1-anytype.png not found";
     }
@@ -347,34 +331,21 @@ TEST_F(MotionDetectorTest, GetTracksInterface) {
  * 5. 生成详细的终端评分报告
  */
 TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
-    // 智能查找测试视频路径
-    fs::path exePath = fs::current_path();
-    fs::path videoPath;
+    // 使用统一的路径工具查找测试视频
+    fs::path videoPath =
+        TestPathUtils::findTestVideo("recording_20251228_211312.mp4");
 
-    std::vector<fs::path> possiblePaths = {
-        exePath / "tests" / "cpp" / "UnitTest" / "TestVideo" / "recording_20251228_211312.mp4",
-        exePath.parent_path().parent_path() / "tests" / "cpp" / "UnitTest" / "TestVideo" /
-            "recording_20251228_211312.mp4",
-        exePath / "recording_20251228_211312.mp4"};
-
-    bool found = false;
-    for (const auto& path : possiblePaths) {
-        if (fs::exists(path)) {
-            videoPath = path;
-            found = true;
-            break;
-        }
-    }
-
-    if (!found) {
+    if (videoPath.empty()) {
         GTEST_SKIP() << "Test video 'recording_20251228_211312.mp4' not found";
     }
 
-    std::cout << "\n[Test] Using video: " << videoPath.string() << std::endl;
+    std::cout << "\n[Test] Using video: " << TestPathUtils::pathToUtf8String(videoPath)
+              << std::endl;
 
     // 打开视频
-    cv::VideoCapture cap(videoPath.string());
-    ASSERT_TRUE(cap.isOpened()) << "Failed to open video: " << videoPath;
+    cv::VideoCapture cap(TestPathUtils::pathToUtf8String(videoPath));
+    ASSERT_TRUE(cap.isOpened())
+        << "Failed to open video: " << TestPathUtils::pathToUtf8String(videoPath);
 
     // 获取视频属性
     int totalFrames = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
@@ -396,8 +367,8 @@ TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
     if (fs::exists(outputPath)) {
         fs::remove(outputPath);
     }
-    std::cout << "[Output] Annotated video will be saved to: " << fs::absolute(outputPath).string()
-              << std::endl;
+    std::cout << "[Output] Annotated video will be saved to: "
+              << TestPathUtils::pathToUtf8String(fs::absolute(outputPath)) << std::endl;
 
     // 检查是否启用视频输出
     bool enableVideoOutput = false;
@@ -556,7 +527,7 @@ TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
 
     // 视频信息
     std::cout << "视频信息:\n";
-    std::cout << "  文件: " << videoPath.filename().string() << "\n";
+    std::cout << "  文件: " << TestPathUtils::pathToUtf8String(videoPath.filename()) << "\n";
     std::cout << "  总帧数: " << processedFrames << "\n";
     std::cout << "  帧率: " << std::fixed << std::setprecision(1) << fps << " fps\n";
     std::cout << "  时长: " << std::setprecision(2) << (processedFrames / fps) << " 秒\n";
@@ -685,7 +656,8 @@ TEST_F(MotionDetectorTest, VideoProcessingWithVisualization) {
     // 输出信息
     std::cout << "输出:\n";
     if (encoderInitialized && fs::exists(outputPath)) {
-        std::cout << "  带标注视频: " << outputPath.filename().string() << "\n";
+        std::cout << "  带标注视频: " << TestPathUtils::pathToUtf8String(outputPath.filename())
+                  << "\n";
     } else {
         std::cout << "  带标注视频: 未生成 (需添加 --save-video 参数)\n";
     }

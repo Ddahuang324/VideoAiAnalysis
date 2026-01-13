@@ -24,14 +24,14 @@ public:
 
 private:
     struct Slot {
-        uint32_t frameID;
-        uint64_t timestamp_ms;
+        uint32_t frameID = 0;
+        uint64_t timestamp_ms = 0;
         cv::Mat frame;
-        bool valid;
+        bool valid = false;
     };
 
     size_t capacity_;
     std::vector<Slot> buffer_;
     mutable std::mutex mutex_;
-    Stats stats_{0, 0, 0};
+    Stats stats_{};
 };

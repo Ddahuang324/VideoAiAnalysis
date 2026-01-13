@@ -1,16 +1,17 @@
 
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
+#include <string>
 
 #include "AudioData.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
-
 #include "libavcodec/codec.h"
 #include "libavcodec/codec_id.h"
 #include "libavcodec/packet.h"
-#include "libavformat/avformat.h"
+#include <libavformat/avformat.h>
 #include "libavformat/avio.h"
 #include "libavutil/audio_fifo.h"
 #include "libavutil/channel_layout.h"
@@ -21,20 +22,20 @@ extern "C" {
 #include "libavutil/pixfmt.h"
 #include "libavutil/rational.h"
 #include "libavutil/samplefmt.h"
-#include "libswresample/swresample.h"
-#include "libswscale/swscale.h"
+#include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
 }
-
-#include <cerrno>
-#include <cstdint>
-#include <string>
 
 #include "FFmpegWrapper.h"
 #include "Log.h"
 #include "VideoGrabber.h"
 
-// 辅助函数：将GDI PixelFormat转换为FFmpeg AVPixelFormat
-static AVPixelFormat convertGdiPixelFormat(PixelFormat format) {
+namespace {
+
+constexpr int FRAME_BUFFER_ALIGNMENT = 32;
+constexpr int MAX_B_FRAMES = 0;  // Disabled for keyframe video compatibility
+
+AVPixelFormat convertGdiPixelFormat(PixelFormat format) {
     switch (format) {
         case PixelFormat::BGRA:
             return AV_PIX_FMT_BGRA;
@@ -47,7 +48,22 @@ static AVPixelFormat convertGdiPixelFormat(PixelFormat format) {
     }
 }
 
+int getBytesPerPixel(PixelFormat format) {
+    switch (format) {
+        case PixelFormat::BGRA:
+        case PixelFormat::RGBA:
+            return 4;
+        case PixelFormat::RGB24:
+            return 3;
+        default:
+            return 4;
+    }
+}
+
+}  // namespace
+
 FFmpegWrapper::FFmpegWrapper() = default;
+
 FFmpegWrapper::~FFmpegWrapper() {
     finalize();
 }
@@ -59,7 +75,6 @@ bool FFmpegWrapper::initialize(const EncoderConfig& config) {
     height_ = config.height;
     outputFilePath_ = config.outputFilePath;
 
-    // 按照流程顺序执行初始化
     if (!step1_allocateFormatContext()) {
         return false;
     }
@@ -82,7 +97,6 @@ bool FFmpegWrapper::initialize(const EncoderConfig& config) {
         return false;
     }
 
-    // 准备帧和包的数据结构
     srcPixelFormat_ = PixelFormat::UNKNOWN;
     frameBufferAllocated_ = false;
 
@@ -96,7 +110,8 @@ bool FFmpegWrapper::initialize(const EncoderConfig& config) {
     frame_->format = AV_PIX_FMT_YUV420P;
     frame_->width = width_;
     frame_->height = height_;
-    int ret = av_frame_get_buffer(frame_.get(), 32);
+
+    int ret = av_frame_get_buffer(frame_.get(), FRAME_BUFFER_ALIGNMENT);
     if (ret < 0) {
         lastError_ = "Failed to allocate frame buffer";
         LOG_ERROR(lastError_);
@@ -116,173 +131,155 @@ bool FFmpegWrapper::initialize(const EncoderConfig& config) {
     return true;
 }
 
-// 流程图步骤1：分配AVFormatContext
 bool FFmpegWrapper::step1_allocateFormatContext() {
     AVFormatContext* fmtCtx = nullptr;
     int ret = avformat_alloc_output_context2(&fmtCtx, nullptr, nullptr, outputFilePath_.c_str());
 
     if (ret < 0 || !fmtCtx) {
-        lastError_ = "Step 1 failed: Could not allocate AVFormatContext";
+        lastError_ = "Could not allocate AVFormatContext";
         LOG_ERROR(lastError_);
         return false;
     }
 
     formatContext_.reset(fmtCtx);
-    LOG_INFO("Step 1 completed: AVFormatContext allocated");
+    LOG_INFO("AVFormatContext allocated");
     return true;
 }
 
-// 流程图步骤2：打开输出文件
 bool FFmpegWrapper::step2_openOutputFile(const std::string& path) {
     if (!(formatContext_->oformat->flags & AVFMT_NOFILE)) {
         int ret = avio_open(&formatContext_->pb, path.c_str(), AVIO_FLAG_WRITE);
         if (ret < 0) {
-            lastError_ = "Step 2 failed: Could not open output file: " + path;
+            lastError_ = "Could not open output file: " + path;
             LOG_ERROR(lastError_);
             return false;
         }
     }
 
-    LOG_INFO("Step 2 completed: Output file opened");
+    LOG_INFO("Output file opened");
     return true;
 }
 
-// 流程图步骤3：创建视频流 + 配置编码器
 bool FFmpegWrapper::step3_createVideoStreamAndEncoder(const EncoderConfig& config) {
-    // 3.1 查找编码器
     const AVCodec* codec = nullptr;
+
     if (!config.codec.empty()) {
         codec = avcodec_find_encoder_by_name(config.codec.c_str());
         if (!codec) {
             LOG_WARN("Codec '" + config.codec + "' not found, falling back to H.264");
         }
     }
+
     if (!codec) {
         codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     }
+
     if (!codec) {
-        lastError_ = "Step 3 failed: Could not find encoder";
+        lastError_ = "Could not find encoder";
         LOG_ERROR(lastError_);
         return false;
     }
+
     LOG_INFO("Using encoder: " + std::string(codec->name));
 
-    // 3.2 创建视频流
     videoStream_ = avformat_new_stream(formatContext_.get(), codec);
     if (!videoStream_) {
-        lastError_ = "Step 3 failed: Could not create video stream";
+        lastError_ = "Could not create video stream";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.3 分配编码器上下文
     codecContext_.reset(avcodec_alloc_context3(codec));
     if (!codecContext_) {
-        lastError_ = "Step 3 failed: Could not allocate codec context";
+        lastError_ = "Could not allocate codec context";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.4 配置编码器参数
     codecContext_->width = config.width;
     codecContext_->height = config.height;
     codecContext_->pix_fmt = AV_PIX_FMT_YUV420P;
     codecContext_->bit_rate = config.bitrate;
-
-    // 设置帧率和时间基（time_base 必须在 avcodec_open2 之前设置）
     codecContext_->time_base = AVRational{1, config.fps};
     codecContext_->framerate = AVRational{config.fps, 1};
-
-    // 设置视频流的 time_base（libx264 在较新版本 FFmpeg 中要求此设置）
     videoStream_->time_base = codecContext_->time_base;
-
     codecContext_->gop_size = config.fps;
-    // 禁用B帧: B帧需要后续参考帧才能解码,在关键帧视频(帧数少)中会导致最后的B帧无法显示
-    // 设置为0确保所有帧都能独立解码和显示
-    codecContext_->max_b_frames = 0;
+    codecContext_->max_b_frames = MAX_B_FRAMES;
 
-    // 3.5 打开编码器（并设置编码选项）
     AVDictionary* opts = nullptr;
     av_dict_set(&opts, "preset", config.preset.c_str(), 0);
     av_dict_set(&opts, "crf", std::to_string(config.crf).c_str(), 0);
 
     int ret = avcodec_open2(codecContext_.get(), codec, &opts);
-    av_dict_free(&opts);  // 释放字典内存
+    av_dict_free(&opts);
+
     if (ret < 0) {
-        lastError_ = "Step 3 failed: Could not open codec";
+        lastError_ = "Could not open codec";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.6 将编码器参数复制到流
     ret = avcodec_parameters_from_context(videoStream_->codecpar, codecContext_.get());
     if (ret < 0) {
-        lastError_ = "Step 3 failed: Could not copy codec parameters";
+        lastError_ = "Could not copy codec parameters";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    LOG_INFO("Step 3 completed: Video stream and encoder configured");
+    LOG_INFO("Video stream and encoder configured");
     return true;
 }
 
 bool FFmpegWrapper::step3_createAudioStreamAndEncoder(const EncoderConfig& config) {
-    // 3.1 查找音频编码器
     const AVCodec* codec = avcodec_find_encoder_by_name(config.audioCodec.c_str());
     if (!codec) {
         codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
     }
+
     if (!codec) {
-        lastError_ = "Step 3 (Audio) failed: Could not find audio encoder";
+        lastError_ = "Could not find audio encoder";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.2 创建音频流
     audioStream_ = avformat_new_stream(formatContext_.get(), codec);
     if (!audioStream_) {
-        lastError_ = "Step 3 (Audio) failed: Could not create audio stream";
+        lastError_ = "Could not create audio stream";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.3 分配编码器上下文
     audioCodecContext_.reset(avcodec_alloc_context3(codec));
     if (!audioCodecContext_) {
-        lastError_ = "Step 3 (Audio) failed: Could not allocate audio codec context";
+        lastError_ = "Could not allocate audio codec context";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.4 配置音频编码器参数
     audioCodecContext_->sample_fmt =
         codec->sample_fmts ? codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
     audioCodecContext_->bit_rate = config.audioBitrate;
     audioCodecContext_->sample_rate = config.audioSampleRate;
 
-    // 设置通道布局
     av_channel_layout_default(&audioCodecContext_->ch_layout, config.audioChannels);
 
     audioCodecContext_->time_base = AVRational{1, config.audioSampleRate};
     audioStream_->time_base = audioCodecContext_->time_base;
 
-    // 3.5 打开编码器
     int ret = avcodec_open2(audioCodecContext_.get(), codec, nullptr);
     if (ret < 0) {
-        lastError_ = "Step 3 (Audio) failed: Could not open audio codec";
+        lastError_ = "Could not open audio codec";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.6 将编码器参数复制到流
     ret = avcodec_parameters_from_context(audioStream_->codecpar, audioCodecContext_.get());
     if (ret < 0) {
-        lastError_ = "Step 3 (Audio) failed: Could not copy audio codec parameters";
+        lastError_ = "Could not copy audio codec parameters";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 3.7 准备音频帧和包
     audioFrame_.reset(av_frame_alloc());
     audioFrame_->format = audioCodecContext_->sample_fmt;
     audioFrame_->nb_samples = audioCodecContext_->frame_size;
@@ -290,36 +287,33 @@ bool FFmpegWrapper::step3_createAudioStreamAndEncoder(const EncoderConfig& confi
     audioFrame_->sample_rate = audioCodecContext_->sample_rate;
 
     if (av_frame_get_buffer(audioFrame_.get(), 0) < 0) {
-        lastError_ = "Step 3 (Audio) failed: Could not allocate audio frame buffer";
+        lastError_ = "Could not allocate audio frame buffer";
         LOG_ERROR(lastError_);
         return false;
     }
 
     audioPacket_.reset(av_packet_alloc());
 
-    // 3.8 初始化音频 FIFO
     audioFifo_.reset(av_audio_fifo_alloc(audioCodecContext_->sample_fmt,
                                          audioCodecContext_->ch_layout.nb_channels,
-                                         audioCodecContext_->sample_rate));  // 初始容量设为 1 秒
+                                         audioCodecContext_->sample_rate));
 
-    LOG_INFO("Step 3 completed: Audio stream and encoder configured");
+    LOG_INFO("Audio stream and encoder configured");
     return true;
 }
 
-// 流程图步骤4：写入文件头
 bool FFmpegWrapper::step4_writeFileHeader() {
     int ret = avformat_write_header(formatContext_.get(), nullptr);
     if (ret < 0) {
-        lastError_ = "Step 4 failed: Could not write file header";
+        lastError_ = "Could not write file header";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    LOG_INFO("Step 4 completed: File header written");
+    LOG_INFO("File header written");
     return true;
 }
 
-// 流程图循环部分：编码帧 + 写入包
 bool FFmpegWrapper::encoderFrame(const FrameData& frameData) {
     if (!isInitialized_) {
         lastError_ = "Encoder not initialized";
@@ -327,24 +321,11 @@ bool FFmpegWrapper::encoderFrame(const FrameData& frameData) {
         return false;
     }
 
-    // 步骤5：循环：编码帧 + 写入包
     if (!step5_encodeAndWriteFrame(frameData)) {
         return false;
     }
 
-    // 保存最后一帧数据，用于 finalize 时复制一帧确保最后一帧能正确显示
-    size_t dataSize = frameData.width * frameData.height;
-    switch (frameData.format) {
-        case PixelFormat::BGRA:
-        case PixelFormat::RGBA:
-            dataSize *= 4;
-            break;
-        case PixelFormat::RGB24:
-            dataSize *= 3;
-            break;
-        default:
-            dataSize *= 4;
-    }
+    size_t dataSize = frameData.width * frameData.height * getBytesPerPixel(frameData.format);
     lastFrameBuffer_.assign(frameData.data, frameData.data + dataSize);
     lastFrameData_ = frameData;
     lastFrameData_.data = lastFrameBuffer_.data();
@@ -354,40 +335,34 @@ bool FFmpegWrapper::encoderFrame(const FrameData& frameData) {
     return true;
 }
 
-// 流程图步骤5：循环：编码帧 + 写入包
 bool FFmpegWrapper::step5_encodeAndWriteFrame(const FrameData& frameData) {
-    // 5.1 采集屏幕帧数据（由外部传入）
-    // 5.2 转换原始帧到 YUV420P 格式
     if (!convertPixelFormat(frameData, frame_.get())) {
-        lastError_ = "Step 5 failed: Failed to convert pixel format";
+        lastError_ = "Failed to convert pixel format";
         LOG_ERROR(lastError_);
         return false;
     }
 
     frame_->pts = encodedFrameCount_;
 
-    // 5.3 使用编码器编码帧
     int ret = avcodec_send_frame(codecContext_.get(), frame_.get());
     if (ret < 0) {
-        lastError_ = "Step 5 failed: Error sending frame to encoder";
+        lastError_ = "Error sending frame to encoder";
         LOG_ERROR(lastError_);
         return false;
     }
 
-    // 5.4 获取压缩包（Packet）
     while (ret >= 0) {
         ret = avcodec_receive_packet(codecContext_.get(), packet_.get());
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         } else if (ret < 0) {
-            lastError_ = "Step 5 failed: Error receiving packet";
+            lastError_ = "Error receiving packet";
             LOG_ERROR(lastError_);
             return false;
         }
 
-        // 5.5 封装（Mux）并写入文件
         if (!step6_muxAndWritePacket(packet_.get(), videoStream_)) {
-            lastError_ = "Step 5 failed: Failed to write packet";
+            lastError_ = "Failed to write packet";
             LOG_ERROR(lastError_);
             return false;
         }
@@ -402,7 +377,6 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
         return false;
     }
 
-    // 1. 初始化或更新重采样器
     AVSampleFormat inSampleFmt =
         (audioData.bitsPerSample == 32) ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_S16;
     AVChannelLayout inChannelLayout;
@@ -417,11 +391,9 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
         swr_init(swrContext_.get());
     }
 
-    // 2. 重采样并推入 FIFO
     uint8_t* inData[1] = {const_cast<uint8_t*>(audioData.data.data())};
     int inSamples = audioData.samplesPerChannel;
 
-    // 计算输出样本数并分配临时缓冲区
     int maxOutSamples = swr_get_out_samples(swrContext_.get(), inSamples);
     uint8_t** outData = nullptr;
     int outLinesize;
@@ -440,15 +412,14 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
         av_freep(&outData);
     }
 
-    // 3. 从 FIFO 中提取足够一帧的数据进行编码
     int frameSize = audioCodecContext_->frame_size;
     while (av_audio_fifo_size(audioFifo_.get()) >= frameSize) {
         int ret = av_frame_make_writable(audioFrame_.get());
-        if (ret < 0)
+        if (ret < 0) {
             break;
+        }
 
-        if (av_audio_fifo_read(audioFifo_.get(), (void**)audioFrame_->data, frameSize) <
-            frameSize) {
+        if (av_audio_fifo_read(audioFifo_.get(), (void**)audioFrame_->data, frameSize) < frameSize) {
             break;
         }
 
@@ -456,15 +427,18 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
         audioSamplesCount_ += frameSize;
 
         ret = avcodec_send_frame(audioCodecContext_.get(), audioFrame_.get());
-        if (ret < 0)
+        if (ret < 0) {
             break;
+        }
 
         while (ret >= 0) {
             ret = avcodec_receive_packet(audioCodecContext_.get(), audioPacket_.get());
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
                 break;
-            if (ret < 0)
+            }
+            if (ret < 0) {
                 return false;
+            }
 
             if (!step6_muxAndWritePacket(audioPacket_.get(), audioStream_)) {
                 return false;
@@ -476,38 +450,31 @@ bool FFmpegWrapper::encodeAudioFrame(const AudioData& audioData) {
     return true;
 }
 
-// 流程图步骤6：刷新编码器
 bool FFmpegWrapper::step6_flushEncoder() {
     std::lock_guard<std::mutex> lock(muxerMutex_);
-    LOG_INFO("Step 6: Flushing encoder...");
+    LOG_INFO("Flushing encoder...");
 
     int flushedVideoFrames = 0;
     int flushedAudioFrames = 0;
 
-    // 刷新视频编码器
     if (codecContext_) {
-        // 发送 nullptr 帧告知编码器进入刷新模式
         int ret = avcodec_send_frame(codecContext_.get(), nullptr);
         if (ret < 0 && ret != AVERROR_EOF) {
             LOG_WARN("avcodec_send_frame(nullptr) returned: " + std::to_string(ret));
         }
 
-        // 持续接收所有剩余的编码包
         while (true) {
             ret = avcodec_receive_packet(codecContext_.get(), packet_.get());
             if (ret == AVERROR(EAGAIN)) {
-                // 不应该在 flush 模式下返回 EAGAIN，记录警告
                 LOG_WARN("Unexpected EAGAIN during flush");
                 break;
             } else if (ret == AVERROR_EOF) {
-                // 所有包都已接收完毕
                 break;
             } else if (ret < 0) {
                 LOG_ERROR("Error during video encoder flush: " + std::to_string(ret));
                 break;
             }
 
-            // 成功接收到一个包，写入文件
             packet_->stream_index = videoStream_->index;
             av_packet_rescale_ts(packet_.get(), codecContext_->time_base, videoStream_->time_base);
 
@@ -520,11 +487,9 @@ bool FFmpegWrapper::step6_flushEncoder() {
             av_packet_unref(packet_.get());
         }
 
-        LOG_INFO("Flushed " + std::to_string(flushedVideoFrames) +
-                 " video frames from encoder buffer");
+        LOG_INFO("Flushed " + std::to_string(flushedVideoFrames) + " video frames");
     }
 
-    // 刷新音频编码器
     if (audioCodecContext_) {
         int ret = avcodec_send_frame(audioCodecContext_.get(), nullptr);
         if (ret < 0 && ret != AVERROR_EOF) {
@@ -554,26 +519,21 @@ bool FFmpegWrapper::step6_flushEncoder() {
         }
 
         if (flushedAudioFrames > 0) {
-            LOG_INFO("Flushed " + std::to_string(flushedAudioFrames) +
-                     " audio frames from encoder buffer");
+            LOG_INFO("Flushed " + std::to_string(flushedAudioFrames) + " audio frames");
         }
     }
 
-    LOG_INFO("Step 6 completed: Encoder flushed");
+    LOG_INFO("Encoder flushed");
     return true;
 }
 
-// 封装并写入包到文件（步骤5和步骤6共用）
 bool FFmpegWrapper::step6_muxAndWritePacket(AVPacket* packet, AVStream* stream) {
     std::lock_guard<std::mutex> lock(muxerMutex_);
     packet->stream_index = stream->index;
 
-    // 调整时间戳
     AVCodecContext* ctx = (stream == videoStream_) ? codecContext_.get() : audioCodecContext_.get();
-    av_packet_rescale_ts(packet, ctx->time_base,
-                         stream->time_base);  // 多时间基 在这里转化为mp4时间基
+    av_packet_rescale_ts(packet, ctx->time_base, stream->time_base);
 
-    // 写入文件
     int ret = av_interleaved_write_frame(formatContext_.get(), packet);
     if (ret < 0) {
         LOG_ERROR("Error writing packet to output file");
@@ -582,27 +542,22 @@ bool FFmpegWrapper::step6_muxAndWritePacket(AVPacket* packet, AVStream* stream) 
     return true;
 }
 
-// 流程图步骤7：写入文件尾 + 清理资源
 void FFmpegWrapper::step7_writeTrailerAndCleanup() {
-    LOG_INFO("Step 7: Writing trailer and cleaning up...");
+    LOG_INFO("Writing trailer and cleaning up...");
 
-    // 写入文件尾
     if (formatContext_) {
         av_write_trailer(formatContext_.get());
     }
 
-    // 关闭文件
     if (formatContext_ && !(formatContext_->oformat->flags & AVFMT_NOFILE)) {
         avio_closep(&formatContext_->pb);
     }
 
-    // 清理资源
     cleanup();
 
-    LOG_INFO("Step 7 completed: Cleanup finished");
+    LOG_INFO("Cleanup finished");
 }
 
-// 像素格式转换辅助函数
 bool FFmpegWrapper::convertPixelFormat(const FrameData& frameData, AVFrame* dstFrame) {
     if (!swsContext_ || srcPixelFormat_ != frameData.format) {
         AVPixelFormat srcFmt = convertGdiPixelFormat(frameData.format);
@@ -618,19 +573,7 @@ bool FFmpegWrapper::convertPixelFormat(const FrameData& frameData, AVFrame* dstF
         }
     }
 
-    int bytesPerPixel = 0;
-    switch (frameData.format) {
-        case PixelFormat::BGRA:
-        case PixelFormat::RGBA:
-            bytesPerPixel = 4;
-            break;
-        case PixelFormat::RGB24:
-            bytesPerPixel = 3;
-            break;
-        default:
-            bytesPerPixel = 4;
-    }
-
+    int bytesPerPixel = getBytesPerPixel(frameData.format);
     uint8_t* srcData[4] = {frameData.data, nullptr, nullptr, nullptr};
     int srcLinesize[4] = {frameData.width * bytesPerPixel, 0, 0, 0};
 
@@ -654,8 +597,6 @@ void FFmpegWrapper::finalize() {
         return;
     }
 
-    // 在 flush 之前，复制最后一帧以确保它能正确显示
-    // 这是因为播放器需要知道最后一帧的持续时间，而这通常由下一帧的 PTS 决定
     if (hasLastFrame_) {
         LOG_INFO("Duplicating last frame to ensure proper duration...");
         step5_encodeAndWriteFrame(lastFrameData_);

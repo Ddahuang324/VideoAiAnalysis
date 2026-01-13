@@ -1,15 +1,8 @@
 #include "MotionVisualizer.h"
 
-#include <opencv2/core/hal/interface.h>
-
-#include <algorithm>
-#include <cstddef>
 #include <iomanip>
 #include <ios>
 #include <opencv2/core.hpp>
-#include <opencv2/core/mat.hpp>
-#include <opencv2/core/matx.hpp>
-#include <opencv2/core/types.hpp>
 #include <opencv2/imgproc.hpp>
 #include <set>
 #include <sstream>
@@ -91,41 +84,12 @@ void MotionVisualizer::drawBoundingBoxes(cv::Mat& canvas,
                                          const std::vector<MotionDetector::Track>& tracks) {
     for (const auto& track : tracks) {
         cv::Scalar color = getColorByTrackId(track.trackId);
-
-        // 绘制边框
         cv::rectangle(canvas, track.box, color, config_.borderThickness);
 
         // 构建标签文本
-        std::ostringstream labelStream;
-        if (config_.showTrackIds) {
-            labelStream << "ID:" << track.trackId;
-        }
-        if (config_.showConfidence) {
-            if (config_.showTrackIds)
-                labelStream << " ";
-            labelStream << std::fixed << std::setprecision(0) << (track.confidence * 100) << "%";
-        }
-        if (config_.showClassLabels) {
-            if (config_.showTrackIds || config_.showConfidence)
-                labelStream << " ";
-            labelStream << getClassName(track.classId);
-        }
-
-        std::string label = labelStream.str();
-
+        std::string label = buildLabel(track);
         if (!label.empty()) {
-            // 计算文本大小
-            int baseline = 0;
-            cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
-
-            // 绘制标签背景
-            int labelY = std::max(track.box.y, textSize.height + 5);
-            cv::rectangle(canvas, cv::Point(track.box.x, labelY - textSize.height - 5),
-                          cv::Point(track.box.x + textSize.width, labelY), color, -1);
-
-            // 绘制文本
-            cv::putText(canvas, label, cv::Point(track.box.x, labelY - 5), cv::FONT_HERSHEY_SIMPLEX,
-                        0.5, cv::Scalar(255, 255, 255), 1);
+            drawLabel(canvas, track.box, label, color);
         }
     }
 }
@@ -135,18 +99,11 @@ void MotionVisualizer::drawVelocityVectors(cv::Mat& canvas,
     for (const auto& track : tracks) {
         float speed = cv::norm(track.Velocity);
         if (speed < 1.0f) {
-            continue;  // 跳过静止或微小运动
+            continue;
         }
 
-        // 计算中心点
-        cv::Point2f center(track.box.x + track.box.width / 2.0f,
-                           track.box.y + track.box.height / 2.0f);
-
-        // 计算箭头终点（速度向量放大）
-        cv::Point2f endpoint = center + cv::Point2f(track.Velocity.x * config_.velocityScale,
-                                                    track.Velocity.y * config_.velocityScale);
-
-        // 绘制箭头（黄色）
+        cv::Point2f center = getBoxCenter(track.box);
+        cv::Point2f endpoint = center + track.Velocity * config_.velocityScale;
         cv::arrowedLine(canvas, center, endpoint, cv::Scalar(0, 255, 255), 2, cv::LINE_AA, 0, 0.3);
     }
 }
@@ -159,12 +116,9 @@ void MotionVisualizer::drawTrackHistory(cv::Mat& canvas) {
 
         cv::Scalar color = getColorByTrackId(trackId);
 
-        // 绘制轨迹线，带渐变效果
         for (size_t i = 1; i < history.size(); ++i) {
-            // 透明度随时间衰减
             double alpha = static_cast<double>(i) / history.size();
             cv::Scalar lineColor(color[0] * alpha, color[1] * alpha, color[2] * alpha);
-
             cv::line(canvas, history[i - 1], history[i], lineColor, 2, cv::LINE_AA);
         }
     }
@@ -172,7 +126,6 @@ void MotionVisualizer::drawTrackHistory(cv::Mat& canvas) {
 
 void MotionVisualizer::drawHUD(cv::Mat& canvas, const MotionDetector::Result& result,
                                int frameIndex) {
-    // HUD 位置和尺寸
     const int hudX = 10;
     const int hudY = 10;
     const int hudWidth = 360;
@@ -188,43 +141,29 @@ void MotionVisualizer::drawHUD(cv::Mat& canvas, const MotionDetector::Result& re
     cv::rectangle(canvas, cv::Point(hudX, hudY), cv::Point(hudX + hudWidth, hudY + hudHeight),
                   cv::Scalar(0, 255, 0), 2);
 
-    // 文本配置
-    int textX = hudX + 15;
+    // 绘制信息文本
     int textY = hudY + 30;
+    const int textX = hudX + 15;
     const int lineHeight = 25;
     const cv::Scalar textColor(0, 255, 0);
-    const double fontScale = 0.6;
-    const int thickness = 1;
 
     auto drawText = [&](const std::string& text) {
-        cv::putText(canvas, text, cv::Point(textX, textY), cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                    textColor, thickness, cv::LINE_AA);
+        cv::putText(canvas, text, cv::Point(textX, textY), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                    textColor, 1, cv::LINE_AA);
         textY += lineHeight;
     };
 
-    // 绘制信息
     drawText("Frame: " + std::to_string(frameIndex));
-
-    std::ostringstream oss;
-    oss << "Motion Score: " << std::fixed << std::setprecision(3) << result.score;
-    drawText(oss.str());
-
+    drawText(formatFloat("Motion Score", result.score, 3));
     drawText("Active Tracks: " + std::to_string(result.track.size()));
     drawText("New Tracks: " + std::to_string(result.newTracks));
     drawText("Lost Tracks: " + std::to_string(result.LostTracks));
-
-    oss.str("");
-    oss << "Pixel Motion: " << std::fixed << std::setprecision(3) << result.pixelMotionScore;
-    drawText(oss.str());
-
-    oss.str("");
-    oss << "Avg Velocity: " << std::fixed << std::setprecision(2) << result.avgVelocity << " px/f";
-    drawText(oss.str());
+    drawText(formatFloat("Pixel Motion", result.pixelMotionScore, 3));
+    drawText(formatFloat("Avg Velocity", result.avgVelocity, 2) + " px/f");
 }
 
 cv::Scalar MotionVisualizer::getColorByTrackId(int trackId) {
-    // 使用 HSV 色彩空间生成唯一颜色
-    const int hue = (trackId * 37) % 180;  // 37 是质数，确保颜色分布均匀
+    const int hue = (trackId * 37) % 180;
     cv::Mat hsvColor(1, 1, CV_8UC3, cv::Scalar(hue, 255, 255));
     cv::Mat bgrColor;
     cv::cvtColor(hsvColor, bgrColor, cv::COLOR_HSV2BGR);
@@ -241,20 +180,15 @@ std::string MotionVisualizer::getClassName(int classId) {
 }
 
 void MotionVisualizer::updateTrackHistory(const std::vector<MotionDetector::Track>& tracks) {
-    // 为每个活跃轨迹更新历史点
     std::set<int> activeTrackIds;
 
     for (const auto& track : tracks) {
         activeTrackIds.insert(track.trackId);
+        cv::Point center = getBoxCenter(track.box);
 
-        // 计算中心点
-        cv::Point center(track.box.x + track.box.width / 2, track.box.y + track.box.height / 2);
-
-        // 添加到历史
         auto& history = trackHistory_[track.trackId];
         history.push_back(center);
 
-        // 限制历史长度
         if (static_cast<int>(history.size()) > config_.historyLength) {
             history.pop_front();
         }
@@ -268,6 +202,51 @@ void MotionVisualizer::updateTrackHistory(const std::vector<MotionDetector::Trac
             ++it;
         }
     }
+}
+
+std::string MotionVisualizer::buildLabel(const MotionDetector::Track& track) {
+    std::ostringstream labelStream;
+
+    if (config_.showTrackIds) {
+        labelStream << "ID:" << track.trackId;
+    }
+    if (config_.showConfidence) {
+        if (config_.showTrackIds) {
+            labelStream << " ";
+        }
+        labelStream << std::fixed << std::setprecision(0) << (track.confidence * 100) << "%";
+    }
+    if (config_.showClassLabels) {
+        if (config_.showTrackIds || config_.showConfidence) {
+            labelStream << " ";
+        }
+        labelStream << getClassName(track.classId);
+    }
+
+    return labelStream.str();
+}
+
+void MotionVisualizer::drawLabel(cv::Mat& canvas, const cv::Rect& box, const std::string& label,
+                                 const cv::Scalar& color) {
+    int baseline = 0;
+    cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+
+    int labelY = std::max(box.y, textSize.height + 5);
+    cv::rectangle(canvas, cv::Point(box.x, labelY - textSize.height - 5),
+                  cv::Point(box.x + textSize.width, labelY), color, -1);
+
+    cv::putText(canvas, label, cv::Point(box.x, labelY - 5), cv::FONT_HERSHEY_SIMPLEX,
+                0.5, cv::Scalar(255, 255, 255), 1);
+}
+
+cv::Point MotionVisualizer::getBoxCenter(const cv::Rect& box) {
+    return cv::Point(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+std::string MotionVisualizer::formatFloat(const std::string& prefix, float value, int precision) {
+    std::ostringstream oss;
+    oss << prefix << ": " << std::fixed << std::setprecision(precision) << value;
+    return oss.str();
 }
 
 }  // namespace KeyFrame

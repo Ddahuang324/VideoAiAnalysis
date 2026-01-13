@@ -216,7 +216,7 @@ void KeyFrameAnalyzerService::receiveLoop() {
         int type = (msg->header.channels == 3) ? CV_8UC3 : CV_8UC1;
         cv::Mat mat(msg->header.height, msg->header.width, type, (void*)msg->image_data.data());
 
-        // 创建 FrameResource (需要 clone 因为 msg 可能释放)
+        // 创建 FrameResource
         auto resource = std::make_shared<FrameResource>(mat.clone());
 
         // 构建上下文

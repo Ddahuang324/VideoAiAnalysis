@@ -47,14 +47,10 @@ public:
     const Config& getConfig() const { return config_; }
 
 private:
-    // 预处理帧
     std::vector<float> preProcessFrame(const cv::Mat& frame);
-
-    // 提取特征向量
     std::vector<float> extractFeature(const std::vector<float>& inputData);
-
-    // 计算余弦相似度
     float computeCosineSimilarity(const std::vector<float>& feat1, const std::vector<float>& feat2);
+    float normalizeScore(float similarity);
 
     ModelManager& modelManager_;
     Config config_;

@@ -1,11 +1,6 @@
-
 #include "TextDetector.h"
 
-#include <opencv2/core/hal/interface.h>
-
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <opencv2/core.hpp>
@@ -27,7 +22,6 @@ TextDetector::TextDetector(ModelManager& modelManager) : TextDetector(modelManag
 
 TextDetector::TextDetector(ModelManager& modelManager, const Config& config)
     : modelManager_(modelManager), config_(config) {
-    // 确保模型已加载
     if (!modelManager_.hasModel("ch_PP-OCRv4_det_infer.onnx")) {
         LOG_WARN("Text detection model not loaded in ModelManager");
     }
@@ -47,12 +41,8 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
         return Result();
     }
 
-    // 1. 检测文本区域 (PaddleOCR Det)
-    // 注意：这里 detectTextRegions 内部也可以优化，但目前先保持原样，
-    // 因为它涉及复杂的 Letterbox 预处理。
     std::vector<std::vector<cv::Point>> polygons = detectTextRegions(frame);
 
-    // 流程图：检测到文本？ 否 -> 返回分数 0.0
     if (polygons.empty()) {
         Result emptyResult;
         emptyResult.score = 0.0f;
@@ -60,41 +50,13 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
         return emptyResult;
     }
 
-    // 2. 对每个区域进行识别 (PaddleOCR Rec)
-    std::vector<TextRegion> currentRegions;
-    for (const auto& poly : polygons) {
-        cv::Rect rect = cv::boundingRect(poly);
-        // 边界检查
-        rect &= cv::Rect(0, 0, frame.cols, frame.rows);
-        if (rect.width < 4 || rect.height < 4)
-            continue;
+    std::vector<TextRegion> currentRegions = processTextRegions(frame, polygons);
 
-        TextRegion region;
-        region.polygon = poly;
-        region.boundingBox = rect;
-        region.confidence = 1.0f;  // 简化处理
-
-        if (config_.enableRecognition) {
-            cv::Mat crop = frame(rect);
-            region.text = recognizeText(crop);
-        } else {
-            region.text = "";
-        }
-
-        currentRegions.push_back(region);
-    }
-
-    // 3. 计算指标与评分
     Result result;
     result.textRegions = currentRegions;
     result.coverageRatio = computeCoverageRatio(currentRegions, frame.size());
-
-    // 流程图：文本缓存与前一帧对比
     result.changeRatio = computeChangeRatio(currentRegions, previousRegions_);
-
-    // 流程图：重要性评分
-    // 公式：文本重要性分数 = α × 文本区域覆盖率 + β × 文本变化率
-    result.score = (config_.alpha * result.coverageRatio) + (config_.beta * result.changeRatio);
+    result.score = config_.alpha * result.coverageRatio + config_.beta * result.changeRatio;
 
     previousRegions_ = currentRegions;
     return result;
@@ -108,14 +70,11 @@ void TextDetector::reset() {
 std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Mat& frame) {
     std::vector<std::vector<cv::Point>> polygons;
 
-    // 预处理
     DataConverter::LetterboxInfo info;
-    // PP-OCR 通常只进行归一化到 [0, 1]，不使用 ImageNet 的均值和标准差
     std::vector<float> inputData = DataConverter::matToTensorLetterbox(
         frame, cv::Size(config_.detInputWidth, config_.detInputHeight), info, true,
         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
 
-    // 推理
     std::vector<int64_t> inputShape = {1, 3, config_.detInputHeight, config_.detInputWidth};
     auto outputs =
         modelManager_.runInference("ch_PP-OCRv4_det_infer.onnx", {inputData}, {inputShape});
@@ -123,26 +82,18 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
         return polygons;
     }
 
-    // 后处理 (DBNet)
-    // 输出通常是 [1, 1, H, W] 的概率图
     int outH = config_.detInputHeight;
     int outW = config_.detInputWidth;
 
-    {
-        std::ostringstream oss;
-        oss << "[TextDetector] Det output size: " << outputs[0].size()
-            << ", Expected: " << (outH * outW);
-        LOG_DEBUG(oss.str());
-    }
+    LOG_DEBUG(formatLog("[TextDetector] Det output size: ", outputs[0].size(),
+                        ", Expected: ", outH * outW));
 
-    // 检查输出大小是否匹配
     if (outputs[0].size() != static_cast<size_t>(outH * outW)) {
         LOG_ERROR("Detection model output size mismatch");
         return polygons;
     }
 
     cv::Mat pred(outH, outW, CV_32F, const_cast<float*>(outputs[0].data()));
-
     cv::Mat bitMap;
     cv::threshold(pred, bitMap, config_.detThreshold, 255, cv::THRESH_BINARY);
     bitMap.convertTo(bitMap, CV_8U);
@@ -152,16 +103,11 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
 
     for (const auto& contour : contours) {
         float area = cv::contourArea(contour);
-        if (area < 10)
+        if (area < 10) {
             continue;
-
-        // 将坐标映射回原图
-        std::vector<cv::Point> poly;
-        for (const auto& pt : contour) {
-            float x = (pt.x - info.padLeft) / info.scale;
-            float y = (pt.y - info.padTop) / info.scale;
-            poly.push_back(cv::Point(static_cast<int>(x), static_cast<int>(y)));
         }
+
+        std::vector<cv::Point> poly = mapContourToOriginal(contour, info);
         polygons.push_back(poly);
     }
 
@@ -169,26 +115,21 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
 }
 
 std::string TextDetector::recognizeText(const cv::Mat& textRegion) {
-    // 预处理：Resize 到高度 48，宽度按比例缩放或固定
     int targetH = config_.recInputHeight;
     int targetW = config_.recInputWidth;
 
     cv::Mat resized;
     float aspect = static_cast<float>(textRegion.cols) / textRegion.rows;
-    int newW = static_cast<int>(targetH * aspect);
-    newW = std::min(newW, targetW);
+    int newW = std::min(static_cast<int>(targetH * aspect), targetW);
 
     cv::resize(textRegion, resized, cv::Size(newW, targetH));
 
-    // 填充到 targetW
     cv::Mat padded = cv::Mat::zeros(targetH, targetW, textRegion.type());
     resized.copyTo(padded(cv::Rect(0, 0, newW, targetH)));
 
-    // PP-OCR 识别模型通常也只进行归一化
     std::vector<float> inputData = DataConverter::matToTensor(
         padded, cv::Size(targetW, targetH), true, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
 
-    // 推理
     std::vector<int64_t> inputShape = {1, 3, targetH, targetW};
     auto outputs =
         modelManager_.runInference("ch_PP-OCRv4_rec_infer.onnx", {inputData}, {inputShape});
@@ -196,16 +137,15 @@ std::string TextDetector::recognizeText(const cv::Mat& textRegion) {
         return "";
     }
 
-    // 后处理 (CTC Greedy Search)
     // TODO: 实现完整的 CTC 解码和字典映射
-    // 由于目前没有字典文件，暂时返回占位符
     return "[Text]";
 }
 
 float TextDetector::computeCoverageRatio(const std::vector<TextRegion>& textRegions,
                                          const cv::Size& frameSize) {
-    if (textRegions.empty())
+    if (textRegions.empty()) {
         return 0.0f;
+    }
 
     cv::Mat mask = cv::Mat::zeros(frameSize, CV_8U);
     for (const auto& region : textRegions) {
@@ -219,10 +159,12 @@ float TextDetector::computeCoverageRatio(const std::vector<TextRegion>& textRegi
 
 float TextDetector::computeChangeRatio(const std::vector<TextRegion>& currentRegions,
                                        const std::vector<TextRegion>& previousRegions) {
-    if (previousRegions.empty())
+    if (previousRegions.empty()) {
         return currentRegions.empty() ? 0.0f : 1.0f;
-    if (currentRegions.empty())
+    }
+    if (currentRegions.empty()) {
         return 1.0f;
+    }
 
     int matches = 0;
     for (const auto& curr : currentRegions) {
@@ -241,6 +183,53 @@ float TextDetector::computeChangeRatio(const std::vector<TextRegion>& currentReg
     float matchRatio =
         static_cast<float>(matches) / std::max(currentRegions.size(), previousRegions.size());
     return 1.0f - matchRatio;
+}
+
+std::vector<TextDetector::TextRegion> TextDetector::processTextRegions(
+    const cv::Mat& frame, const std::vector<std::vector<cv::Point>>& polygons) {
+    std::vector<TextRegion> currentRegions;
+
+    for (const auto& poly : polygons) {
+        cv::Rect rect = cv::boundingRect(poly);
+        rect &= cv::Rect(0, 0, frame.cols, frame.rows);
+        if (rect.width < 4 || rect.height < 4) {
+            continue;
+        }
+
+        TextRegion region;
+        region.polygon = poly;
+        region.boundingBox = rect;
+        region.confidence = 1.0f;
+
+        if (config_.enableRecognition) {
+            cv::Mat crop = frame(rect);
+            region.text = recognizeText(crop);
+        } else {
+            region.text = "";
+        }
+
+        currentRegions.push_back(region);
+    }
+
+    return currentRegions;
+}
+
+std::vector<cv::Point> TextDetector::mapContourToOriginal(
+    const std::vector<cv::Point>& contour, const DataConverter::LetterboxInfo& info) {
+    std::vector<cv::Point> poly;
+    for (const auto& pt : contour) {
+        float x = (pt.x - info.padLeft) / info.scale;
+        float y = (pt.y - info.padTop) / info.scale;
+        poly.push_back(cv::Point(static_cast<int>(x), static_cast<int>(y)));
+    }
+    return poly;
+}
+
+std::string TextDetector::formatLog(const std::string& prefix1, size_t value1,
+                                    const std::string& prefix2, int value2) {
+    std::ostringstream oss;
+    oss << prefix1 << value1 << prefix2 << value2;
+    return oss.str();
 }
 
 }  // namespace KeyFrame

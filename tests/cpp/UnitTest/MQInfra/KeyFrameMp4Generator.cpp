@@ -24,6 +24,7 @@
 #include "RingFrameBuffer.h"
 #include "VideoGrabber.h"
 #include "core/KeyFrame/KeyFrameAnalyzerService.h"
+#include "TestPathUtils.h"
 
 namespace fs = std::filesystem;
 
@@ -39,14 +40,6 @@ protected:
     }
 };
 
-#ifndef TEST_ASSETS_DIR
-#    define TEST_ASSETS_DIR "tests/cpp/UnitTest/KeyFrame/TestImage"
-#endif
-
-#ifndef TEST_MODELS_DIR
-#    define TEST_MODELS_DIR "Models"
-#endif
-
 /**
  * @brief 完整流程测试：采集端(Capture) -> KeyFrameAnalyzerService -> 采集端(Capture) -> 生成MP4
  * 修复:
@@ -54,7 +47,19 @@ protected:
  * 2. 集成真实的KeyFrameAnalyzerService,实现关键帧过滤
  */
 TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
-    const std::string testImageDir = TEST_ASSETS_DIR;
+    // 使用 TestPathUtils 查找测试资源目录
+    fs::path testAssetsDir = TestPathUtils::findAssetsDir("1-anytype.png");
+    ASSERT_FALSE(testAssetsDir.empty()) << "Test assets directory not found!";
+
+    // 使用 TestPathUtils 查找模型目录
+    fs::path sceneModelPath = TestPathUtils::findModelFile("MobileNet-v3-Small.onnx");
+    fs::path motionModelPath = TestPathUtils::findModelFile("yolov8n.onnx");
+    fs::path textDetModelPath = TestPathUtils::findModelFile("ch_PP-OCRv4_det_infer.onnx");
+
+    ASSERT_FALSE(sceneModelPath.empty()) << "Scene model not found!";
+    ASSERT_FALSE(motionModelPath.empty()) << "Motion model not found!";
+    ASSERT_FALSE(textDetModelPath.empty()) << "Text detection model not found!";
+
     std::vector<std::string> imageFiles = {
         "1-anytype.png", "2-code.png", "3-codeWithSmallChange.png", "4.png", "5.png", "6.png"};
 
@@ -63,11 +68,10 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
     serviceConfig.zmq.frameSubEndpoint = "tcp://localhost:5555";
     serviceConfig.zmq.keyframePubEndpoint = "tcp://*:5556";
 
-    // 模型路径
-    serviceConfig.models.sceneModelPath = std::string(TEST_MODELS_DIR) + "/MobileNet-v3-Small.onnx";
-    serviceConfig.models.motionModelPath = std::string(TEST_MODELS_DIR) + "/yolov8n.onnx";
-    serviceConfig.models.textDetModelPath =
-        std::string(TEST_MODELS_DIR) + "/ch_PP-OCRv4_det_infer.onnx";
+    // 模型路径 - 使用 u8string() 确保 UTF-8 编码
+    serviceConfig.models.sceneModelPath = sceneModelPath.u8string();
+    serviceConfig.models.motionModelPath = motionModelPath.u8string();
+    serviceConfig.models.textDetModelPath = textDetModelPath.u8string();
 
     // 管道配置
     serviceConfig.pipeline.frameBufferSize = 10;
@@ -112,10 +116,10 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
     bool encoderInitialized = false;
 
     for (size_t i = 0; i < imageFiles.size(); ++i) {
-        std::string fullPath = testImageDir + "/" + imageFiles[i];
-        cv::Mat frame = KeyFrame::DataConverter::readImage(fullPath);
+        fs::path fullPath = testAssetsDir / imageFiles[i];
+        cv::Mat frame = KeyFrame::DataConverter::readImage(fullPath.u8string());
         if (frame.empty()) {
-            LOG_ERROR("Failed to load image: " + fullPath);
+            LOG_ERROR("Failed to load image: " + fullPath.u8string());
             continue;
         }
 
@@ -145,7 +149,7 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
         uint32_t final_crc = computed_crc ^ 0xFFFFFFFF;
 
         capturePublisher.publishRaw(header, frame.data, header.data_size, final_crc);
-        LOG_INFO("Capture: Published frame " + std::to_string(frameId) + " -> " + fullPath);
+        LOG_INFO("Capture: Published frame " + std::to_string(frameId) + " -> " + fullPath.u8string());
 
         // 给一点处理间隔,让Service有时间分析
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -196,7 +200,7 @@ TEST_F(KeyFrameMp4GeneratorTest, FullFlowSimulation) {
     // 映射 frameID -> 原始图片文件名，方便排查
     std::unordered_map<uint64_t, std::string> idToFilename;
     for (size_t i = 0; i < imageFiles.size(); ++i) {
-        idToFilename[i + 1] = testImageDir + "/" + imageFiles[i];
+        idToFilename[i + 1] = (testAssetsDir / imageFiles[i]).u8string();
     }
 
     // 打印收集到的元数据对应的真实图片名，方便定位缺失问题

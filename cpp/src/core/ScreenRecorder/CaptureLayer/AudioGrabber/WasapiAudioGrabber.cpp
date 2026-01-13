@@ -18,6 +18,10 @@
 
 #pragma comment(lib, "Ole32.lib")
 
+namespace {
+    constexpr auto SLEEP_DURATION_MS = std::chrono::milliseconds(1);
+}
+
 WasapiAudioGrabber::WasapiAudioGrabber() {
     CoInitialize(nullptr);
 }
@@ -29,8 +33,9 @@ WasapiAudioGrabber::~WasapiAudioGrabber() {
 }
 
 bool WasapiAudioGrabber::start() {
-    if (isRunning_)
+    if (isRunning_) {
         return true;
+    }
 
     if (!initializeWasapi()) {
         return false;
@@ -50,49 +55,51 @@ void WasapiAudioGrabber::stop() {
 }
 
 void WasapiAudioGrabber::setCallback(std::function<void(const AudioData&)> callback) {
-    callback_ = callback;
+    callback_ = std::move(callback);
 }
 
 bool WasapiAudioGrabber::initializeWasapi() {
-    HRESULT hr;
-
-    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                          __uuidof(IMMDeviceEnumerator), (void**)&enumerator_);
-    if (FAILED(hr))
+    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                  __uuidof(IMMDeviceEnumerator),
+                                  reinterpret_cast<void**>(&enumerator_));
+    if (FAILED(hr)) {
         return false;
+    }
 
     hr = enumerator_->GetDefaultAudioEndpoint(eRender, eConsole, &device_);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
         return false;
+    }
 
-    hr = device_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&audioClient_);
-    if (FAILED(hr))
+    hr = device_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                           reinterpret_cast<void**>(&audioClient_));
+    if (FAILED(hr)) {
         return false;
+    }
 
     hr = audioClient_->GetMixFormat(&waveFormat_);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
         return false;
+    }
 
-    // 强制检查格式，如果是浮点则记录，后续可能需要转换或让 FFmpeg 处理
-    sampleRate_ = waveFormat_->nSamplesPerSec;
-    channels_ = waveFormat_->nChannels;
-    bitsPerSample_ = waveFormat_->wBitsPerSample;
+    sampleRate_ = static_cast<int>(waveFormat_->nSamplesPerSec);
+    channels_ = static_cast<int>(waveFormat_->nChannels);
+    bitsPerSample_ = static_cast<int>(waveFormat_->wBitsPerSample);
 
-    // 初始化为 Loopback 模式
     hr = audioClient_->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0,
                                   waveFormat_, nullptr);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
         return false;
+    }
 
-    hr = audioClient_->GetService(__uuidof(IAudioCaptureClient), (void**)&captureClient_);
-    if (FAILED(hr))
+    hr = audioClient_->GetService(__uuidof(IAudioCaptureClient),
+                                  reinterpret_cast<void**>(&captureClient_));
+    if (FAILED(hr)) {
         return false;
+    }
 
     hr = audioClient_->Start();
-    if (FAILED(hr))
-        return false;
-
-    return true;
+    return SUCCEEDED(hr);
 }
 
 void WasapiAudioGrabber::cleanupWasapi() {
@@ -121,43 +128,42 @@ void WasapiAudioGrabber::cleanupWasapi() {
 
 void WasapiAudioGrabber::captureThreadProc() {
     UINT32 packetLength = 0;
-    HRESULT hr;
 
     while (isRunning_) {
-        hr = captureClient_->GetNextPacketSize(&packetLength);
-        if (FAILED(hr))
+        HRESULT hr = captureClient_->GetNextPacketSize(&packetLength);
+        if (FAILED(hr)) {
             break;
+        }
 
         if (packetLength == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(SLEEP_DURATION_MS);
             continue;
         }
 
-        BYTE* pData;
-        UINT32 numFramesAvailable;
-        DWORD flags;
+        BYTE* pData = nullptr;
+        UINT32 numFramesAvailable = 0;
+        DWORD flags = 0;
 
         hr = captureClient_->GetBuffer(&pData, &numFramesAvailable, &flags, nullptr, nullptr);
-        if (SUCCEEDED(hr)) {
-            if (callback_) {
-                AudioData audioData;
-                int bytesPerFrame = waveFormat_->nBlockAlign;
-                size_t dataSize = numFramesAvailable * bytesPerFrame;
+        if (SUCCEEDED(hr) && callback_) {
+            AudioData audioData;
+            const int bytesPerFrame = waveFormat_->nBlockAlign;
+            const size_t dataSize = numFramesAvailable * bytesPerFrame;
 
-                audioData.data.assign(pData, pData + dataSize);
-                audioData.sampleRate = sampleRate_;
-                audioData.channels = channels_;
-                audioData.samplesPerChannel = numFramesAvailable;
-                audioData.bitsPerSample = bitsPerSample_;
-                audioData.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             std::chrono::system_clock::now().time_since_epoch())
-                                             .count();
+            audioData.data.assign(pData, pData + dataSize);
+            audioData.sampleRate = sampleRate_;
+            audioData.channels = channels_;
+            audioData.samplesPerChannel = static_cast<int>(numFramesAvailable);
+            audioData.bitsPerSample = bitsPerSample_;
+            audioData.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::system_clock::now().time_since_epoch())
+                                         .count();
 
-                callback_(audioData);
-            }
+            callback_(audioData);
             captureClient_->ReleaseBuffer(numFramesAvailable);
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            captureClient_->ReleaseBuffer(numFramesAvailable);
+            std::this_thread::sleep_for(SLEEP_DURATION_MS);
         }
     }
 }

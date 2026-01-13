@@ -12,66 +12,64 @@
 class GDIResourceGuard {
 public:
     GDIResourceGuard(int width, int height) {
-        m_screenHdc = GetDC(nullptr);
-        if (!m_screenHdc) {
+        screenHdc_ = GetDC(nullptr);
+        if (!screenHdc_) {
             LOG_ERROR("GetDC failed");
             return;
         }
 
-        m_memoryHDC = CreateCompatibleDC(m_screenHdc);
-        if (!m_memoryHDC) {
-            ReleaseDC(nullptr, m_screenHdc);
+        memoryHDC_ = CreateCompatibleDC(screenHdc_);
+        if (!memoryHDC_) {
+            ReleaseDC(nullptr, screenHdc_);
             LOG_ERROR("CreateCompatibleDC failed");
             return;
         }
 
-        ZeroMemory(&m_bitmapinfo, sizeof(BITMAPINFO));
-        m_bitmapinfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        m_bitmapinfo.bmiHeader.biWidth = width;
-        m_bitmapinfo.bmiHeader.biHeight = -height;  // top-down bitmap
-        m_bitmapinfo.bmiHeader.biPlanes = 1;
-        m_bitmapinfo.bmiHeader.biBitCount = 32;
-        m_bitmapinfo.bmiHeader.biCompression = BI_RGB;
+        ZeroMemory(&bitmapInfo_, sizeof(BITMAPINFO));
+        bitmapInfo_.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bitmapInfo_.bmiHeader.biWidth = width;
+        bitmapInfo_.bmiHeader.biHeight = -height;  // top-down bitmap
+        bitmapInfo_.bmiHeader.biPlanes = 1;
+        bitmapInfo_.bmiHeader.biBitCount = 32;
+        bitmapInfo_.bmiHeader.biCompression = BI_RGB;
 
-        // Use CreateDIBSection to get direct access to memory bits
-        m_hBitmap =
-            CreateDIBSection(m_memoryHDC, &m_bitmapinfo, DIB_RGB_COLORS, &m_memoryBits, nullptr, 0);
-        if (!m_hBitmap) {
-            DeleteDC(m_memoryHDC);
-            ReleaseDC(nullptr, m_screenHdc);
+        hBitmap_ = CreateDIBSection(memoryHDC_, &bitmapInfo_, DIB_RGB_COLORS, &memoryBits_, nullptr, 0);
+        if (!hBitmap_) {
+            DeleteDC(memoryHDC_);
+            ReleaseDC(nullptr, screenHdc_);
             LOG_ERROR("CreateDIBSection failed");
             return;
         }
 
-        m_oldBitmap = static_cast<HBITMAP>(SelectObject(m_memoryHDC, m_hBitmap));
+        oldBitmap_ = static_cast<HBITMAP>(SelectObject(memoryHDC_, hBitmap_));
     }
 
     ~GDIResourceGuard() {
-        if (m_memoryHDC && m_oldBitmap) {
-            SelectObject(m_memoryHDC, m_oldBitmap);
+        if (memoryHDC_ && oldBitmap_) {
+            SelectObject(memoryHDC_, oldBitmap_);
         }
-        if (m_hBitmap) {
-            DeleteObject(m_hBitmap);
+        if (hBitmap_) {
+            DeleteObject(hBitmap_);
         }
-        if (m_memoryHDC) {
-            DeleteDC(m_memoryHDC);
+        if (memoryHDC_) {
+            DeleteDC(memoryHDC_);
         }
-        if (m_screenHdc) {
-            ReleaseDC(nullptr, m_screenHdc);
+        if (screenHdc_) {
+            ReleaseDC(nullptr, screenHdc_);
         }
     }
 
-    HDC getMemoryHDC() const { return m_memoryHDC; }
-    const BITMAPINFO& getBitmapInfo() const { return m_bitmapinfo; }
-    void* getMemoryBits() const { return m_memoryBits; }
+    HDC getMemoryHDC() const { return memoryHDC_; }
+    const BITMAPINFO& getBitmapInfo() const { return bitmapInfo_; }
+    void* getMemoryBits() const { return memoryBits_; }
 
 private:
-    HDC m_screenHdc{};
-    HDC m_memoryHDC{};
-    HBITMAP m_hBitmap{};
-    HBITMAP m_oldBitmap{};
-    BITMAPINFO m_bitmapinfo{};
-    void* m_memoryBits{};
+    HDC screenHdc_ = nullptr;
+    HDC memoryHDC_ = nullptr;
+    HBITMAP hBitmap_ = nullptr;
+    HBITMAP oldBitmap_ = nullptr;
+    BITMAPINFO bitmapInfo_{};
+    void* memoryBits_ = nullptr;
 };
 
 class GDI_Grabber : public VideoGrabber {
@@ -94,16 +92,11 @@ public:
 private:
     void drawCursor(HDC hdc);
 
-    HDC m_screenHdc{};
-    HDC m_memoryHDC{};
-    HBITMAP m_hBitmap{};
-    HBITMAP m_oldBitmap{};
-    BITMAPINFO m_bitmapinfo{};
-    std::unique_ptr<GDIResourceGuard> m_guard;
+    std::unique_ptr<GDIResourceGuard> guard_;
 
-    int m_width{};
-    int m_height{};
-    int m_fps{};
-    bool m_isRunning{false};
-    bool m_isPaused{false};
+    int width_ = 0;
+    int height_ = 0;
+    int fps_ = 0;
+    bool isRunning_ = false;
+    bool isPaused_ = false;
 };

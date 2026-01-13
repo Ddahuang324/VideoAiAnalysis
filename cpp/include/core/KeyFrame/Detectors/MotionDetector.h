@@ -87,7 +87,6 @@ public:
     const std::vector<Track>& GetTracks() const { return activeTracks_; }
 
 private:
-    // 内部辅助函数
     std::vector<float> preprocessFrame(const cv::Mat& frame);
     std::vector<Detection> postprocessDetections(const std::vector<std::vector<float>>& outputs,
                                                  const cv::Size& originalSize);
@@ -96,9 +95,20 @@ private:
     float ComputeMotionScore(const std::vector<Track>& tracks, int newTracks, int lostTracks,
                              float pixelMotion);
     float calculateIOU(const cv::Rect& box1, const cv::Rect& box2);
-
-    // (新增) 计算像素级运动
     float calculatePixelMotion(const cv::Mat& frame);
+    float calculateAverageVelocity();
+
+    // 日志辅助函数
+    std::string formatLog(const std::string& prefix, int value);
+    std::string formatLog(const std::string& prefix1, int value1, const std::string& prefix2,
+                          int value2);
+    std::string formatLog(const std::string& prefix1, int value1, const std::string& prefix2,
+                          int value2, const std::string& prefix3, int value3);
+    std::string formatLog(const std::string& prefix, const std::string& value);
+    std::string formatLog(const std::string& prefix1, size_t value, const std::string& prefix2);
+    std::string formatLogFixed(const std::string& prefix, float value, int precision);
+    std::string formatLogFixed(const std::string& prefix1, int value, const std::string& prefix2,
+                               float floatValue, int precision);
 
     std::string modelName_;
     ModelManager& modelManager_;

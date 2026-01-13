@@ -119,15 +119,11 @@ bool Protocol::sendFrameMessageZeroCopy(zmq::socket_t& socket, const FrameMessag
 bool Protocol::sendFrameRawZeroCopy(zmq::socket_t& socket, const FrameHeader& header,
                                     const void* data, size_t data_size, uint32_t crc) {
     try {
-        // Send Header
         socket.send(zmq::buffer(&header, sizeof(header)), zmq::send_flags::sndmore);
 
-        // Send Image Data (Zero Copy)
-        // 注意：调用者必须确保 data 在发送完成前有效
         zmq::message_t img_msg(const_cast<void*>(data), data_size, nullptr, nullptr);
         socket.send(img_msg, zmq::send_flags::sndmore);
 
-        // Send CRC
         socket.send(zmq::buffer(&crc, sizeof(crc)), zmq::send_flags::none);
 
         return true;

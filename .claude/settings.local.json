@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(cmake:*)",
+      "Bash(.buildproject.bat)",
+      "Bash(cmd /c \"cd /d D:\\\\编程\\\\项目\\\\AiVideoAnalsysSystem && buildproject.bat\")",
+      "Bash(cmd:*)",
+      "Bash(powershell:*)",
+      "Bash(.test_MotionDetectorUT.exe)",
+      "Bash(Select-Object:*)"
+    ]
+  }
+}

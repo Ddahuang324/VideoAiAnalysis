@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "DataConverter.h"
 #include "ModelManager.h"
 
 namespace KeyFrame {
@@ -59,16 +60,18 @@ public:
 
 private:
     std::vector<std::vector<cv::Point>> detectTextRegions(const cv::Mat& frame);
-
     std::string recognizeText(const cv::Mat& textRegion);
-
     float computeCoverageRatio(const std::vector<TextRegion>& textRegions,
                                const cv::Size& frameSize);
-
     float computeChangeRatio(const std::vector<TextRegion>& currentRegions,
                              const std::vector<TextRegion>& previousRegions);
+    std::vector<TextRegion> processTextRegions(const cv::Mat& frame,
+                                               const std::vector<std::vector<cv::Point>>& polygons);
+    std::vector<cv::Point> mapContourToOriginal(const std::vector<cv::Point>& contour,
+                                                const DataConverter::LetterboxInfo& info);
+    std::string formatLog(const std::string& prefix1, size_t value1, const std::string& prefix2,
+                          int value2);
 
-private:
     std::vector<TextRegion> previousRegions_;
     ModelManager& modelManager_;
     Config config_;

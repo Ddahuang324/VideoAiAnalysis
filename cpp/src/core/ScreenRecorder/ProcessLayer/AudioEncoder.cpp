@@ -11,7 +11,8 @@
 
 AudioEncoder::AudioEncoder(std::shared_ptr<ThreadSafetyQueue<AudioData>> queue,
                            std::shared_ptr<FFmpegWrapper> encoder)
-    : queue_(queue), encoder_(encoder) {
+    : queue_(std::move(queue)),
+      encoder_(std::move(encoder)) {
     LOG_INFO("AudioEncoder constructed");
 }
 
@@ -26,7 +27,7 @@ void AudioEncoder::start() {
     }
 
     isRunning_.store(true);
-    thread_ = std::make_unique<std::thread>([this]() { encodeLoop(); });
+    thread_ = std::make_unique<std::thread>(&AudioEncoder::encodeLoop, this);
     LOG_INFO("AudioEncoder thread started");
 }
 
@@ -36,6 +37,7 @@ void AudioEncoder::stop() {
     }
 
     isRunning_.store(false);
+
     if (queue_) {
         queue_->stop();
     }
@@ -44,26 +46,27 @@ void AudioEncoder::stop() {
         thread_->join();
         thread_.reset();
     }
+
     LOG_INFO("AudioEncoder thread stopped");
 }
 
 void AudioEncoder::encodeLoop() {
     LOG_INFO("AudioEncoder loop started");
 
+    constexpr auto POP_TIMEOUT = std::chrono::milliseconds(1000);
+
     while (isRunning_.load()) {
         AudioData audioData;
 
-        if (!queue_->pop(audioData, std::chrono::milliseconds(1000))) {
+        if (!queue_->pop(audioData, POP_TIMEOUT)) {
             if (!isRunning_.load()) {
                 break;
             }
             continue;
         }
 
-        if (encoder_) {
-            if (!encoder_->encodeAudioFrame(audioData)) {
-                LOG_ERROR("Failed to encode audio frame");
-            }
+        if (encoder_ && !encoder_->encodeAudioFrame(audioData)) {
+            LOG_ERROR("Failed to encode audio frame");
         }
     }
 

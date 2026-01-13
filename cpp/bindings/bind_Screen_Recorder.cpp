@@ -179,7 +179,7 @@ void bind_Screen_Recorder(py::module& m) {
 
         .def("get_current_fps", &ScreenRecorder::getCurrentFps, "获取当前帧率")
 
-        .def("is_recording", &ScreenRecorder::is_Recording, "检查是否正在录制")
+        .def("is_recording", &ScreenRecorder::isRecording, "检查是否正在录制")
 
         // ====================================================================
         // 回调设置方法 - 带 GIL 管理
@@ -236,7 +236,7 @@ void bind_Screen_Recorder(py::module& m) {
         .def_property_readonly("output_file_size", &ScreenRecorder::getOutputFileSize,
                                "输出文件大小(只读属性)")
         .def_property_readonly("current_fps", &ScreenRecorder::getCurrentFps, "当前帧率(只读属性)")
-        .def_property_readonly("is_recording", &ScreenRecorder::is_Recording,
+        .def_property_readonly("is_recording", &ScreenRecorder::isRecording,
                                "是否正在录制(只读属性)")
 
         .def_property("recorder_mode", &ScreenRecorder::getRecorderMode,
@@ -246,7 +246,7 @@ void bind_Screen_Recorder(py::module& m) {
         .def("__repr__",
              [](const ScreenRecorder& recorder) {
                  return "<ScreenRecorder recording=" +
-                        std::string(recorder.is_Recording() ? "True" : "False") +
+                        std::string(recorder.isRecording() ? "True" : "False") +
                         " frames=" + std::to_string(recorder.getFrameCount()) +
                         " encoded=" + std::to_string(recorder.getEncodedCount()) +
                         " fps=" + std::to_string(recorder.getCurrentFps()) + ">";
@@ -262,7 +262,7 @@ void bind_Screen_Recorder(py::module& m) {
                py::object traceback) {
                 // 在退出上下文时停止录制
                 // 这里释放 GIL,因为 stopRecording 可能需要等待线程结束
-                if (recorder.is_Recording()) {
+                if (recorder.isRecording()) {
                     py::gil_scoped_release release;
                     recorder.stopRecording();
                 }

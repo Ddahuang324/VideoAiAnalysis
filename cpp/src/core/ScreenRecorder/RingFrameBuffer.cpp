@@ -10,11 +10,8 @@
 
 #include "Log.h"
 
-RingFrameBuffer::RingFrameBuffer(size_t capacity) : capacity_(capacity) {
-    buffer_.resize(capacity_);
-    for (auto& slot : buffer_) {
-        slot.valid = false;
-    }
+RingFrameBuffer::RingFrameBuffer(size_t capacity) : capacity_(capacity), buffer_(capacity) {
+    // Slot::valid is default-initialized to false by vector constructor
 }
 
 void RingFrameBuffer::push(uint32_t frameID, const cv::Mat& frame, uint64_t timestamp_ms) {

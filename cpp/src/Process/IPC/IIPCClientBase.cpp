@@ -57,7 +57,6 @@ CommandResponse IIPCClientBase::sendCommand(const CommandRequest& request, int t
         socket_->setsockopt(ZMQ_SNDTIMEO, timeout_ms);
         // 确保接收超时也是最新的
         socket_->setsockopt(ZMQ_RCVTIMEO, timeout_ms);
-
         auto send_result = socket_->send(requestMsg, zmq::send_flags::none);
         if (!send_result) {
             LOG_ERROR("Failed to send command to IPC server at endpoint: " + endpoint_);

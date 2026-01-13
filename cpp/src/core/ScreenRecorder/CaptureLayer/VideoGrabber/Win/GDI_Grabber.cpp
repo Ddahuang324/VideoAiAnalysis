@@ -22,66 +22,63 @@ GDI_Grabber::~GDI_Grabber() {
 }
 
 bool GDI_Grabber::start() {
-    if (m_isRunning)
+    if (isRunning_) {
         return true;
+    }
 
-    // 尝试启用 DPI 感知，确保截取到物理像素分辨率
-    // 注意：SetProcessDPIAware 在较新 Windows 版本中建议使用 SetProcessDpiAwareness，
-    // 但为了兼容性和简便性，且作为 Demo/Test 这是一个快速方案。
-    // 如果已经设置过（如通过 Manifest），这行可能失败但无害。
     SetProcessDPIAware();
 
     HDC hdcScreen = GetDC(nullptr);
-    m_width = GetDeviceCaps(hdcScreen, DESKTOPHORZRES);
-    m_height = GetDeviceCaps(hdcScreen, DESKTOPVERTRES);
+    width_ = GetDeviceCaps(hdcScreen, DESKTOPHORZRES);
+    height_ = GetDeviceCaps(hdcScreen, DESKTOPVERTRES);
     ReleaseDC(nullptr, hdcScreen);
 
-    // 如果获取失败（极少情况），回退到 SystemMetrics
-    if (m_width <= 0 || m_height <= 0) {
-        m_width = GetSystemMetrics(SM_CXSCREEN);
-        m_height = GetSystemMetrics(SM_CYSCREEN);
+    if (width_ <= 0 || height_ <= 0) {
+        width_ = GetSystemMetrics(SM_CXSCREEN);
+        height_ = GetSystemMetrics(SM_CYSCREEN);
     }
-    m_fps = 30;  // Default to 30 FPS for GDI
+    fps_ = 30;
 
     try {
-        m_guard = std::make_unique<GDIResourceGuard>(m_width, m_height);
+        guard_ = std::make_unique<GDIResourceGuard>(width_, height_);
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Failed to initialize GDI resources: ") + e.what());
         return false;
     }
 
-    m_isRunning = true;
+    isRunning_ = true;
     return true;
 }
 
 void GDI_Grabber::stop() {
-    if (!m_isRunning)
+    if (!isRunning_) {
         return;
+    }
 
-    m_guard.reset();
-    m_isRunning = false;
+    guard_.reset();
+    isRunning_ = false;
 }
 
 void GDI_Grabber::pause() {
-    m_isPaused = true;
+    isPaused_ = true;
     LOG_INFO("GDI_Grabber paused");
 }
 
 void GDI_Grabber::resume() {
-    m_isPaused = false;
+    isPaused_ = false;
     LOG_INFO("GDI_Grabber resumed");
 }
 
 int GDI_Grabber::getWidth() const {
-    return m_width;
+    return width_;
 }
 
 int GDI_Grabber::getHeight() const {
-    return m_height;
+    return height_;
 }
 
 int GDI_Grabber::getFps() const {
-    return m_fps;
+    return fps_;
 }
 
 PixelFormat GDI_Grabber::getPixelFormat() const {
@@ -89,27 +86,26 @@ PixelFormat GDI_Grabber::getPixelFormat() const {
 }
 
 bool GDI_Grabber::isRunning() const {
-    return m_isRunning;
+    return isRunning_;
 }
 
 bool GDI_Grabber::isPaused() const {
-    return m_isPaused;
+    return isPaused_;
 }
 
 FrameData GDI_Grabber::CaptureFrame(int timeout_ms) {
-    if (!m_isRunning || m_isPaused || !m_guard)
+    (void)timeout_ms;  // Unused parameter
+    if (!isRunning_ || isPaused_ || !guard_) {
         return FrameData();
+    }
 
-    // Get a temporary DC for the screen to capture from
     HDC hScreen = GetDC(nullptr);
     if (!hScreen) {
         LOG_ERROR("GetDC failed in CaptureFrame");
         return FrameData();
     }
 
-    // Capture screen to our memory DC (backed by DIBSection)
-    bool success = BitBlt(m_guard->getMemoryHDC(), 0, 0, m_width, m_height, hScreen, 0, 0, SRCCOPY);
-
+    bool success = BitBlt(guard_->getMemoryHDC(), 0, 0, width_, height_, hScreen, 0, 0, SRCCOPY);
     ReleaseDC(nullptr, hScreen);
 
     if (!success) {
@@ -117,18 +113,16 @@ FrameData GDI_Grabber::CaptureFrame(int timeout_ms) {
         return FrameData();
     }
 
-    drawCursor(m_guard->getMemoryHDC());
+    drawCursor(guard_->getMemoryHDC());
 
-    // Create a new FrameData with its own buffer
-    FrameData frame = ::CaptureFrame(m_width, m_height);
+    FrameData frame = CreateFrameData(width_, height_);
 
-    // Deep copy the bits from the DIBSection to the FrameData buffer
-    if (frame.data && m_guard->getMemoryBits()) {
-        size_t size = m_width * m_height * 4;
-        std::memcpy(frame.data, m_guard->getMemoryBits(), size);
+    if (frame.data && guard_->getMemoryBits()) {
+        size_t size = width_ * height_ * 4;
+        std::memcpy(frame.data, guard_->getMemoryBits(), size);
 
         frame.format = PixelFormat::BGRA;
-        frame.frame = cv::Mat(m_height, m_width, CV_8UC4, frame.data);
+        frame.frame = cv::Mat(height_, width_, CV_8UC4, frame.data);
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();

@@ -21,7 +21,7 @@ function(register_tests_under BASE_DIR PREFIX)
         add_executable(${EXEC_NAME} ${REL_FILE})
 
         # 添加头文件路径，确保 IDE 能正确识别
-        target_include_directories(${EXEC_NAME} 
+        target_include_directories(${EXEC_NAME}
             PRIVATE
                 ${CMAKE_SOURCE_DIR}/cpp/include
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/ScreenRecorder/CaptureLayer
@@ -31,14 +31,17 @@ function(register_tests_under BASE_DIR PREFIX)
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/MQInfra
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Detectors
                 ${CMAKE_SOURCE_DIR}/cpp/include/core/KeyFrame/Foundation
+                ${CMAKE_CURRENT_SOURCE_DIR}  # 为了包含 TestPathUtils.h
         )
 
-        # 添加编译定义，供 C++ 代码定位资源
-        target_compile_definitions(${EXEC_NAME}
-            PRIVATE
-                TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/tests/cpp/UnitTest/KeyFrame/TestImage"
-                TEST_MODELS_DIR="${CMAKE_SOURCE_DIR}/Models"
-        )
+        # 添加编译��义，供 C++ 代码定位资源
+        # 注意：不在此处定义包含中文路径的宏，避免编码问题
+        # TestPathUtils.h 会通过运行时动态查找来定位资源
+        # target_compile_definitions(${EXEC_NAME}
+        #     PRIVATE
+        #         TEST_ASSETS_DIR="${CMAKE_SOURCE_DIR}/tests/cpp/UnitTest/KeyFrame/TestImage"
+        #         TEST_MODELS_DIR="${CMAKE_SOURCE_DIR}/Models"
+        # )
 
         # 链接核心库与 GTest
         target_link_libraries(${EXEC_NAME} 
