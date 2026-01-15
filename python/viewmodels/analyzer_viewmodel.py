@@ -165,7 +165,11 @@ class AnalyzerViewModel(QObject):
 
                 self.logger.info("Analysis started")
             else:
-                error_msg = self._service.get_api().last_error if self._service.get_api() else "Unknown error"
+                api = self._service.get_api()
+                if api:
+                    error_msg = api.last_error
+                else:
+                    error_msg = "Unknown error"
                 self.errorOccurred.emit(f"Failed to start analysis: {error_msg}")
         except Exception as e:
             self.errorOccurred.emit(f"Start analysis error: {e}")

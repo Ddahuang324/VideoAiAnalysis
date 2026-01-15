@@ -15,7 +15,9 @@
       "Bash(tasklist:*)",
       "Bash(findstr:*)",
       "Bash(Get-Process)",
-      "Bash(Where-Object {$_ProcessName -match \"ninja|cmake|msbuild|cl\"})"
+      "Bash(Where-Object {$_ProcessName -match \"ninja|cmake|msbuild|cl\"})",
+      "Bash(python -m pytest tests/test_database_integration.py -v)",
+      "Bash(\"D:\\\\编程\\\\项目\\\\AiVideoAnalsysSystem\\\\.venv\\\\Scripts\\\\python.exe\" -m unittest \"D:\\\\编程\\\\项目\\\\AiVideoAnalsysSystem\\\\python\\\\tests\\\\test_database_integration.py\" -v)"
     ]
   }
 }

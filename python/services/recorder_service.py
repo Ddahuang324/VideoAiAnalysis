@@ -81,11 +81,16 @@ class RecorderService:
 
         # 分析服务引用（用于SNAPSHOT模式实时分析）
         from services.analyzer_service import AnalyzerService
+        from services.history_service import HistoryService
         self._analyzer_service: Optional[AnalyzerService] = None
+        self._history_service: Optional[HistoryService] = None
         self._auto_enable_realtime: bool = True  # SNAPSHOT模式自动启用实时分析
 
         # 缓存的录制模式（解决API未初始化时设置模式的时序问题）
         self._pending_mode = None
+
+        # 设置视图模型引用（用于获取用户配置）
+        self._settings_viewmodel = None
 
     def initialize(self, config=None) -> bool:
         """
@@ -186,7 +191,11 @@ class RecorderService:
             try:
                 # 生成输出路径
                 if output_path is None:
-                    output_dir = self._default_output_dir
+                    # 优先使用用户设置的输出目录
+                    if self._settings_viewmodel:
+                        output_dir = Path(self._settings_viewmodel.outputDir)
+                    else:
+                        output_dir = self._default_output_dir
                     output_dir.mkdir(parents=True, exist_ok=True)
 
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -196,6 +205,14 @@ class RecorderService:
                 self._current_session = RecordingSession(output_path)
                 self._current_session.start_time = datetime.now()
 
+                # 预创建数据库记录
+                if self._history_service:
+                    self._history_service.start_recording(
+                        file_path=output_path,
+                        start_time=self._current_session.start_time,
+                        record_id=self._current_session.session_id
+                    )
+
                 # 更新配置的输出路径
                 if self._recorder_module is None:
                     self.logger.error("Recorder module not initialized")
@@ -203,6 +220,10 @@ class RecorderService:
 
                 config = self._recorder_module.default_recorder_config()
                 config.video.output_file_path = output_path
+
+                # 应用用户设置到配置
+                if self._settings_viewmodel:
+                    self._settings_viewmodel.apply_to_recorder_config(config)
 
                 # 初始化并启动
                 if self._api is None:
@@ -234,8 +255,10 @@ class RecorderService:
 
         # SNAPSHOT模式：启动实时分析（在锁外调用，避免死锁）
         if recording_started and self._pending_mode == RecorderMode.SNAPSHOT and self._auto_enable_realtime and self._analyzer_service:
-            self._analyzer_service.start_realtime_analysis()
-            self.logger.info("SNAPSHOT mode: Started realtime analysis")
+            # 获取录制 ID
+            record_id = self._current_session.session_id if self._current_session else ""
+            self._analyzer_service.start_realtime_analysis(record_id)
+            self.logger.info(f"SNAPSHOT mode: Started realtime analysis for recording {record_id}")
 
         return recording_started
 
@@ -287,6 +310,20 @@ class RecorderService:
 
                 session_info = self._current_session.to_dict()
                 self.logger.info(f"Recording stopped: {self._current_session.output_path}")
+
+                # 更新录制历史到数据库
+                if self._history_service:
+                    try:
+                        self._history_service.update_recording(
+                            record_id=self._current_session.session_id,
+                            end_time=self._current_session.end_time,
+                            file_size=session_info["stats"].get("file_size", 0),
+                            duration=int(session_info["stats"].get("duration", 0)),
+                            notes=f"Recorded in {'SNAPSHOT' if self._pending_mode == RecorderMode.SNAPSHOT else 'VIDEO'} mode"
+                        )
+                        self.logger.info(f"Updated recording history: {self._current_session.session_id}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to update recording history: {e}")
 
                 # 清空会话
                 self._current_session = None

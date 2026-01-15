@@ -38,6 +38,7 @@ class AnalysisSession:
     """分析会话数据类"""
     session_id: str
     start_time: datetime
+    recording_id: str = ""
     end_time: Optional[datetime] = None
     keyframe_results: List[KeyFrameResult] = field(default_factory=list)
     stats: Dict[str, Any] = field(default_factory=dict)
@@ -46,6 +47,7 @@ class AnalysisSession:
         """转换为字典"""
         return {
             "session_id": self.session_id,
+            "recording_id": self.recording_id,
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "keyframe_count": len(self.keyframe_results),
@@ -75,6 +77,10 @@ class AnalyzerService:
 
         # 当前会话
         self._current_session: Optional[AnalysisSession] = None
+        
+        # 历史记录服务
+        from services.history_service import HistoryService
+        self._history_service: Optional[HistoryService] = None
 
         # 回调函数
         self._status_callbacks = []
@@ -217,6 +223,32 @@ class AnalyzerService:
         def on_keyframe_video(video_path):
             """处理关键帧视频生成"""
             self.logger.info(f"Keyframe video generated: {video_path}")
+            
+            # 保存到数据库
+            if self._history_service and self._current_session:
+                try:
+                    import os
+                    file_size = os.path.getsize(video_path) if os.path.exists(video_path) else 0
+                    keyframe_count = len(self._current_session.keyframe_results)
+                    recording_id = self._current_session.recording_id
+                    
+                    # 尝试获取视频时长（此处简化处理，实际可能需要cv2读取）
+                    duration = 0.0
+                    if keyframe_count > 0:
+                        # 假设每秒1帧或者类似逻辑，或者通过属性获取
+                        pass
+
+                    self._history_service.add_keyframe_video(
+                        recording_id=recording_id,
+                        video_path=video_path,
+                        keyframe_count=keyframe_count,
+                        duration=duration,
+                        file_size=file_size,
+                        extraction_config=self._detector_config
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to auto-save keyframe video: {e}")
+
             for callback in self._keyframe_video_callbacks:
                 try:
                     callback(video_path)
@@ -231,9 +263,12 @@ class AnalyzerService:
         # 简化处理，默认返回scene_change
         return "scene_change"
 
-    def start_analysis(self) -> bool:
+    def start_analysis(self, recording_id: str = "") -> bool:
         """
         开始实时分析 (ZMQ 订阅模式)
+
+        Args:
+            recording_id: 关联的录制记录ID
 
         Returns:
             bool: 成功返回True
@@ -252,6 +287,7 @@ class AnalyzerService:
                 import uuid
                 self._current_session = AnalysisSession(
                     session_id=str(uuid.uuid4()),
+                    recording_id=recording_id,
                     start_time=datetime.now(),
                     stats={"mode": "realtime"}
                 )
@@ -485,7 +521,7 @@ class AnalyzerService:
         """
         return self._detector_config.get(detector, {}).copy()
 
-    def start_realtime_analysis(self) -> bool:
+    def start_realtime_analysis(self, recording_id: str = "") -> bool:
         """
         启动实时分析（ZMQ接收+分析）
         
@@ -504,20 +540,31 @@ class AnalyzerService:
                 return False
 
             try:
+                # 创建新会话
+                import uuid
+                self._current_session = AnalysisSession(
+                    session_id=str(uuid.uuid4()),
+                    recording_id=recording_id,
+                    start_time=datetime.now(),
+                    stats={"mode": "realtime"}
+                )
+
                 result = self._api.start_realtime_analysis()
                 
                 if result:
                     self._realtime_running = True
                     if self._analyzer_module and hasattr(self._analyzer_module, 'AnalysisMode'):
                         self._analysis_mode = self._analyzer_module.AnalysisMode.REALTIME
-                    self.logger.info("✅ Realtime analysis started")
+                    self.logger.info(f"✅ Realtime analysis started for recording: {recording_id}")
                     return True
                 else:
                     self.logger.error(f"Failed to start realtime analysis: {self._api.last_error}")
+                    self._current_session = None
                     return False
 
             except Exception as e:
                 self.logger.error(f"Error starting realtime analysis: {e}")
+                self._current_session = None
                 return False
 
     def stop_realtime_analysis(self):
@@ -536,8 +583,15 @@ class AnalyzerService:
             try:
                 self._api.stop_realtime_analysis()
                 self._realtime_running = False
-                self.logger.info("⏸️ Realtime analysis stopped")
-
+                
+                # 清理会话
+                if self._current_session:
+                    self._current_session.end_time = datetime.now()
+                    session_info = self._current_session.to_dict()
+                    self.logger.info(f"⏸️ Realtime analysis stopped. Session: {session_info['session_id']}")
+                    self._current_session = None
+                
+                self.logger.info("✅ Realtime analysis stopped successfully")
             except Exception as e:
                 self.logger.error(f"Error stopping realtime analysis: {e}")
 

@@ -111,17 +111,20 @@ class ApplicationContainer:
         if self.module_manager is None:
             raise RuntimeError("ModuleManager not initialized")
 
+        # 创建历史记录服务
+        data_dir = project_root / "data" / "history"
+        self.history_service = HistoryService(str(data_dir))
+
         # 创建分析服务
         self.analyzer_service = AnalyzerService(self.module_manager)
+        if self.analyzer_service:
+            self.analyzer_service._history_service = self.history_service
 
         # 创建录制服务
         self.recorder_service = RecorderService(self.module_manager)
         if self.recorder_service:
             self.recorder_service._analyzer_service = self.analyzer_service  # type: ignore
-
-        # 创建历史记录服务
-        data_dir = project_root / "data" / "history"
-        self.history_service = HistoryService(str(data_dir))
+            self.recorder_service._history_service = self.history_service
 
         if self.log_manager:
             self.log_manager.info("Service layer initialized")
@@ -136,7 +139,7 @@ class ApplicationContainer:
 
         if self.recorder_service is None or self.module_manager is None:
             raise RuntimeError("RecorderService or ModuleManager not initialized")
-        
+
         # 创建录制视图模型
         self.recorder_viewmodel = RecorderViewModel(
             self.recorder_service,
@@ -161,6 +164,10 @@ class ApplicationContainer:
 
         # 创建设置视图模型
         self.settings_viewmodel = SettingsViewModel()
+
+        # 将设置视图模型注入到录制服务
+        if self.recorder_service and self.settings_viewmodel:
+            self.recorder_service._settings_viewmodel = self.settings_viewmodel
         
         # 将设置应用到服务
         if self.recorder_service and self.settings_viewmodel:

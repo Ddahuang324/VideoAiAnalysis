@@ -400,7 +400,7 @@ class SettingsViewModel(QObject):
         config.audio.channels = self._audio_channels
         config.audio.bitrate = self._audio_bitrate
         config.audio.codec = self._audio_codec
-        config.recordingMode = self._recording_mode
+        # 注意：recordingMode 通过 RecorderAPI.set_recording_mode() 单独设置，不在 config 中
 
         return config
 
