@@ -31,6 +31,21 @@ bool KeyFrameMetaDataPublisher::publish(const Protocol::KeyFrameMetaDataMessage&
     return true;
 }
 
+bool KeyFrameMetaDataPublisher::sendStopAck(uint32_t processedCount) {
+    Protocol::StopAckHeader header;
+    header.processedCount = processedCount;
+    // Magic set by default
+
+    try {
+        publisher_.send(zmq::buffer(&header, sizeof(header)), zmq::send_flags::none);
+        LOG_INFO("Sent STOP_ACK with processedCount: " + std::to_string(processedCount));
+        return true;
+    } catch (const zmq::error_t& e) {
+        LOG_ERROR("Failed to send STOP_ACK: " + std::string(e.what()));
+        return false;
+    }
+}
+
 void KeyFrameMetaDataPublisher::shutdown() {
     publisher_.close();
     context_.close();

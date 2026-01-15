@@ -11,6 +11,7 @@ class KeyFrameMetaDataPublisher {
 public:
     bool initialize(const std::string& endpoint = "tcp://*:5556");
     bool publish(const Protocol::KeyFrameMetaDataMessage& meta);
+    bool sendStopAck(uint32_t processedCount);
     void shutdown();
 
 private:

@@ -13,9 +13,9 @@ Rectangle {
     anchors.fill: parent
     color: "transparent"
 
-    // 录制状态 (需要连接到 ViewModel)
-    property bool isRecording: false
-    property bool isPaused: false
+    // 录制状态 (连接到 ViewModel)
+    property bool isRecording: recorderViewModel ? recorderViewModel.isRecording : false
+    property bool isPaused: recorderViewModel ? recorderViewModel.isPaused : false
     property int recordingTime: 0  // 秒
     property string outputPath: ""
 
@@ -25,7 +25,10 @@ Rectangle {
         interval: 1000
         repeat: true
         running: isRecording && !isPaused
-        onTriggered: recordingTime++
+        onTriggered: {
+            // 时间同步可以通过 ViewModel 更好，这里临时保持简单的逻辑或同步
+            recordingTime++;
+        }
     }
 
     // ==================== 主布局 ====================
@@ -241,41 +244,80 @@ Rectangle {
                 }
 
                 // 模式选择
-                Rectangle {
+                ComboBox {
+                    id: modeCombo
                     width: 140
                     height: 36
-                    radius: 8
-                    color: Styles.ThemeManager.overlayDark
-                    border.width: 1
-                    border.color: Styles.ThemeManager.border
+                    model: ["VIDEO MODE", "SNAPSHOT MODE"]
+                    currentIndex: recorderViewModel ? (recorderViewModel.captureMode === "VIDEO MODE" ? 0 : 1) : 0
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 8
+                    onActivated: index => {
+                        console.log("QML: Mode selected: " + modeCombo.model[index]);
+                        recorderViewModel.captureMode = modeCombo.model[index];
+                    }
 
-                        Text {
-                            id: modeText
-                            Layout.fillWidth: true
-                            text: "VIDEO MODE"
-                            color: Styles.ThemeManager.textSecondary
-                            font.pixelSize: 11
-                            font.weight: Font.Medium
-                        }
+                    background: Rectangle {
+                        radius: 8
+                        color: Styles.ThemeManager.overlayDark
+                        border.width: 1
+                        border.color: Styles.ThemeManager.border
+                    }
 
-                        Text {
-                            text: "▾"
-                            color: Styles.ThemeManager.textSecondary
-                            font.pixelSize: 12
+                    contentItem: Item {
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 8
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: modeCombo.displayText
+                                color: Styles.ThemeManager.textSecondary
+                                font.pixelSize: 11
+                                font.weight: Font.Medium
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            Text {
+                                text: "▾"
+                                color: Styles.ThemeManager.textSecondary
+                                font.pixelSize: 12
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            modeText.text = (modeText.text === "VIDEO MODE") ? "SNAPCHAT MODE" : "VIDEO MODE";
+                    delegate: ItemDelegate {
+                        width: modeCombo.width
+                        contentItem: Text {
+                            text: modelData
+                            color: Styles.ThemeManager.text
+                            font.pixelSize: 11
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: 12
+                        }
+                        background: Rectangle {
+                            color: highlighted ? Styles.ThemeManager.overlayLight : "transparent"
+                        }
+                    }
+
+                    popup: Popup {
+                        y: modeCombo.height + 4
+                        width: modeCombo.width
+                        padding: 1
+
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: modeCombo.popup.visible ? modeCombo.delegateModel : null
+                        }
+
+                        background: Rectangle {
+                            radius: 8
+                            color: Styles.ThemeManager.bgSurface
+                            border.color: Styles.ThemeManager.border
+                            border.width: 1
                         }
                     }
                 }
@@ -514,12 +556,9 @@ Rectangle {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    if (isRecording) {
-                                        root.isRecording = false;
-                                        root.isPaused = false;
+                                    recorderViewModel.toggleRecording();
+                                    if (!isRecording) {
                                         recordingTime = 0;
-                                    } else {
-                                        root.isRecording = true;
                                     }
                                 }
                             }
@@ -575,7 +614,7 @@ Rectangle {
                                 enabled: isRecording
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.isPaused = !root.isPaused
+                                onClicked: recorderViewModel.togglePause()
                             }
                         }
                     }

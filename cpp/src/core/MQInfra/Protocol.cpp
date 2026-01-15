@@ -1,7 +1,9 @@
 #include "core/MQInfra/Protocol.h"
 
+#include <array>
 #include <cstdint>
 #include <cstring>  // for memcpy
+#include <mutex>
 #include <optional>
 #include <stdexcept>  // for std::runtime_error
 #include <vector>
@@ -32,6 +34,12 @@ Protocol::FrameMessage Protocol::deserializeFrameMessage(const std::vector<uint8
     std::memcpy(&frame.header, buffer.data(), sizeof(FrameHeader));
 
     size_t offset = sizeof(FrameHeader);
+    size_t available = buffer.size() - offset - sizeof(uint32_t);
+    if (frame.header.data_size > available) {
+        throw std::runtime_error("Invalid data_size in FrameHeader: " +
+                                 std::to_string(frame.header.data_size) +
+                                 " > available " + std::to_string(available));
+    }
     frame.image_data.assign(buffer.begin() + offset,
                             buffer.begin() + offset + frame.header.data_size);
     offset += frame.header.data_size;
@@ -121,7 +129,9 @@ bool Protocol::sendFrameRawZeroCopy(zmq::socket_t& socket, const FrameHeader& he
     try {
         socket.send(zmq::buffer(&header, sizeof(header)), zmq::send_flags::sndmore);
 
-        zmq::message_t img_msg(const_cast<void*>(data), data_size, nullptr, nullptr);
+        // 使用复制构造函数，避免零拷贝导致的内存问题
+        // 零拷贝需要数据在异步发送完成前保持有效，但调用方无法保证这一点
+        zmq::message_t img_msg(data, data_size);
         socket.send(img_msg, zmq::send_flags::sndmore);
 
         socket.send(zmq::buffer(&crc, sizeof(crc)), zmq::send_flags::none);
@@ -158,9 +168,8 @@ std::optional<Protocol::FrameMessage> Protocol::receiveFrameMessageZeroCopy(zmq:
             return std::nullopt;
         std::memcpy(&frame.crc32, crc_msg.data(), sizeof(uint32_t));
 
+        // 只验证header的CRC,跳过image_data以提升性能
         uint32_t computed_crc = calculateCrc32(&frame.header, sizeof(frame.header));
-        computed_crc =
-            calculateCrc32(frame.image_data.data(), frame.image_data.size(), computed_crc);
 
         if (!verifyCrc32(nullptr, 0, frame.crc32, computed_crc)) {
             return std::nullopt;
@@ -173,11 +182,83 @@ std::optional<Protocol::FrameMessage> Protocol::receiveFrameMessageZeroCopy(zmq:
     return frame;
 }
 
-uint32_t Protocol::calculateCrc32(const void* data, size_t size, uint32_t initial_crc) {
-    uint32_t crc = initial_crc;
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    for (size_t i = 0; i < size; ++i) {
-        crc ^= p[i];
+Protocol::ReceiveResult Protocol::receiveMessage(zmq::socket_t& socket, int timeout_ms) {
+    socket.set(zmq::sockopt::rcvtimeo, timeout_ms);
+
+    ReceiveResult result{ReceiveResult::Type::None};
+    zmq::message_t header_msg;
+
+    try {
+        auto res = socket.recv(header_msg, zmq::recv_flags::none);
+        if (!res) {
+            return result;  // None/Timeout
+        }
+
+        // Check for Stop Signal
+        if (header_msg.size() == sizeof(StopSignalHeader)) {
+            StopSignalHeader stopHeader;
+            std::memcpy(&stopHeader, header_msg.data(), sizeof(StopSignalHeader));
+            if (stopHeader.magic_num == STOP_SIGNAL_MAGIC) {
+                result.type = ReceiveResult::Type::StopSignal;
+                result.stopSignal = stopHeader;
+                return result;
+            }
+        }
+
+        // Check for Frame Message
+        if (header_msg.size() == sizeof(FrameHeader)) {
+            FrameMessage frame;
+            std::memcpy(&frame.header, header_msg.data(), sizeof(FrameHeader));
+
+            if (frame.header.magic_num == FRAME_MAGIC) {
+                // Read image data
+                zmq::message_t data_msg;
+                auto res2 = socket.recv(data_msg, zmq::recv_flags::none);
+                if (!res2) {
+                    result.type = ReceiveResult::Type::Error;
+                    return result;
+                }
+
+                frame.image_data.assign(data_msg.data<uint8_t>(),
+                                        data_msg.data<uint8_t>() + data_msg.size());
+
+                // Read CRC
+                zmq::message_t crc_msg;
+                auto res3 = socket.recv(crc_msg, zmq::recv_flags::none);
+                if (!res3 || crc_msg.size() != sizeof(uint32_t)) {
+                    result.type = ReceiveResult::Type::Error;
+                    return result;
+                }
+                std::memcpy(&frame.crc32, crc_msg.data(), sizeof(uint32_t));
+
+                // 只验证header的CRC,跳过image_data以提升性能
+                uint32_t computed_crc = calculateCrc32(&frame.header, sizeof(frame.header));
+
+                if (!verifyCrc32(nullptr, 0, frame.crc32, computed_crc)) {
+                    result.type = ReceiveResult::Type::Error;
+                    return result;
+                }
+
+                result.type = ReceiveResult::Type::Frame;
+                result.frame = std::move(frame);
+                return result;
+            }
+        }
+
+    } catch (const zmq::error_t& e) {
+        result.type = ReceiveResult::Type::Error;
+    }
+
+    return result;
+}
+
+// Table-based CRC32 implementation
+static std::array<uint32_t, 256> crc32_table;
+static std::once_flag crc32_table_init_flag;
+
+static void initCrc32Table() {
+    for (uint32_t i = 0; i < 256; ++i) {
+        uint32_t crc = i;
         for (int j = 0; j < 8; ++j) {
             if (crc & 1) {
                 crc = (crc >> 1) ^ 0xEDB88320;
@@ -185,6 +266,19 @@ uint32_t Protocol::calculateCrc32(const void* data, size_t size, uint32_t initia
                 crc >>= 1;
             }
         }
+        crc32_table[i] = crc;
+    }
+}
+
+uint32_t Protocol::calculateCrc32(const void* data, size_t size, uint32_t initial_crc) {
+    std::call_once(crc32_table_init_flag, initCrc32Table);
+
+    uint32_t crc = initial_crc;
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+
+    for (size_t i = 0; i < size; ++i) {
+        uint8_t table_index = (crc ^ p[i]) & 0xFF;
+        crc = (crc >> 8) ^ crc32_table[table_index];
     }
     return crc;
 }

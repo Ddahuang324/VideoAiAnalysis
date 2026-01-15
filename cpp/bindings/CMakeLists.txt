@@ -13,4 +13,9 @@ add_subdirectory(recorder)
 # ==================== Analyzer Module ====================
 add_subdirectory(analyzer)
 
+# ==================== Meta Target ====================
+add_custom_target(python_bindings
+    DEPENDS recorder_module analyzer_module
+)
+
 message(STATUS "Python bindings configured: recorder_module, analyzer_module")

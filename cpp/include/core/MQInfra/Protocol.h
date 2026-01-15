@@ -10,6 +10,8 @@ class Protocol {
 public:
     static constexpr uint32_t FRAME_MAGIC = 0xABCD1234;
     static constexpr uint32_t METADATA_MAGIC = 0xDCBA4321;
+    static constexpr uint32_t STOP_SIGNAL_MAGIC = 0xEEEEEEEE;
+    static constexpr uint32_t STOP_ACK_MAGIC = 0xDDDDDDDD;
 
 #pragma pack(push, 1)
     struct FrameHeader {
@@ -36,6 +38,16 @@ public:
         float Text_Score = 0.0f;              // 4 bytes 文字评分
         uint8_t is_Scene_Change = 0;          // 1 byte 是否场景变化标志
     };
+
+    struct StopSignalHeader {
+        uint32_t magic_num = STOP_SIGNAL_MAGIC;
+        uint32_t lastFrameId = 0;  // 最后的帧ID
+    };
+
+    struct StopAckHeader {
+        uint32_t magic_num = STOP_ACK_MAGIC;
+        uint32_t processedCount = 0;  // 已处理的帧数量
+    };
 #pragma pack(pop)
 
     struct FrameMessage {
@@ -61,9 +73,17 @@ public:
     static bool verifyCrc32(const void* data, size_t size, uint32_t expected_crc,
                             uint32_t initial_crc = 0xFFFFFFFF);
 
+    struct ReceiveResult {
+        enum class Type { Frame, StopSignal, None, Error };
+        Type type;
+        std::optional<FrameMessage> frame;
+        std::optional<StopSignalHeader> stopSignal;
+    };
+
     static bool sendFrameMessageZeroCopy(zmq::socket_t& socket, const FrameMessage& frame);
     static bool sendFrameRawZeroCopy(zmq::socket_t& socket, const FrameHeader& header,
                                      const void* data, size_t data_size, uint32_t crc);
     static std::optional<FrameMessage> receiveFrameMessageZeroCopy(zmq::socket_t& socket,
                                                                    int timeout_ms = 100);
+    static ReceiveResult receiveMessage(zmq::socket_t& socket, int timeout_ms = 100);
 };

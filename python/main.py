@@ -5,6 +5,7 @@ AI Video Analysis System - 主程序入口 (新架构)
 import sys
 import os
 from pathlib import Path
+from typing import Optional
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent
@@ -47,6 +48,16 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtCore import QUrl
 
 
+from services.recorder_service import RecorderService
+from services.analyzer_service import AnalyzerService
+from services.history_service import HistoryService
+from viewmodels.recorder_viewmodel import RecorderViewModel
+from viewmodels.analyzer_viewmodel import AnalyzerViewModel
+from viewmodels.history_viewmodel import HistoryViewModel
+from viewmodels.settings_viewmodel import SettingsViewModel
+from infrastructure.log_manager import LogManager
+from infrastructure.process_manager import ModuleManager
+
 class ApplicationContainer:
     """
     应用容器
@@ -55,22 +66,23 @@ class ApplicationContainer:
 
     def __init__(self):
         """初始化应用容器"""
-        self.app = None
-        self.engine = None
+        self.app: Optional[QApplication] = None
+        self.engine: Optional[QQmlApplicationEngine] = None
 
         # 基础设施层
-        self.log_manager = None
-        self.module_manager = None
+        self.log_manager: Optional[LogManager] = None
+        self.module_manager: Optional[ModuleManager] = None
 
         # 服务层
-        self.recorder_service = None
-        self.analyzer_service = None
-        self.history_service = None
+        self.recorder_service: Optional[RecorderService] = None
+        self.analyzer_service: Optional[AnalyzerService] = None
+        self.history_service: Optional[HistoryService] = None
 
         # 视图模型层
-        self.recorder_viewmodel = None
-        self.analyzer_viewmodel = None
-        self.history_viewmodel = None
+        self.recorder_viewmodel: Optional[RecorderViewModel] = None
+        self.analyzer_viewmodel: Optional[AnalyzerViewModel] = None
+        self.history_viewmodel: Optional[HistoryViewModel] = None
+        self.settings_viewmodel: Optional[SettingsViewModel] = None
 
     def initialize_infrastructure(self):
         """初始化基础设施层"""
@@ -99,11 +111,13 @@ class ApplicationContainer:
         if self.module_manager is None:
             raise RuntimeError("ModuleManager not initialized")
 
-        # 创建录制服务
-        self.recorder_service = RecorderService(self.module_manager)
-
         # 创建分析服务
         self.analyzer_service = AnalyzerService(self.module_manager)
+
+        # 创建录制服务
+        self.recorder_service = RecorderService(self.module_manager)
+        if self.recorder_service:
+            self.recorder_service._analyzer_service = self.analyzer_service  # type: ignore
 
         # 创建历史记录服务
         data_dir = project_root / "data" / "history"
@@ -118,6 +132,7 @@ class ApplicationContainer:
         from viewmodels.recorder_viewmodel import RecorderViewModel
         from viewmodels.analyzer_viewmodel import AnalyzerViewModel
         from viewmodels.history_viewmodel import HistoryViewModel
+        from viewmodels.settings_viewmodel import SettingsViewModel
 
         if self.recorder_service is None or self.module_manager is None:
             raise RuntimeError("RecorderService or ModuleManager not initialized")
@@ -125,7 +140,8 @@ class ApplicationContainer:
         # 创建录制视图模型
         self.recorder_viewmodel = RecorderViewModel(
             self.recorder_service,
-            self.module_manager
+            self.module_manager,
+            self.analyzer_service  # 传递analyzer_service
         )
 
         if self.analyzer_service is None:
@@ -142,6 +158,46 @@ class ApplicationContainer:
 
         # 创建历史记录视图模型
         self.history_viewmodel = HistoryViewModel(self.history_service)
+
+        # 创建设置视图模型
+        self.settings_viewmodel = SettingsViewModel()
+        
+        # 将设置应用到服务
+        if self.recorder_service and self.settings_viewmodel:
+            # Pylance 可能无法正确识别 PySide6 Property，使用 bool() 明确转换
+            self.recorder_service._auto_enable_realtime = bool(self.settings_viewmodel.analysisRealTime)
+
+            # 监听设置变化
+            def on_realtime_changed():
+                if self.recorder_service and self.settings_viewmodel:
+                    self.recorder_service._auto_enable_realtime = bool(self.settings_viewmodel.analysisRealTime)
+            self.settings_viewmodel.analysisRealTimeChanged.connect(on_realtime_changed)
+
+        # 同步录制模式：RecordPage ↔ Settings
+        def sync_mode_to_settings():
+            """RecordPage 模式变化 → 同步到 Settings"""
+            if not self.recorder_viewmodel or not self.settings_viewmodel:
+                return
+            mode = self.recorder_viewmodel.captureMode
+            settings_mode = "snapshot" if mode == "SNAPSHOT MODE" else "video"
+            if self.settings_viewmodel.recordingMode != settings_mode:
+                self.settings_viewmodel.recordingMode = settings_mode  # type: ignore
+
+        def sync_mode_to_recorder():
+            """Settings 模式变化 → 同步到 RecordPage"""
+            if not self.recorder_viewmodel or not self.settings_viewmodel:
+                return
+            mode = self.settings_viewmodel.recordingMode
+            recorder_mode = "SNAPSHOT MODE" if mode == "snapshot" else "VIDEO MODE"
+            if self.recorder_viewmodel.captureMode != recorder_mode:
+                self.recorder_viewmodel.captureMode = recorder_mode  # type: ignore
+
+        if self.recorder_viewmodel and self.settings_viewmodel:
+            self.recorder_viewmodel.captureModeChanged.connect(sync_mode_to_settings)
+            self.settings_viewmodel.recordingModeChanged.connect(sync_mode_to_recorder)
+
+        # 启动时从 Settings 初始化 RecordPage 的模式
+        sync_mode_to_recorder()
 
         if self.log_manager:
             self.log_manager.info("ViewModel layer initialized")
@@ -178,6 +234,7 @@ class ApplicationContainer:
         context.setContextProperty("recorderViewModel", self.recorder_viewmodel)
         context.setContextProperty("analyzerViewModel", self.analyzer_viewmodel)
         context.setContextProperty("historyViewModel", self.history_viewmodel)
+        context.setContextProperty("settingsViewModel", self.settings_viewmodel)
 
         # 加载 QML 文件
         qml_file = views_path / "main.qml"

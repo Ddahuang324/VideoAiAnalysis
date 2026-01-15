@@ -197,6 +197,31 @@ void ScreenRecorder::stopRecording() {
     LOG_INFO("[ScreenRecorder] Recording Stopped");
 }
 
+void ScreenRecorder::gracefulStop(int timeoutMs) {
+    if (!isRecording_.load()) {
+        return;
+    }
+    LOG_INFO("[ScreenRecorder] Graceful Stop Requested");
+
+    // 1. Stop publishing new frames (this will trigger StopSignal in publishingLoop)
+    stopAckReceived_.store(false);
+    stopPublishing();
+
+    // 2. Wait for Stop Ack from Analyzer
+    {
+        std::unique_lock<std::mutex> lock(stopAckMutex_);
+        if (!stopAckCV_.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                                 [this] { return stopAckReceived_.load(); })) {
+            LOG_WARN("Timeout waiting for Stop Ack");
+        } else {
+            LOG_INFO("Received Stop Ack from Analyzer");
+        }
+    }
+
+    // 3. Proceed to normal stop
+    stopRecording();
+}
+
 void ScreenRecorder::pauseRecording() {
     if (grabberThread_) {
         grabberThread_->pause();
@@ -286,7 +311,9 @@ void ScreenRecorder::pushToPublishQueue(const FrameData& data) {
         if (publishQueue_.size() >= 30) {
             publishQueue_.pop();
         }
-        publishQueue_.push(data);  // 浅拷贝 FrameData，包含共享指针和Mat引用
+        FrameData copy = data;
+        copy.frame = data.frame.clone();  // 深拷贝，防止grabber覆盖原始缓冲区
+        publishQueue_.push(copy);
     }
     publishCondVar_.notify_one();
 }
@@ -337,14 +364,22 @@ void ScreenRecorder::publishingLoop() {
         size_t dataSize = frame.frame.total() * frame.frame.elemSize();
         msgheader.data_size = static_cast<uint32_t>(dataSize);
 
-        // 计算 CRC (直接从 Mat.data 计算)
-        uint32_t crc32 = Protocol::calculateCrc32(frame.frame.data, dataSize) ^ 0xFFFFFFFF;
+        // 只对header计算CRC,跳过图像数据以提升性能
+        uint32_t crc32 = Protocol::calculateCrc32(&msgheader, sizeof(msgheader)) ^ 0xFFFFFFFF;
 
         // 使用零拷贝发布
         if (!framePublisher_->publishRaw(msgheader, frame.frame.data, dataSize, crc32)) {
             LOG_ERROR("Failed to publish frame ID: " + std::to_string(frame.frame_ID));
+        } else {
+            lastPublishedFrameId_.store(frame.frame_ID);
         }
     }
+
+    // Send Stop Signal before shutdown
+    if (framePublisher_) {
+        framePublisher_->sendStopSignal(lastPublishedFrameId_.load());
+    }
+
     framePublisher_->shutdown();
     LOG_INFO("Publish Thread Stopped");
 }
@@ -361,8 +396,8 @@ bool ScreenRecorder::startKeyFrameMetaDataReceiving(const std::string& keyFrameP
     if (grabber_) {
         EncoderConfig config = encoderConfigFromGrabber(grabber_.get());
         config.video.outputFilePath = keyFrameOutputPath_;
-        // 关键帧模式下，通常我们希望高质量，可以根据需要调整 FPS 或码率
-        // 这里暂时复用主配置，但路径不同
+        // 关键帧视频使用1fps，让每帧显示1秒
+        config.video.fps = 1;
 
         keyFrameFFmpegWrapper_ = std::make_shared<FFmpegWrapper>();
         if (!keyFrameFFmpegWrapper_->initialize(config)) {
@@ -429,21 +464,34 @@ void ScreenRecorder::keyFrameMetaDataReceiveLoop() {
     LOG_INFO("Key Frame MetaData Receive Thread Started");
 
     while (receivingRunning_) {
-        auto msg = keyFrameMetaDataSubscriber_->receiveMetaData(100);
+        // Use generic receive to handle StopAck
+        auto result = keyFrameMetaDataSubscriber_->receive(100);
 
-        if (!msg) {
-            LOG_WARN("Didnt Received Messages yet");
-            continue;  // 超时或无消息，继续等待
-        }
-
-        Protocol::KeyFrameMetaDataHeader header = msg->header;
-
-        if (header.magic_num != Protocol::METADATA_MAGIC) {
-            LOG_ERROR("Invalid Key Frame MetaData Header received. Expected: " +
-                      std::to_string(Protocol::METADATA_MAGIC) +
-                      ", Got: " + std::to_string(header.magic_num));
+        if (result.type == MQInfra::KeyFrameMetaDataSubscriber::MetaDataReceiveResult::Type::None) {
             continue;
         }
+
+        if (result.type ==
+            MQInfra::KeyFrameMetaDataSubscriber::MetaDataReceiveResult::Type::StopAck) {
+            LOG_INFO("Received Stop Ack in Loop");
+            {
+                std::lock_guard<std::mutex> lock(stopAckMutex_);
+                stopAckReceived_.store(true);
+            }
+            stopAckCV_.notify_all();
+            continue;
+        }
+
+        if (result.type !=
+                MQInfra::KeyFrameMetaDataSubscriber::MetaDataReceiveResult::Type::MetaData ||
+            !result.metadata) {
+            continue;
+        }
+
+        Protocol::KeyFrameMetaDataHeader header = result.metadata->header;
+
+        // Magic check is done inside receive/deserialize, but we can double check version/etc if
+        // needed.
 
         {
             std::lock_guard<std::mutex> lock(keyFrameMetaDataMutex_);
@@ -455,15 +503,21 @@ void ScreenRecorder::keyFrameMetaDataReceiveLoop() {
         if (keyFrameFFmpegWrapper_ && videoRingBuffer_) {
             uint64_t timestamp = 0;
             auto frameMat = videoRingBuffer_->get(header.frameID, timestamp);
-            if (frameMat) {
+            if (frameMat && !frameMat->empty()) {
                 FrameData fd;
                 fd.frame = *frameMat;
                 fd.frame_ID = header.frameID;
                 fd.timestamp_ms = timestamp;
+                fd.data = frameMat->data;
+                fd.width = frameMat->cols;
+                fd.height = frameMat->rows;
+                fd.format = PixelFormat::BGRA;  // 屏幕采集使用BGRA格式
 
                 if (!keyFrameFFmpegWrapper_->encoderFrame(fd)) {
                     LOG_ERROR("Failed to encode key frame ID: " + std::to_string(header.frameID));
                 }
+            } else {
+                LOG_WARN("Frame ID " + std::to_string(header.frameID) + " not found or empty in RingBuffer");
             }
         }
 

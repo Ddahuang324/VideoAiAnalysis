@@ -45,7 +45,8 @@ PYBIND_MODULE_PATHS = [
 # 已知的 pybind11 模块名（不带扩展名）
 # 可以自动检测，也可以手动指定
 KNOWN_MODULES = [
-    "video_analysis_cpp",
+    "recorder_module",
+    "analyzer_module",
     # 添加其他 pybind11 模块...
 ]
 
@@ -109,7 +110,7 @@ def wait_for_debugger_interactive():
     """
     pid = os.getpid()
     print("\n" + "=" * 70)
-    print("🔧 C++ DEBUGGER ATTACH POINT")
+    print("READY_TO_ATTACH: C++ DEBUGGER ATTACH POINT")
     print("=" * 70)
     print(f"   Process ID (PID): {pid}")
     print(f"   ")
@@ -160,15 +161,15 @@ def save_pid_to_file():
     print(f"📝 PID {pid} saved to {pid_file}")
 
 
-def run_main_script(script_path: str, script_args: list[str]):
+def run_main_script(script_path_str: str, script_args: list[str]):
     """
     运行主脚本
     """
     # 修改 sys.argv 让主脚本认为它是直接运行的
-    sys.argv = [script_path] + script_args
+    sys.argv = [script_path_str] + script_args
     
     # 读取并执行主脚本
-    script_path = Path(script_path).resolve()
+    script_path = Path(script_path_str).resolve()
     if not script_path.exists():
         print(f"❌ Script not found: {script_path}")
         sys.exit(1)
@@ -204,6 +205,20 @@ def main():
     
     # 保存 PID
     save_pid_to_file()
+
+    # 设置 DLL 搜索路径 (Windows)
+    if sys.platform == 'win32':
+        dll_paths = [
+            PROJECT_ROOT / "build" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "ffmpeg_prebuilt-src" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "opencv_prebuilt-src" / "Debug" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "onnxruntime_prebuilt-src" / "lib",
+        ]
+        for p in dll_paths:
+            if p.exists():
+                print(f"  📁 Adding DLL directory: {p}")
+                os.add_dll_directory(str(p))
+                os.environ['PATH'] = str(p) + os.pathsep + os.environ.get('PATH', '')
     
     # 设置 Python 路径
     python_path = str(PROJECT_ROOT / "python")
@@ -213,25 +228,22 @@ def main():
     if build_python_path not in sys.path:
         sys.path.insert(0, build_python_path)
     
-    # 1. 查找所有 pybind11 模块
-    print("🔍 Searching for pybind11 modules...")
-    pyd_modules = find_pyd_modules(PYBIND_MODULE_PATHS)
+    # 1. 预加载指定的 pybind11 模块
+    print("🔍 Preloading designated pybind11 modules...")
+    all_pyd_modules = find_pyd_modules(PYBIND_MODULE_PATHS)
     
-    if not pyd_modules:
-        print("⚠️ No .pyd modules found. Searched paths:")
-        for p in PYBIND_MODULE_PATHS:
-            print(f"   - {p}")
-    else:
-        print(f"   Found {len(pyd_modules)} module(s):\n")
-    
-    # 2. 预加载所有模块
+    target_modules = ["recorder_module", "analyzer_module"]
     loaded_count = 0
-    for module_name, module_path in pyd_modules.items():
-        if preload_cpp_module(module_name, module_path):
-            loaded_count += 1
+    
+    for module_name in target_modules:
+        if module_name in all_pyd_modules:
+            if preload_cpp_module(module_name, all_pyd_modules[module_name]):
+                loaded_count += 1
+        else:
+            print(f"  ⚠️ Target module not found: {module_name}")
         print("")
     
-    print(f"📊 Loaded {loaded_count}/{len(pyd_modules)} C++ modules")
+    print(f"📊 Loaded {loaded_count}/{len(target_modules)} C++ modules")
     
     # 3. 等待调试器附加
     if WAIT_FOR_DEBUGGER and loaded_count > 0:

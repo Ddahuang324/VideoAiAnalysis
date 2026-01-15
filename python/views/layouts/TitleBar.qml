@@ -104,29 +104,6 @@ Rectangle {
         anchors.bottom: parent.bottom
 
         Components.WindowButton {
-            icon: "minimize"
-            height: parent.height
-            onClicked: {
-                if (window)
-                    window.showMinimized();
-            }
-        }
-
-        Components.WindowButton {
-            icon: window && window.visibility === Window.Maximized ? "restore" : "maximize"
-            height: parent.height
-            onClicked: {
-                if (window) {
-                    if (window.visibility === Window.Maximized) {
-                        window.showNormal();
-                    } else {
-                        window.showMaximized();
-                    }
-                }
-            }
-        }
-
-        Components.WindowButton {
             icon: "close"
             height: parent.height
             hoverColor: Styles.ThemeManager.error

@@ -23,10 +23,7 @@
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
-enum class RecorderMode {
-    VIDEO,
-    SNAPSHOT
-};
+enum class RecorderMode { VIDEO, SNAPSHOT };
 
 class ScreenRecorder {
 public:
@@ -35,6 +32,7 @@ public:
 
     bool startRecording(std::string& path);
     void stopRecording();
+    void gracefulStop(int timeoutMs = 5000);  // 优雅停止
     void pauseRecording();
     void resumeRecording();
 
@@ -110,4 +108,10 @@ private:
     std::unique_ptr<AudioEncoder> keyFrameAudioEncoder_;
     std::unique_ptr<RingFrameBuffer> videoRingBuffer_;
     std::string keyFrameOutputPath_;
+
+    // Graceful Stop Sync
+    std::mutex stopAckMutex_;
+    std::condition_variable stopAckCV_;
+    std::atomic<bool> stopAckReceived_{false};
+    std::atomic<int64_t> lastPublishedFrameId_{0};
 };

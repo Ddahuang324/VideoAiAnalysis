@@ -34,6 +34,7 @@ set(CORE_HEADERS
     include/core/MQInfra/Protocol.h
     include/core/KeyFrame/FrameAnalyzer/FrameAnalyzer.h
     include/core/KeyFrame/FrameAnalyzer/FrameResource.h
+    include/core/KeyFrame/KeyFrameVideoEncoder.h
     include/core/ScreenRecorder/ProcessLayer/FrameGrabberThread.h
     include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.h
     include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.h
@@ -95,6 +96,7 @@ add_library(ai_video_core STATIC
     src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.cpp
     src/core/ScreenRecorder/RingFrameBuffer.cpp
     src/core/KeyFrame/KeyFrameAnalyzerService.cpp
+    src/core/KeyFrame/KeyFrameVideoEncoder.cpp
     src/Process/Analyzer/AnalyzerAPI.cpp
     src/Process/Recorder/RecorderAPI.cpp
     src/Process/IPC/AnalyzerProcessClient.cpp

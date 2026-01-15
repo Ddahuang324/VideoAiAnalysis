@@ -55,8 +55,8 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
                                                         const AnalysisContext& context) {
     MultiDimensionScore scores;
 
-    // Launch three detection tasks in parallel
-    auto sceneFuture = std::async(std::launch::async, [&]() {
+    // Launch three detection tasks in parallel with explicit value captures
+    auto sceneFuture = std::async(std::launch::async, [this, resource]() {
         if (sceneDetector_) {
             auto result = sceneDetector_->detect(resource);
             float score = result.isSceneChange ? 1.0f : static_cast<float>(result.score);
@@ -65,7 +65,7 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
         return std::make_pair(SceneChangeDetector::Result{}, 0.0f);
     });
 
-    auto motionFuture = std::async(std::launch::async, [&]() {
+    auto motionFuture = std::async(std::launch::async, [this, resource]() {
         if (motionDetector_) {
             auto result = motionDetector_->detect(resource);
             float score = static_cast<float>(result.score);
@@ -74,7 +74,7 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
         return std::make_pair(MotionDetector::Result{}, 0.0f);
     });
 
-    auto textFuture = std::async(std::launch::async, [&]() {
+    auto textFuture = std::async(std::launch::async, [this, resource]() {
         if (textDetector_) {
             auto result = textDetector_->detect(resource);
             float score = static_cast<float>(result.score);
@@ -83,18 +83,23 @@ MultiDimensionScore StandardFrameAnalyzer::analyzeFrame(std::shared_ptr<FrameRes
         return std::make_pair(TextDetector::Result{}, 0.0f);
     });
 
-    // Collect results
-    auto sceneRes = sceneFuture.get();
-    scores.sceneChangeResult = sceneRes.first;
-    scores.sceneScore = sceneRes.second;
+    // Collect results. std::async's destructor or get() will wait for tasks to complete.
+    try {
+        auto sceneRes = sceneFuture.get();
+        scores.sceneChangeResult = sceneRes.first;
+        scores.sceneScore = sceneRes.second;
 
-    auto motionRes = motionFuture.get();
-    scores.motionResult = motionRes.first;
-    scores.motionScore = motionRes.second;
+        auto motionRes = motionFuture.get();
+        scores.motionResult = motionRes.first;
+        scores.motionScore = motionRes.second;
 
-    auto textRes = textFuture.get();
-    scores.textResult = textRes.first;
-    scores.textScore = textRes.second;
+        auto textRes = textFuture.get();
+        scores.textResult = textRes.first;
+        scores.textScore = textRes.second;
+    } catch (const std::exception& e) {
+        LOG_ERROR(std::string("[StandardFrameAnalyzer] Exception during parallel analysis: ") +
+                  e.what());
+    }
 
     return scores;
 }

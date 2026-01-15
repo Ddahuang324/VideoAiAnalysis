@@ -1,9 +1,8 @@
-// SettingsPage.qml - 设置页面的彻底重构版本
-// 解决高度塌陷和视觉重叠问题
-
+// SettingsPage.qml - 设置页面
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Dialogs
 import "../styles" as Styles
 
 Rectangle {
@@ -11,7 +10,15 @@ Rectangle {
     anchors.fill: parent
     color: "transparent"
 
-    // ========== 主滚动区域 ==========
+    // 文件夹选择对话框
+    FolderDialog {
+        id: folderDialog
+        title: "Select Output Directory"
+        onAccepted: {
+            settingsViewModel.setOutputDir(selectedFolder.toString().replace("file:///", ""));
+        }
+    }
+
     ScrollView {
         id: settingsScroll
         anchors.fill: parent
@@ -19,12 +26,11 @@ Rectangle {
         clip: true
         ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-        // 使用 Column 替代 ColumnLayout 作为顶层容器，确保子项高度正确累加
         Column {
-            width: settingsScroll.width - 24 // 留出滚动条空间
+            width: settingsScroll.width - 24
             spacing: 24
 
-            // ========== 页面标题 ==========
+            // 页面标题
             Column {
                 spacing: 8
                 bottomPadding: 16
@@ -41,83 +47,215 @@ Rectangle {
                 }
             }
 
-            // ========== 分组 1: Recording ==========
+            // ========== 视频录制配置 ==========
             SettingGroup {
-                title: "Recording"
+                title: "Video Recording"
                 iconType: "record"
                 Column {
                     width: parent.width
-                    spacing: 20
-                    SettingItem {
+                    spacing: 16
+
+                    // 输出目录
+                    SettingPathItem {
                         label: "Output Directory"
-                        value: "C:/Users/Videos/Recordings"
-                        isLink: true
+                        value: settingsViewModel.outputDir
+                        onClicked: folderDialog.open()
                     }
+
+                    // 分辨率显示（自动从屏幕获取）
                     SettingItem {
-                        label: "Video Quality"
-                        value: "4K High Performance (60fps)"
+                        label: "Resolution"
+                        value: "Auto (Screen Native)"
                     }
-                    SettingItem {
-                        label: "Encoder"
-                        value: "NVIDIA NVENC H.264"
+
+                    // 编码器
+                    SettingComboBox {
+                        label: "Video Codec"
+                        model: ["libx264", "libx265", "h264_nvenc", "hevc_nvenc"]
+                        currentValue: settingsViewModel.videoCodec
+                        onUpdated: function (val) {
+                            settingsViewModel.setVideoCodec(val);
+                        }
                     }
-                    SettingItem {
-                        label: "Audio Bitrate"
-                        value: "320 kbps"
+
+                    // 编码预设
+                    SettingComboBox {
+                        label: "Encoding Preset"
+                        model: ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"]
+                        currentValue: settingsViewModel.videoPreset
+                        onUpdated: function (val) {
+                            settingsViewModel.setVideoPreset(val);
+                        }
+                    }
+
+                    // 码率
+                    SettingSlider {
+                        label: "Video Bitrate"
+                        value: settingsViewModel.videoBitrate / 1000000
+                        from: 1
+                        to: 50
+                        suffix: " Mbps"
+                        onUpdated: function (val) {
+                            settingsViewModel.setVideoBitrate(val * 1000000);
+                        }
+                    }
+
+                    // 录制模式
+                    SettingComboBox {
+                        label: "Recording Mode"
+                        model: ["video", "snapshot"]
+                        displayModel: ["Video Mode", "Snapshot Mode"]
+                        currentValue: settingsViewModel.recordingMode
+                        onUpdated: function (val) {
+                            settingsViewModel.setRecordingMode(val);
+                        }
+                    }
+
+                    // CRF 质量
+                    SettingSlider {
+                        label: "Quality (CRF)"
+                        value: settingsViewModel.videoCrf
+                        from: 0
+                        to: 51
+                        suffix: ""
+                        description: "Lower = better quality, larger file"
+                        onUpdated: function (val) {
+                            settingsViewModel.setVideoCrf(val);
+                        }
                     }
                 }
             }
 
-            // ========== 分组 2: Analysis & AI ==========
+            // ========== 音频配置 ==========
             SettingGroup {
-                title: "Analysis & AI"
+                title: "Audio Recording"
+                iconType: "audio"
+                Column {
+                    width: parent.width
+                    spacing: 16
+
+                    SettingToggle {
+                        label: "Enable Audio Recording"
+                        checked: settingsViewModel.audioEnabled
+                        onToggled: function (val) {
+                            settingsViewModel.setAudioEnabled(val);
+                        }
+                    }
+
+                    SettingComboBox {
+                        label: "Sample Rate"
+                        model: ["44100", "48000", "96000"]
+                        currentValue: settingsViewModel.audioSampleRate.toString()
+                        suffix: " Hz"
+                        enabled: settingsViewModel.audioEnabled
+                        onUpdated: function (val) {
+                            settingsViewModel.setAudioSampleRate(parseInt(val));
+                        }
+                    }
+
+                    SettingComboBox {
+                        label: "Channels"
+                        model: ["1", "2"]
+                        currentValue: settingsViewModel.audioChannels.toString()
+                        displayModel: ["Mono", "Stereo"]
+                        enabled: settingsViewModel.audioEnabled
+                        onUpdated: function (val) {
+                            settingsViewModel.setAudioChannels(parseInt(val));
+                        }
+                    }
+
+                    SettingSlider {
+                        label: "Audio Bitrate"
+                        value: settingsViewModel.audioBitrate / 1000
+                        from: 64
+                        to: 320
+                        suffix: " kbps"
+                        enabled: settingsViewModel.audioEnabled
+                        onValueChanged: function (val) {
+                            settingsViewModel.setAudioBitrate(val * 1000);
+                        }
+                    }
+
+                    SettingComboBox {
+                        label: "Audio Codec"
+                        model: ["aac", "mp3", "opus"]
+                        currentValue: settingsViewModel.audioCodec
+                        enabled: settingsViewModel.audioEnabled
+                        onUpdated: function (val) {
+                            settingsViewModel.setAudioCodec(val);
+                        }
+                    }
+                }
+            }
+
+            // ========== AI 分析配置 ==========
+            SettingGroup {
+                title: "AI Analysis"
                 iconType: "analysis"
                 Column {
                     width: parent.width
-                    spacing: 20
+                    spacing: 16
 
-                    // Gemini 配置
-                    SettingInput {
-                        label: "Gemini API Key"
-                        placeholder: "Enter your API key here..."
-                        isPassword: true
-                    }
-
-                    SettingItem {
-                        label: "AI Model"
-                        value: "Gemini 2.0 Flash"
+                    SettingToggle {
+                        label: "Enable Text Recognition (OCR)"
+                        checked: settingsViewModel.textRecognitionEnabled
+                        onToggled: function (val) {
+                            settingsViewModel.setTextRecognitionEnabled(val);
+                        }
                     }
 
                     SettingToggle {
-                        label: "Auto-Analyze captured videos"
-                        checked: true
+                        label: "Real-time Analysis (Snapshot)"
+                        description: "Instant analysis for 1FPS snapshot mode"
+                        checked: settingsViewModel.analysisRealTime
+                        onToggled: function (val) {
+                            settingsViewModel.setAnalysisRealTime(val);
+                        }
                     }
 
-                    Rectangle {
-                        width: parent.width
-                        height: 1
-                        color: Styles.ThemeManager.border
-                        opacity: 0.3
+                    SettingSlider {
+                        label: "Scene Detection Threshold"
+                        value: settingsViewModel.sceneThreshold * 100
+                        from: 50
+                        to: 100
+                        suffix: "%"
+                        description: "Higher = less sensitive"
+                        onUpdated: function (val) {
+                            settingsViewModel.setSceneThreshold(val / 100);
+                        }
                     }
 
-                    SettingItem {
-                        label: "Scene Detection"
-                        value: "Enabled (Threshold 85%)"
+                    SettingSlider {
+                        label: "Motion Detection Threshold"
+                        value: settingsViewModel.motionThreshold * 100
+                        from: 10
+                        to: 100
+                        suffix: "%"
+                        onUpdated: function (val) {
+                            settingsViewModel.setMotionThreshold(val / 100);
+                        }
                     }
-                    SettingItem {
-                        label: "Object Tracking"
-                        value: "YOLOv8 Real-time"
+
+                    SettingSlider {
+                        label: "Analysis Threads"
+                        value: settingsViewModel.analysisThreadCount
+                        from: 1
+                        to: 16
+                        suffix: ""
+                        onUpdated: function (val) {
+                            settingsViewModel.setAnalysisThreadCount(val);
+                        }
                     }
                 }
             }
 
-            // ========== 分组 3: Appearance ==========
+            // ========== 外观 ==========
             SettingGroup {
                 title: "Appearance"
                 iconType: "appearance"
                 Column {
                     width: parent.width
-                    spacing: 20
+                    spacing: 16
                     SettingItem {
                         label: "Visual Theme"
                         value: Styles.ThemeManager.isDark ? "Dark Mode" : "Light Mode"
@@ -126,14 +264,40 @@ Rectangle {
                         label: "Accent Color"
                         value: "System Emerald"
                     }
-                    SettingItem {
-                        label: "Blur Effects"
-                        value: "GPU Accelerated"
+                }
+            }
+
+            // ========== 重置按钮 ==========
+            Rectangle {
+                width: parent.width
+                height: 60
+                color: "transparent"
+
+                Button {
+                    anchors.centerIn: parent
+                    text: "Reset to Defaults"
+                    onClicked: settingsViewModel.resetToDefaults()
+
+                    background: Rectangle {
+                        implicitWidth: 160
+                        implicitHeight: 40
+                        radius: 8
+                        color: parent.hovered ? Styles.ThemeManager.overlayLight : Styles.ThemeManager.overlayDark
+                        border.width: 1
+                        border.color: Styles.ThemeManager.border
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: Styles.ThemeManager.text
+                        font.pixelSize: 14
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
                     }
                 }
             }
 
-            // ========== 分组 4: About ==========
+            // ========== 关于 ==========
             SettingGroup {
                 title: "About"
                 iconType: "info"
@@ -160,7 +324,6 @@ Rectangle {
                 }
             }
 
-            // 底部占位
             Item {
                 height: 40
                 width: 1
@@ -168,7 +331,8 @@ Rectangle {
         }
     }
 
-    // ========== 内部辅助组件: SettingGroup (卡片容器) ==========
+    // ========== 组件定义 ==========
+
     component SettingGroup: Rectangle {
         id: groupRoot
         property string title: ""
@@ -176,7 +340,6 @@ Rectangle {
         default property alias content: innerContent.data
 
         width: parent.width
-        // 高度由内部 layout 自动计算
         height: groupLayout.implicitHeight + 48
         radius: 16
         color: Styles.ThemeManager.bgSurface
@@ -200,7 +363,6 @@ Rectangle {
                         ctx.strokeStyle = Styles.ThemeManager.primary;
                         ctx.lineWidth = 1.8;
 
-                        // 绘制图标逻辑
                         if (iconType === "record") {
                             ctx.beginPath();
                             ctx.arc(12, 12, 8, 0, 2 * Math.PI);
@@ -209,6 +371,17 @@ Rectangle {
                             ctx.beginPath();
                             ctx.arc(12, 12, 3, 0, 2 * Math.PI);
                             ctx.fill();
+                        } else if (iconType === "audio") {
+                            ctx.beginPath();
+                            ctx.moveTo(6, 8);
+                            ctx.lineTo(6, 16);
+                            ctx.moveTo(10, 5);
+                            ctx.lineTo(10, 19);
+                            ctx.moveTo(14, 8);
+                            ctx.lineTo(14, 16);
+                            ctx.moveTo(18, 10);
+                            ctx.lineTo(18, 14);
+                            ctx.stroke();
                         } else if (iconType === "analysis") {
                             ctx.strokeRect(4, 4, 6, 6);
                             ctx.strokeRect(14, 4, 6, 6);
@@ -248,21 +421,17 @@ Rectangle {
                 opacity: 0.5
             }
 
-            // 内容占位容器
             Item {
                 id: innerContent
                 Layout.fillWidth: true
-                // 注意：由于内容是外部注入的 Column，这里需要自适应高度
                 implicitHeight: childrenRect.height
             }
         }
     }
 
-    // ========== 内部辅助组件: SettingItem (单行设置) ==========
     component SettingItem: RowLayout {
         property string label: ""
         property string value: ""
-        property bool isLink: false
 
         width: parent.width
         Text {
@@ -272,87 +441,78 @@ Rectangle {
             Layout.fillWidth: true
         }
         Text {
-            text: value + (isLink ? " ↗" : "")
-            color: isLink ? Styles.ThemeManager.primary : Styles.ThemeManager.text
+            text: value
+            color: Styles.ThemeManager.text
             font.pixelSize: 14
             font.weight: Font.Medium
-            horizontalAlignment: Text.AlignRight
+        }
+    }
 
+    component SettingPathItem: RowLayout {
+        property string label: ""
+        property string value: ""
+        signal clicked
+
+        width: parent.width
+        Text {
+            text: label
+            color: Styles.ThemeManager.textSecondary
+            font.pixelSize: 14
+            Layout.fillWidth: true
+        }
+        Text {
+            text: value + " ↗"
+            color: Styles.ThemeManager.primary
+            font.pixelSize: 14
+            font.weight: Font.Medium
             MouseArea {
                 anchors.fill: parent
-                visible: isLink
                 cursorShape: Qt.PointingHandCursor
-                onClicked: console.log("Navigate to: " + label)
+                onClicked: parent.parent.clicked()
             }
         }
     }
 
-    // ========== 内部辅助组件: SettingInput (文本输入) ==========
-    component SettingInput: ColumnLayout {
-        property string label: ""
-        property string placeholder: ""
-        property bool isPassword: false
-        property alias text: inputField.text
-
-        width: parent.width
-        spacing: 8
-
-        Text {
-            text: label
-            color: Styles.ThemeManager.textSecondary
-            font.pixelSize: 14
-        }
-
-        TextField {
-            id: inputField
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            placeholderText: placeholder
-            placeholderTextColor: Styles.ThemeManager.textMuted
-            echoMode: isPassword ? TextInput.Password : TextInput.Normal
-            color: "#ffffff"
-            font.pixelSize: 14
-            leftPadding: 16
-            rightPadding: 16
-            verticalAlignment: TextInput.AlignVCenter
-
-            background: Rectangle {
-                radius: 8
-                color: Styles.ThemeManager.overlayDark
-                border.width: 1
-                border.color: inputField.activeFocus ? Styles.ThemeManager.primary : Styles.ThemeManager.border
-            }
-        }
-    }
-
-    // ========== 内部辅助组件: SettingToggle (开关) ==========
     component SettingToggle: RowLayout {
+        id: toggleRoot
         property string label: ""
+        property string description: ""
         property bool checked: false
+        signal toggled(bool value)
 
         width: parent.width
-        Text {
-            text: label
-            color: Styles.ThemeManager.textSecondary
-            font.pixelSize: 14
+        ColumnLayout {
             Layout.fillWidth: true
+            spacing: 2
+            Text {
+                text: toggleRoot.label
+                color: Styles.ThemeManager.textSecondary
+                font.pixelSize: 14
+                Layout.fillWidth: true
+            }
+            Text {
+                visible: toggleRoot.description !== ""
+                text: toggleRoot.description
+                color: Styles.ThemeManager.textMuted
+                font.pixelSize: 12
+                Layout.fillWidth: true
+            }
         }
 
         Switch {
-            id: control
-            checked: parent.checked
+            id: toggleSwitch
+            checked: toggleRoot.checked
+            onCheckedChanged: toggleRoot.toggled(checked)
 
             indicator: Rectangle {
                 implicitWidth: 40
                 implicitHeight: 20
-                x: control.leftPadding
-                y: parent.height / 2 - height / 2
                 radius: 10
-                color: control.checked ? Styles.ThemeManager.primary : Styles.ThemeManager.overlayDark
-                border.color: control.checked ? Styles.ThemeManager.primary : Styles.ThemeManager.border
+                color: toggleSwitch.checked ? Styles.ThemeManager.primary : Styles.ThemeManager.overlayDark
+                border.color: toggleSwitch.checked ? Styles.ThemeManager.primary : Styles.ThemeManager.border
 
                 Rectangle {
-                    x: control.checked ? parent.width - width - 2 : 2
+                    x: toggleSwitch.checked ? parent.width - width - 2 : 2
                     y: 2
                     width: 16
                     height: 16
@@ -365,6 +525,175 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    component SettingComboBox: RowLayout {
+        id: comboRoot
+        property string label: ""
+        property var model: []
+        property var displayModel: []
+        property string currentValue: ""
+        property string suffix: ""
+        property bool enabled: true
+        signal updated(string value)
+
+        width: parent.width
+        opacity: enabled ? 1.0 : 0.5
+
+        Text {
+            text: comboRoot.label
+            color: Styles.ThemeManager.textSecondary
+            font.pixelSize: 14
+            Layout.fillWidth: true
+        }
+
+        ComboBox {
+            id: combo
+            Layout.preferredWidth: 180
+            enabled: comboRoot.enabled
+            model: comboRoot.model
+            currentIndex: comboRoot.model.indexOf(comboRoot.currentValue)
+
+            onCurrentIndexChanged: {
+                if (currentIndex >= 0 && comboRoot.model[currentIndex] !== comboRoot.currentValue) {
+                    comboRoot.updated(comboRoot.model[currentIndex]);
+                }
+            }
+
+            delegate: ItemDelegate {
+                width: combo.width
+                contentItem: Text {
+                    text: comboRoot.displayModel.length > 0 ? comboRoot.displayModel[index] : modelData + comboRoot.suffix
+                    color: Styles.ThemeManager.text
+                    font.pixelSize: 14
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    color: highlighted ? Styles.ThemeManager.overlayLight : "transparent"
+                }
+                highlighted: combo.highlightedIndex === index
+            }
+
+            contentItem: Text {
+                text: {
+                    var idx = combo.currentIndex;
+                    if (comboRoot.displayModel.length > 0 && idx >= 0) {
+                        return comboRoot.displayModel[idx] + comboRoot.suffix;
+                    }
+                    return combo.displayText + comboRoot.suffix;
+                }
+                color: Styles.ThemeManager.text
+                font.pixelSize: 14
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 12
+            }
+
+            background: Rectangle {
+                implicitWidth: 180
+                implicitHeight: 36
+                radius: 8
+                color: Styles.ThemeManager.overlayDark
+                border.width: 1
+                border.color: combo.activeFocus ? Styles.ThemeManager.primary : Styles.ThemeManager.border
+            }
+
+            popup: Popup {
+                y: combo.height
+                width: combo.width
+                padding: 1
+
+                contentItem: ListView {
+                    clip: true
+                    implicitHeight: contentHeight
+                    model: combo.popup.visible ? combo.delegateModel : null
+                    ScrollIndicator.vertical: ScrollIndicator {}
+                }
+
+                background: Rectangle {
+                    radius: 8
+                    color: Styles.ThemeManager.bgSurface
+                    border.color: Styles.ThemeManager.border
+                }
+            }
+        }
+    }
+
+    component SettingSlider: ColumnLayout {
+        id: sliderRoot
+        property string label: ""
+        property real value: 0
+        property real from: 0
+        property real to: 100
+        property string suffix: ""
+        property string description: ""
+        property bool enabled: true
+        signal updated(real value)
+
+        width: parent.width
+        spacing: 8
+        opacity: enabled ? 1.0 : 0.5
+
+        RowLayout {
+            Layout.fillWidth: true
+            Text {
+                text: sliderRoot.label
+                color: Styles.ThemeManager.textSecondary
+                font.pixelSize: 14
+                Layout.fillWidth: true
+            }
+            Text {
+                text: Math.round(slider.value) + sliderRoot.suffix
+                color: Styles.ThemeManager.text
+                font.pixelSize: 14
+                font.weight: Font.Medium
+            }
+        }
+
+        Slider {
+            id: slider
+            Layout.fillWidth: true
+            enabled: sliderRoot.enabled
+            from: sliderRoot.from
+            to: sliderRoot.to
+            value: sliderRoot.value
+            stepSize: 1
+
+            onMoved: sliderRoot.updated(value)
+
+            background: Rectangle {
+                x: slider.leftPadding
+                y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                width: slider.availableWidth
+                height: 4
+                radius: 2
+                color: Styles.ThemeManager.overlayDark
+
+                Rectangle {
+                    width: slider.visualPosition * parent.width
+                    height: parent.height
+                    radius: 2
+                    color: Styles.ThemeManager.primary
+                }
+            }
+
+            handle: Rectangle {
+                x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
+                y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                width: 16
+                height: 16
+                radius: 8
+                color: slider.pressed ? Styles.ThemeManager.primary : "white"
+                border.color: Styles.ThemeManager.primary
+                border.width: 2
+            }
+        }
+
+        Text {
+            visible: sliderRoot.description !== ""
+            text: sliderRoot.description
+            color: Styles.ThemeManager.textMuted
+            font.pixelSize: 12
         }
     }
 }

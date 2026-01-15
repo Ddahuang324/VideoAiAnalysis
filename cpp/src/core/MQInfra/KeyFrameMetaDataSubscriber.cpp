@@ -43,6 +43,48 @@ std::optional<Protocol::KeyFrameMetaDataMessage> KeyFrameMetaDataSubscriber::rec
     }
 }
 
+KeyFrameMetaDataSubscriber::MetaDataReceiveResult KeyFrameMetaDataSubscriber::receive(
+    int timeout_ms) {
+    MetaDataReceiveResult result{MetaDataReceiveResult::Type::None};
+    subscriber_.set(zmq::sockopt::rcvtimeo, timeout_ms);
+    zmq::message_t message;
+
+    try {
+        auto res = subscriber_.recv(message, zmq::recv_flags::none);
+        if (!res) {
+            return result;  // None
+        }
+
+        // Check for Stop Ack
+        if (message.size() == sizeof(Protocol::StopAckHeader)) {
+            Protocol::StopAckHeader ack;
+            std::memcpy(&ack, message.data(), sizeof(Protocol::StopAckHeader));
+            if (ack.magic_num == Protocol::STOP_ACK_MAGIC) {
+                result.type = MetaDataReceiveResult::Type::StopAck;
+                result.stopAck = ack;
+                return result;
+            }
+        }
+
+        // Try deserialize metadata
+        std::vector<uint8_t> buffer(static_cast<const uint8_t*>(message.data()),
+                                    static_cast<const uint8_t*>(message.data()) + message.size());
+
+        try {
+            auto meta = Protocol::deserializeKeyFrameMetaDataMessage(buffer);
+            result.type = MetaDataReceiveResult::Type::MetaData;
+            result.metadata = meta;
+        } catch (...) {
+            result.type = MetaDataReceiveResult::Type::Error;
+        }
+
+    } catch (...) {
+        result.type = MetaDataReceiveResult::Type::Error;
+    }
+
+    return result;
+}
+
 void KeyFrameMetaDataSubscriber::shutdown() {
     try {
         subscriber_.close();

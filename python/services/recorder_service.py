@@ -11,6 +11,12 @@ import threading
 from infrastructure.process_manager import ModuleManager, ProcessStatus
 from infrastructure.log_manager import get_logger
 
+try:
+    from recorder_module import RecorderMode
+except ImportError:
+    # 如果模块还未构建，使用占位符
+    RecorderMode = None
+
 
 class RecordingSession:
     """录制会话数据类"""
@@ -72,6 +78,14 @@ class RecorderService:
 
         # 输出目录配置
         self._default_output_dir = Path.home() / "Videos" / "ScreenRecordings"
+
+        # 分析服务引用（用于SNAPSHOT模式实时分析）
+        from services.analyzer_service import AnalyzerService
+        self._analyzer_service: Optional[AnalyzerService] = None
+        self._auto_enable_realtime: bool = True  # SNAPSHOT模式自动启用实时分析
+
+        # 缓存的录制模式（解决API未初始化时设置模式的时序问题）
+        self._pending_mode = None
 
     def initialize(self, config=None) -> bool:
         """
@@ -159,6 +173,7 @@ class RecorderService:
         Returns:
             bool: 成功返回True
         """
+        recording_started = False
         with self._lock:
             if self._current_session is not None:
                 self.logger.warning("Recording already in progress")
@@ -195,11 +210,18 @@ class RecorderService:
                     return False
 
                 self._api.initialize(config)
+
+                # 应用缓存的录制模式（解决时序问题）
+                if self._pending_mode is not None:
+                    self._api.set_recording_mode(self._pending_mode)
+                    mode_name = "SNAPSHOT" if self._pending_mode == RecorderMode.SNAPSHOT else "VIDEO"
+                    self.logger.info(f"Applied pending recording mode: {mode_name}")
+
                 result = self._api.start()
 
                 if result:
                     self.logger.info(f"Recording started: {output_path}")
-                    return True
+                    recording_started = True
                 else:
                     self.logger.error(f"Failed to start recording: {self._api.last_error}")
                     self._current_session = None
@@ -209,6 +231,13 @@ class RecorderService:
                 self.logger.error(f"Error starting recording: {e}")
                 self._current_session = None
                 return False
+
+        # SNAPSHOT模式：启动实时分析（在锁外调用，避免死锁）
+        if recording_started and self._pending_mode == RecorderMode.SNAPSHOT and self._auto_enable_realtime and self._analyzer_service:
+            self._analyzer_service.start_realtime_analysis()
+            self.logger.info("SNAPSHOT mode: Started realtime analysis")
+
+        return recording_started
 
     def stop_recording(self) -> bool:
         """
@@ -227,8 +256,19 @@ class RecorderService:
                 return False
 
             try:
-                # 停止录制
-                self._api.stop()
+                # 优先尝试优雅停止，等待 AI 分析和关键帧同步
+                # 注意：必须先 graceful_stop 发送 STOP_SIGNAL，让 AI 处理完剩余帧
+                # 然后再停止 AI 分析，否则 AI 收不到信号，关键帧无法编码
+                if hasattr(self._api, 'graceful_stop'):
+                    self.logger.info("🎬 Stopping recording gracefully...")
+                    self._api.graceful_stop(5000)  # 5秒超时
+                else:
+                    self._api.stop()
+
+                # 停止实时分析（在 graceful_stop 之后）
+                if self._analyzer_service and self._analyzer_service.is_realtime_mode():
+                    self._analyzer_service.stop_realtime_analysis()
+                    self.logger.info("Stopped realtime analysis")
 
                 # 更新会话
                 self._current_session.end_time = datetime.now()
@@ -256,6 +296,47 @@ class RecorderService:
             except Exception as e:
                 self.logger.error(f"Error stopping recording: {e}")
                 return False
+
+    def set_recording_mode(self, mode) -> bool:
+        """
+        设置录制模式（VIDEO 或 SNAPSHOT）
+
+        Args:
+            mode: RecorderMode.VIDEO 或 RecorderMode.SNAPSHOT
+
+        Returns:
+            bool: 设置成功返回True
+        """
+        if RecorderMode is None:
+            self.logger.warning("RecorderMode not available, module may not be built yet")
+            return False
+
+        # 缓存模式，以便在API初始化后应用
+        self._pending_mode = mode
+        mode_name = "SNAPSHOT" if mode == RecorderMode.SNAPSHOT else "VIDEO"
+
+        if self._api is None:
+            self.logger.info(f"Capture mode set to {mode_name} (pending, API not initialized)")
+            return True
+
+        try:
+            self._api.set_recording_mode(mode)
+            self.logger.info(f"Recording mode set to: {mode_name}")
+
+            # SNAPSHOT模式：自动启用实时分析
+            if self._auto_enable_realtime and self._analyzer_service:
+                if mode == RecorderMode.SNAPSHOT:
+                    self._analyzer_service.start_realtime_analysis()
+                    self.logger.info("📊 SNAPSHOT模式：启用实时分析")
+                else:
+                    # VIDEO模式：停止实时分析（后续使用离线分析）
+                    self._analyzer_service.stop_realtime_analysis()
+                    self.logger.info("📹 VIDEO模式：禁用实时分析")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to set recording mode: {e}")
+            return False
 
     def pause_recording(self) -> bool:
         """
@@ -292,6 +373,58 @@ class RecorderService:
         except Exception as e:
             self.logger.error(f"Error resuming recording: {e}")
             return False
+
+    def graceful_stop_recording(self, timeout_ms: int = 5000) -> bool:
+        """
+        优雅停止录制,等待AI分析完成
+
+        Args:
+            timeout_ms: 等待超时时间(毫秒),默认5000ms
+
+        Returns:
+            bool: 成功返回True
+        """
+        with self._lock:
+            if self._current_session is None:
+                self.logger.warning("No active recording session")
+                return False
+
+            if self._api is None:
+                self.logger.error("Recorder API not initialized")
+                return False
+
+            try:
+                self.logger.info(f"Gracefully stopping recording (timeout={timeout_ms}ms)...")
+                
+                # 调用优雅停止
+                self._api.graceful_stop(timeout_ms)
+
+                # 更新会话
+                self._current_session.end_time = datetime.now()
+
+                # 更新统计信息
+                stats = self._api.stats
+                if hasattr(stats, 'to_dict'):
+                    self._current_session.stats = stats.to_dict()
+                else:
+                    self._current_session.stats = {
+                        "frame_count": getattr(stats, 'frame_count', 0),
+                        "encoded_count": getattr(stats, 'encoded_count', 0),
+                        "dropped_count": getattr(stats, 'dropped_count', 0),
+                        "file_size": getattr(stats, 'output_file_size', 0),
+                    }
+
+                session_info = self._current_session.to_dict()
+                self.logger.info(f"Recording gracefully stopped: {self._current_session.output_path}")
+
+                # 清空会话
+                self._current_session = None
+
+                return True
+
+            except Exception as e:
+                self.logger.error(f"Error gracefully stopping recording: {e}")
+                return False
 
     def get_recording_info(self) -> Dict[str, Any]:
         """

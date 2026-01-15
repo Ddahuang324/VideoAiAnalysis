@@ -32,8 +32,18 @@ std::vector<float> DataConverter::matToTensor(const cv::Mat& image, const cv::Si
     cv::Mat resized;
     cv::resize(image, resized, targetSize);
 
+    // Ensure 3 channels (convert grayscale to BGR if needed)
+    cv::Mat rgb;
+    if (resized.channels() == 1) {
+        cv::cvtColor(resized, rgb, cv::COLOR_GRAY2BGR);
+    } else if (resized.channels() == 4) {
+        cv::cvtColor(resized, rgb, cv::COLOR_BGRA2BGR);
+    } else {
+        rgb = resized;
+    }
+
     cv::Mat floatImage;
-    resized.convertTo(floatImage, CV_32FC3);
+    rgb.convertTo(floatImage, CV_32FC3);
 
     // Normalize to [0, 1]
     if (normalize) {
@@ -86,8 +96,18 @@ cv::Mat DataConverter::preprocessImage(const cv::Mat& image, const cv::Size& tar
     cv::Mat resized;
     cv::resize(image, resized, targetSize);
 
+    // Ensure 3 channels before float conversion
+    cv::Mat rgb;
+    if (resized.channels() == 1) {
+        cv::cvtColor(resized, rgb, cv::COLOR_GRAY2BGR);
+    } else if (resized.channels() == 4) {
+        cv::cvtColor(resized, rgb, cv::COLOR_BGRA2BGR);
+    } else {
+        rgb = resized;
+    }
+
     cv::Mat floatImage;
-    resized.convertTo(floatImage, CV_32FC3);
+    rgb.convertTo(floatImage, CV_32FC3);
 
     if (normalize) {
         floatImage /= 255.0f;
@@ -160,9 +180,19 @@ std::vector<float> DataConverter::matToTensorLetterbox(const cv::Mat& image,
         return {};
     }
 
+    // Ensure 3 channels (convert grayscale to BGR if needed)
+    cv::Mat rgb;
+    if (letterboxed.channels() == 1) {
+        cv::cvtColor(letterboxed, rgb, cv::COLOR_GRAY2BGR);
+    } else if (letterboxed.channels() == 4) {
+        cv::cvtColor(letterboxed, rgb, cv::COLOR_BGRA2BGR);
+    } else {
+        rgb = letterboxed;
+    }
+
     // Convert to float
     cv::Mat floatImage;
-    letterboxed.convertTo(floatImage, CV_32FC3);
+    rgb.convertTo(floatImage, CV_32FC3);
 
     // Normalize
     if (normalize) {

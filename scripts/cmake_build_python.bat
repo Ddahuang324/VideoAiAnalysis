@@ -4,4 +4,4 @@ set "SCRIPT_DIR=%~dp0"
 set "PROJECT_ROOT=%SCRIPT_DIR%.."
 
 call "D:\Visual Studio\VC\Auxiliary\Build\vcvars64.bat"
-cmake --build "%PROJECT_ROOT%\build" --target video_analysis_cpp --config Debug
+cmake --build "%PROJECT_ROOT%\build" --target python_bindings --config Debug

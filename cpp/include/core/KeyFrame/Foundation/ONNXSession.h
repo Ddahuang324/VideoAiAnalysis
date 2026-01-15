@@ -10,7 +10,6 @@
 #include "core/Config/UnifiedConfig.h"
 #include "onnxruntime_cxx_api.h"
 
-
 namespace KeyFrame {
 
 // 使用统一配置系统的类型别名
@@ -47,7 +46,8 @@ public:
 private:
     void extractMetadata();
     std::string extractModelName(const std::string& path);
-    std::vector<Ort::Value> createInputTensors(const std::vector<std::vector<float>>& inputs);
+    std::vector<Ort::Value> createInputTensors(const std::vector<std::vector<float>>& inputs,
+                                               std::vector<std::vector<int64_t>>& outShapes);
     std::vector<Ort::Value> createInputTensors(
         const std::vector<std::vector<float>>& inputs,
         const std::vector<std::vector<int64_t>>& explicitShapes);

@@ -64,6 +64,23 @@ void bind_analyzer_types(py::module& m) {
                    ">";
         });
 
+    // 绑定 AnalysisMode 枚举
+    py::enum_<AnalysisMode>(m, "AnalysisMode", py::arithmetic(),
+                            "分析模式枚举\n\n"
+                            "REALTIME: ZMQ实时传输，适合SNAPSHOT模式（1FPS）\n"
+                            "OFFLINE: 离线分析，适合VIDEO模式或批量处理")
+        .value("REALTIME", AnalysisMode::REALTIME, "实时分析模式")
+        .value("OFFLINE", AnalysisMode::OFFLINE, "离线分析模式")
+        .export_values()
+        .def("__str__",
+             [](AnalysisMode mode) {
+                 return mode == AnalysisMode::REALTIME ? "REALTIME" : "OFFLINE";
+             })
+        .def("__repr__", [](AnalysisMode mode) {
+            return "<AnalysisMode." +
+                   std::string(mode == AnalysisMode::REALTIME ? "REALTIME" : "OFFLINE") + ">";
+        });
+
     // 绑定 KeyFrameRecord
     py::class_<KeyFrameRecord>(m, "KeyFrameRecord", "关键帧记录")
         .def(py::init<>(), "默认构造函数")

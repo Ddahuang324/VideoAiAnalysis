@@ -11,7 +11,7 @@
   },
   "models": {
     "basePath": "Models",
-    "sceneModelPath": "mobilenet_v3_small.onnx",
+    "sceneModelPath": "MobileNet-v3-Small.onnx",
     "motionModelPath": "yolov8n.onnx",
     "textDetModelPath": "ch_PP-OCRv4_det_infer.onnx",
     "textRecModelPath": "ch_PP-OCRv4_rec_infer.onnx"
@@ -42,8 +42,8 @@
     "detThreshold": 0.3,
     "recThreshold": 0.5,
     "enableRecognition": false,
-    "alpha": 0.6,
-    "beta": 0.4
+    "alpha": 0.4,
+    "beta": 0.6
   },
   "dynamicCalculator": {
     "baseWeights": [
@@ -52,7 +52,7 @@
       0.35
     ],
     "currentFrameWeight": 0.3,
-    "activationInfluence": 0.5,
+    "activationInfluence": 0.8,
     "historyWindowSize": 30,
     "minWeight": 0.05,
     "maxWeight": 0.7
@@ -73,7 +73,7 @@
     "maxKeyFrameCount": 500,
     "minTemporalDistance": 1.0,
     "useThresholdMode": true,
-    "highQualityThreshold": 0.75,
+    "highQualityThreshold": 0.7,
     "minScoreThreshold": 0.3,
     "alwaysIncludeSceneChanges": true
   },

@@ -23,12 +23,20 @@ public:
     // 回调函数
     StatusCallback statusCallback_;
     KeyFrameCallback keyFrameCallback_;
+    KeyFrameVideoCallback keyFrameVideoCallback_;
+
+    // 分析模式管理
+    AnalysisMode analysisMode_ = AnalysisMode::REALTIME;
+    bool realtimeRunning_ = false;
 
     void updateStatus(AnalysisStatus s) {
         std::lock_guard<std::mutex> lock(mutex_);
-        status_ = s;
+        updateStatusUnlocked(s);
+    }
 
-        // 触发状态回调
+    // 不加锁版本，供已持有锁的函数调用
+    void updateStatusUnlocked(AnalysisStatus s) {
+        status_ = s;
         if (statusCallback_) {
             statusCallback_(s);
         }
@@ -68,6 +76,23 @@ bool AnalyzerAPI::start() {
     if (!impl_->service_->start()) {
         impl_->updateStatus(AnalysisStatus::ERROR);
         impl_->lastError_ = "Failed to start analyzer service";
+        LOG_ERROR(impl_->lastError_);
+        return false;
+    }
+    return true;
+}
+
+bool AnalyzerAPI::analyzeVideoFile(const std::string& filePath) {
+    if (!impl_->service_) {
+        LOG_ERROR("Cannot start File Analysis: Not initialized");
+        return false;
+    }
+
+    impl_->updateStatus(AnalysisStatus::RUNNING);
+    LOG_INFO("Starting Offline Video Analysis for: " + filePath);
+    if (!impl_->service_->analyzeVideoFile(filePath)) {
+        impl_->updateStatus(AnalysisStatus::ERROR);
+        impl_->lastError_ = "Failed to start offline video analysis";
         LOG_ERROR(impl_->lastError_);
         return false;
     }
@@ -147,6 +172,87 @@ void AnalyzerAPI::setKeyFrameCallback(KeyFrameCallback callback) {
 
     // 注意: KeyFrameAnalyzerService 目前没有提供回调接口
     // 回调函数已保存,可在 getStats() 中主动轮询最新关键帧来触发
+}
+
+void AnalyzerAPI::setKeyFrameVideoCallback(KeyFrameVideoCallback callback) {
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    impl_->keyFrameVideoCallback_ = callback;
+
+    // Wire the callback to the service
+    if (impl_->service_) {
+        impl_->service_->setKeyFrameVideoCallback([callback](const std::string& videoPath) {
+            if (callback) {
+                callback(videoPath);
+            }
+        });
+    }
+}
+
+// 实时分析控制（适合SNAPSHOT模式）
+bool AnalyzerAPI::startRealtimeAnalysis() {
+    if (!impl_->service_) {
+        LOG_ERROR("AnalyzerAPI not initialized");
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+    if (impl_->realtimeRunning_) {
+        LOG_WARN("Realtime analysis already running");
+        return true;
+    }
+
+    // 启动ZMQ接收和分析线程（使用不加锁版本避免死锁）
+    impl_->updateStatusUnlocked(AnalysisStatus::RUNNING);
+    LOG_INFO("Starting realtime analysis (ZMQ receive + analysis)...");
+
+    if (impl_->service_->start()) {
+        impl_->realtimeRunning_ = true;
+        impl_->analysisMode_ = AnalysisMode::REALTIME;
+        LOG_INFO("✅ Realtime analysis started");
+        return true;
+    }
+
+    impl_->updateStatusUnlocked(AnalysisStatus::ERROR);
+    impl_->lastError_ = "Failed to start realtime analysis";
+    LOG_ERROR(impl_->lastError_);
+    return false;
+}
+
+void AnalyzerAPI::stopRealtimeAnalysis() {
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+    if (!impl_->realtimeRunning_) {
+        return;
+    }
+
+    LOG_INFO("Stopping realtime analysis...");
+    impl_->updateStatusUnlocked(AnalysisStatus::STOPPING);
+
+    if (impl_->service_) {
+        impl_->service_->stop();
+    }
+
+    impl_->realtimeRunning_ = false;
+    impl_->updateStatusUnlocked(AnalysisStatus::IDLE);
+    LOG_INFO("⏸️ Realtime analysis stopped");
+}
+
+bool AnalyzerAPI::isRealtimeMode() const {
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    return impl_->realtimeRunning_;
+}
+
+void AnalyzerAPI::setAnalysisMode(AnalysisMode mode) {
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    impl_->analysisMode_ = mode;
+    LOG_INFO(std::string("Analysis mode set to: ") +
+             (mode == AnalysisMode::REALTIME ? "REALTIME" : "OFFLINE"));
+}
+
+AnalysisMode AnalyzerAPI::getAnalysisMode() const {
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    return impl_->analysisMode_;
 }
 
 }  // namespace Analyzer

@@ -1,9 +1,11 @@
 #include "Process/Recorder/RecorderAPI.h"
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <string>
 
+#include "Infra/Log.h"
 #include "core/ScreenRecorder/ScreenRecorder.h"
 
 namespace Recorder {
@@ -12,6 +14,7 @@ struct RecorderAPI::Impl {
     std::unique_ptr<ScreenRecorder> recorder_;
     RecorderConfig config_;
     RecordingStatus status_ = RecordingStatus::IDLE;
+    RecorderMode recordingMode_ = RecorderMode::VIDEO;  // 默认为视频模式
     std::chrono::steady_clock::time_point startTime_;
     std::string lastError_;
     StatusCallBack statusCallback_;
@@ -41,12 +44,27 @@ bool RecorderAPI::start() {
     // 从 config 获取路径
     std::string path = impl_->config_.video.outputFilePath;
 
+    // 确保录制模式在启动前被设置
+    impl_->recorder_->setRecorderMode(impl_->recordingMode_);
+
     if (impl_->recorder_->startRecording(path)) {
         impl_->status_ = RecordingStatus::RECORDING;
         impl_->startTime_ = std::chrono::steady_clock::now();
 
         // 自动启动发布
         impl_->recorder_->startPublishing();
+
+        // SNAPSHOT 模式下，开启实时关键帧接收与编码
+        if (impl_->recordingMode_ == RecorderMode::SNAPSHOT) {
+            std::filesystem::path p(path);
+            std::string kfPath =
+                (p.parent_path() / (p.stem().string() + "_keyframes" + p.extension().string()))
+                    .string();
+            LOG_INFO("SNAPSHOT mode: Starting real-time keyframe receiving to " + kfPath);
+            if (!impl_->recorder_->startKeyFrameMetaDataReceiving(kfPath)) {
+                LOG_ERROR("Failed to start real-time keyframe receiving");
+            }
+        }
 
         // 调用状态回调
         if (impl_->statusCallback_) {
@@ -117,6 +135,28 @@ bool RecorderAPI::stop() {
     return true;
 }
 
+bool RecorderAPI::gracefulStop(int timeoutMs) {
+    if (impl_->recorder_) {
+        impl_->status_ = RecordingStatus::STOPPING;
+
+        // 调用状态回调
+        if (impl_->statusCallback_) {
+            impl_->statusCallback_(RecordingStatus::STOPPING);
+        }
+
+        // 调用优雅停止,等待AI分析完成
+        impl_->recorder_->gracefulStop(timeoutMs);
+
+        impl_->status_ = RecordingStatus::IDLE;
+
+        // 调用状态回调
+        if (impl_->statusCallback_) {
+            impl_->statusCallback_(impl_->status_);
+        }
+    }
+    return true;
+}
+
 void RecorderAPI::shutdown() {
     stop();
     impl_->recorder_.reset();
@@ -151,6 +191,17 @@ void RecorderAPI::setStatusCallback(StatusCallBack callback) {
 
 void RecorderAPI::setErrorCallback(ErrorCallBack callback) {
     impl_->errorCallback_ = callback;
+}
+
+void RecorderAPI::setRecordingMode(RecorderMode mode) {
+    impl_->recordingMode_ = mode;
+    if (impl_->recorder_) {
+        impl_->recorder_->setRecorderMode(mode);
+    }
+}
+
+RecorderMode RecorderAPI::getRecordingMode() const {
+    return impl_->recordingMode_;
 }
 
 }  // namespace Recorder

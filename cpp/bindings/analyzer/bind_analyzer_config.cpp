@@ -3,6 +3,7 @@
  * @brief AnalyzerConfig 及相关配置类的 Python 绑定
  */
 
+#include <pybind11/attr.h>
 #include <pybind11/cast.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -19,8 +20,8 @@ namespace Analyzer::Bindings {
 void bind_analyzer_config(py::module& m) {
     using namespace Config;
 
-    // 绑定 ZMQConfig
-    py::class_<ZMQConfig>(m, "ZMQConfig", "ZMQ 通信配置")
+    // 绑定 ZMQConfig (使用 module_local 避免与 recorder_module 冲突)
+    py::class_<ZMQConfig>(m, "ZMQConfig", py::module_local(), "ZMQ 通信配置")
         .def(py::init<>())
         .def_readwrite("endpoint", &ZMQConfig::endpoint, "ZMQ 端点地址")
         .def_readwrite("timeout_ms", &ZMQConfig::timeoutMs, "超时时间 (毫秒)")
@@ -204,7 +205,7 @@ void bind_analyzer_config(py::module& m) {
 
             // 模型路径
             config.models.basePath = "Models";
-            config.models.sceneModelPath = "scene_model.onnx";
+            config.models.sceneModelPath = "MobileNet-v3-Small.onnx";
             config.models.motionModelPath = "yolov8n.onnx";
 
             // 文本识别

@@ -80,6 +80,7 @@ class AnalyzerService:
         self._status_callbacks = []
         self._keyframe_callbacks = []
         self._error_callbacks = []
+        self._keyframe_video_callbacks = []
 
         # 状态锁
         self._lock = threading.Lock()
@@ -90,6 +91,10 @@ class AnalyzerService:
             "motion": {"enabled": True, "threshold": 0.5},
             "text": {"enabled": False, "threshold": 0.7}
         }
+
+        # 实时分析模式状态
+        self._realtime_running = False
+        self._analysis_mode = None  # 将在导入模块后设置
 
     def initialize(self, config=None) -> bool:
         """
@@ -110,8 +115,15 @@ class AnalyzerService:
 
             # 创建API实例
             if config is None:
-                # 使用默认配置
-                config = self._analyzer_module.default_analyzer_config()
+                # 从配置文件加载配置
+                config = self._analyzer_module.AnalyzerConfig()
+                config_path = "configs/analyzer_config.json"
+                try:
+                    config.load_from_file(config_path)
+                    self.logger.info(f"Loaded analyzer config from {config_path}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to load config from {config_path}: {e}, using default config")
+                    config = self._analyzer_module.default_analyzer_config()
 
             self._api = self.module_manager.create_analyzer_api(config)
             if self._api is None:
@@ -202,6 +214,17 @@ class AnalyzerService:
         self._api.set_status_callback(on_status_change)
         self._api.set_keyframe_callback(on_keyframe)
 
+        def on_keyframe_video(video_path):
+            """处理关键帧视频生成"""
+            self.logger.info(f"Keyframe video generated: {video_path}")
+            for callback in self._keyframe_video_callbacks:
+                try:
+                    callback(video_path)
+                except Exception as e:
+                    self.logger.error(f"Error in keyframe video callback: {e}")
+
+        self._api.set_keyframe_video_callback(on_keyframe_video)
+
     def _detect_detector_type(self, data: Dict[str, Any]) -> str:
         """根据数据推断检测器类型"""
         # 这里可以根据实际数据结构判断
@@ -210,7 +233,7 @@ class AnalyzerService:
 
     def start_analysis(self) -> bool:
         """
-        开始分析
+        开始实时分析 (ZMQ 订阅模式)
 
         Returns:
             bool: 成功返回True
@@ -229,14 +252,15 @@ class AnalyzerService:
                 import uuid
                 self._current_session = AnalysisSession(
                     session_id=str(uuid.uuid4()),
-                    start_time=datetime.now()
+                    start_time=datetime.now(),
+                    stats={"mode": "realtime"}
                 )
 
                 # 启动分析
                 result = self._api.start()
 
                 if result:
-                    self.logger.info("Analysis started")
+                    self.logger.info("Real-time analysis started")
                     return True
                 else:
                     self.logger.error(f"Failed to start analysis: {self._api.last_error}")
@@ -245,6 +269,50 @@ class AnalyzerService:
 
             except Exception as e:
                 self.logger.error(f"Error starting analysis: {e}")
+                self._current_session = None
+                return False
+
+    def start_file_analysis(self, file_path: str) -> bool:
+        """
+        开始视频文件分析 (离线模式)
+
+        Args:
+            file_path: 视频文件的绝对路径
+
+        Returns:
+            bool: 成功启动返回True
+        """
+        with self._lock:
+            if self._current_session is not None:
+                self.logger.warning("Analysis already in progress")
+                return False
+
+            if self._api is None:
+                self.logger.error("Analyzer API not initialized")
+                return False
+
+            try:
+                # 创建新会话
+                import uuid
+                self._current_session = AnalysisSession(
+                    session_id=str(uuid.uuid4()),
+                    start_time=datetime.now(),
+                    stats={"mode": "offline", "file_path": file_path}
+                )
+
+                # 调用底层 C++ 离线分析接口
+                result = self._api.analyze_video_file(file_path)
+
+                if result:
+                    self.logger.info(f"Offline file analysis started: {file_path}")
+                    return True
+                else:
+                    self.logger.error(f"Failed to start file analysis: {self._api.last_error}")
+                    self._current_session = None
+                    return False
+
+            except Exception as e:
+                self.logger.error(f"Error starting file analysis: {e}")
                 self._current_session = None
                 return False
 
@@ -379,6 +447,11 @@ class AnalyzerService:
         if callback not in self._error_callbacks:
             self._error_callbacks.append(callback)
 
+    def set_keyframe_video_callback(self, callback: Callable):
+        """设置关键帧视频生成回调"""
+        if callback not in self._keyframe_video_callbacks:
+            self._keyframe_video_callbacks.append(callback)
+
     def set_detector_config(self, detector: str, enabled: bool = None, threshold: float = None):
         """
         设置检测器配置
@@ -411,6 +484,81 @@ class AnalyzerService:
             dict: 检测器配置
         """
         return self._detector_config.get(detector, {}).copy()
+
+    def start_realtime_analysis(self) -> bool:
+        """
+        启动实时分析（ZMQ接收+分析）
+        
+        适合SNAPSHOT模式（1FPS），启动ZMQ帧接收和实时分析线程。
+        
+        Returns:
+            bool: 成功返回True
+        """
+        with self._lock:
+            if self._realtime_running:
+                self.logger.warning("Realtime analysis already running")
+                return True
+
+            if self._api is None:
+                self.logger.error("Analyzer API not initialized")
+                return False
+
+            try:
+                result = self._api.start_realtime_analysis()
+                
+                if result:
+                    self._realtime_running = True
+                    if self._analyzer_module and hasattr(self._analyzer_module, 'AnalysisMode'):
+                        self._analysis_mode = self._analyzer_module.AnalysisMode.REALTIME
+                    self.logger.info("✅ Realtime analysis started")
+                    return True
+                else:
+                    self.logger.error(f"Failed to start realtime analysis: {self._api.last_error}")
+                    return False
+
+            except Exception as e:
+                self.logger.error(f"Error starting realtime analysis: {e}")
+                return False
+
+    def stop_realtime_analysis(self):
+        """
+        停止实时分析
+        
+        停止ZMQ接收和分析线程。
+        """
+        with self._lock:
+            if not self._realtime_running:
+                return
+
+            if self._api is None:
+                return
+
+            try:
+                self._api.stop_realtime_analysis()
+                self._realtime_running = False
+                self.logger.info("⏸️ Realtime analysis stopped")
+
+            except Exception as e:
+                self.logger.error(f"Error stopping realtime analysis: {e}")
+
+    def is_realtime_mode(self) -> bool:
+        """
+        检查是否处于实时分析模式
+        
+        Returns:
+            bool: 实时模式返回True
+        """
+        return self._realtime_running
+
+    @property
+    def analysis_mode(self):
+        """获取当前分析模式"""
+        if self._api and hasattr(self._api, 'get_analysis_mode'):
+            try:
+                return self._api.get_analysis_mode()
+            except:
+                pass
+        return self._analysis_mode
 
     def shutdown(self):
         """关闭分析服务"""

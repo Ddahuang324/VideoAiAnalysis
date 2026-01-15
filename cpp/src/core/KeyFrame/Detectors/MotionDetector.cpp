@@ -112,7 +112,9 @@ float MotionDetector::calculatePixelMotion(const cv::Mat& frame) {
 
     // Convert to grayscale
     cv::Mat gray;
-    if (smallFrame.channels() == 3) {
+    if (smallFrame.channels() == 4) {
+        cv::cvtColor(smallFrame, gray, cv::COLOR_BGRA2GRAY);
+    } else if (smallFrame.channels() == 3) {
         cv::cvtColor(smallFrame, gray, cv::COLOR_BGR2GRAY);
     } else {
         gray = smallFrame.clone();
@@ -198,12 +200,12 @@ std::vector<MotionDetector::Detection> MotionDetector::postprocessDetections(
     }
 
     constexpr int NUM_CLASSES = 80;
-    constexpr int NUM_PROPOSALS = 8400;
-    const size_t expectedSize = static_cast<size_t>(NUM_CLASSES + 4) * NUM_PROPOSALS;
+    const size_t totalElements = outputs[0].size();
+    const int channels = NUM_CLASSES + 4;
+    const int numProposals = static_cast<int>(totalElements / channels);
 
-    if (outputs[0].size() < expectedSize) {
-        LOG_ERROR("[MotionDetector] Output size mismatch. Expected: " +
-                  std::to_string(expectedSize) + ", Got: " + std::to_string(outputs[0].size()));
+    if (numProposals <= 0 || totalElements % channels != 0) {
+        LOG_ERROR("[MotionDetector] Invalid output size " + std::to_string(totalElements));
         return {};
     }
 
@@ -213,13 +215,17 @@ std::vector<MotionDetector::Detection> MotionDetector::postprocessDetections(
 
     const float* output = outputs[0].data();
 
-    for (int i = 0; i < NUM_PROPOSALS; ++i) {
+    for (int i = 0; i < numProposals; ++i) {
         // Find max class score
         float maxScore = 0.0f;
         int maxClassId = 0;
 
         for (int c = 0; c < NUM_CLASSES; ++c) {
-            float score = output[(4 + c) * NUM_PROPOSALS + i];
+            size_t idx = static_cast<size_t>(4 + c) * numProposals + i;
+            if (idx >= totalElements) {
+                continue;  // Safety break
+            }
+            float score = output[idx];
             if (score > maxScore) {
                 maxScore = score;
                 maxClassId = c;
@@ -231,10 +237,10 @@ std::vector<MotionDetector::Detection> MotionDetector::postprocessDetections(
         }
 
         // Extract box coordinates
-        float cx = output[0 * NUM_PROPOSALS + i];
-        float cy = output[1 * NUM_PROPOSALS + i];
-        float w = output[2 * NUM_PROPOSALS + i];
-        float h = output[3 * NUM_PROPOSALS + i];
+        float cx = output[0 * numProposals + i];
+        float cy = output[1 * numProposals + i];
+        float w = output[2 * numProposals + i];
+        float h = output[3 * numProposals + i];
 
         int x = static_cast<int>(cx - w / 2);
         int y = static_cast<int>(cy - h / 2);

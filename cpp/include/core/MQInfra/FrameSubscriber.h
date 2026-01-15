@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -23,14 +24,17 @@ public:
     bool initialize(const Config::ZMQConfig& config);
 
     std::optional<Protocol::FrameMessage> receiveFrame(int timeout_ms = 100);
+    Protocol::ReceiveResult receive(int timeout_ms = 100);
 
     SubscriberStats getStats() const;
     void shutdown();
+    bool isShutdown() const { return shutdown_.load(); }
 
 private:
     zmq::context_t context_;
     zmq::socket_t subscriber_;
     SubscriberStats stats_{0, 0, 0.0};
+    std::atomic<bool> shutdown_{false};
 };
 
 }  // namespace MQInfra

@@ -41,6 +41,24 @@ bool FramePublisher::publishRaw(const Protocol::FrameHeader& header, const void*
     return true;
 }
 
+bool FramePublisher::sendStopSignal(uint32_t lastFrameId) {
+    Protocol::StopSignalHeader header;
+    header.lastFrameId = lastFrameId;
+    // Magic num is set by default constructor
+
+    zmq::message_t msg(sizeof(header));
+    std::memcpy(msg.data(), &header, sizeof(header));
+
+    try {
+        publisher_.send(msg, zmq::send_flags::none);
+        LOG_INFO("Sent STOP_SIGNAL with lastFrameId: " + std::to_string(lastFrameId));
+        return true;
+    } catch (const zmq::error_t& e) {
+        LOG_ERROR("Failed to send STOP_SIGNAL: " + std::string(e.what()));
+        return false;
+    }
+}
+
 PublisherStats FramePublisher::getStats() const {
     return stats_;
 }

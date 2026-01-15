@@ -1,6 +1,15 @@
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+
 #include "core/Config/UnifiedConfig.h"
+#include "core/ScreenRecorder/ScreenRecorder.h"  // For RecorderMode
 
 namespace Recorder {
+
+// 导出 RecorderMode 枚举供外部使用
+using RecorderMode = ::RecorderMode;
 
 enum class RecordingStatus { IDLE, INITIALIZING, RECORDING, PAUSED, STOPPING, ERROR };
 
@@ -26,6 +35,7 @@ public:
     bool pause();
     bool resume();
     bool stop();
+    bool gracefulStop(int timeoutMs = 5000);  // 优雅停止,等待AI分析完成
     void shutdown();
 
     RecordingStatus getStatus() const;
@@ -37,6 +47,10 @@ public:
 
     void setStatusCallback(StatusCallBack callback);
     void setErrorCallback(ErrorCallBack callback);
+
+    // 设置录制模式 (VIDEO 或 SNAPSHOT)
+    void setRecordingMode(RecorderMode mode);
+    RecorderMode getRecordingMode() const;
 
 private:
     struct Impl;

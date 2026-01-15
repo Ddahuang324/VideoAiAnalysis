@@ -13,6 +13,12 @@ namespace Analyzer {
 // 分析状态枚举
 enum class AnalysisStatus { IDLE, INITIALIZING, RUNNING, STOPPING, ERROR };
 
+// 分析模式枚举
+enum class AnalysisMode {
+    REALTIME,  // ZMQ实时传输，适合SNAPSHOT模式（1FPS）
+    OFFLINE    // 离线分析，适合VIDEO模式或批量处理
+};
+
 // 关键帧简要记录
 struct KeyFrameRecord {
     int64_t frameIndex;
@@ -53,6 +59,9 @@ public:
 
     bool start();
 
+    // 异步启动视频文件离线分析
+    bool analyzeVideoFile(const std::string& filePath);
+
     bool stop();
 
     void shutdown();
@@ -72,6 +81,22 @@ public:
     void setStatusCallback(StatusCallback callback);
 
     void setKeyFrameCallback(KeyFrameCallback callback);
+
+    using KeyFrameVideoCallback = std::function<void(const std::string& videoPath)>;
+
+    void setKeyFrameVideoCallback(KeyFrameVideoCallback callback);
+
+    // 实时分析控制（适合SNAPSHOT模式）
+    bool startRealtimeAnalysis();
+
+    void stopRealtimeAnalysis();
+
+    bool isRealtimeMode() const;
+
+    // 分析模式管理
+    void setAnalysisMode(AnalysisMode mode);
+
+    AnalysisMode getAnalysisMode() const;
 
 private:
     class Impl;

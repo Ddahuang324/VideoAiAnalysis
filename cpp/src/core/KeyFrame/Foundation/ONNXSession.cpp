@@ -106,7 +106,8 @@ std::string ONNXSession::extractModelName(const std::string& path) {
 // ========== Inference (No Buffer) ==========
 
 std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<float>>& inputs) {
-    auto inputTensors = createInputTensors(inputs);
+    std::vector<std::vector<int64_t>> actualInputShapes;
+    auto inputTensors = createInputTensors(inputs, actualInputShapes);
 
     std::vector<const char*> inputNames;
     for (const auto& name : inputNodeNames_) {
@@ -129,7 +130,8 @@ std::vector<std::vector<float>> ONNXSession::run(const std::vector<std::vector<f
 
 std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vector<float>>& inputs,
                                                       TensorBuffer& outputBuffer) {
-    auto inputTensors = createInputTensors(inputs);
+    std::vector<std::vector<int64_t>> actualInputShapes;
+    auto inputTensors = createInputTensors(inputs, actualInputShapes);
 
     // Infer batch size from first input
     int64_t currentBatchSize = 1;
@@ -148,10 +150,44 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(const std::vector<std::vec
     for (const auto& name : outputNodeNames_)
         outputNames.push_back(name.c_str());
 
-    // Allocate output tensors directly in buffer
+    // Check if we can pre-allocate outputs
+    bool canPreAllocate = true;
+    for (const auto& shape : outputShapes_) {
+        for (size_t j = 1; j < shape.size(); ++j) {
+            if (shape[j] <= 0) {
+                canPreAllocate = false;
+                break;
+            }
+        }
+        if (!canPreAllocate)
+            break;
+    }
+
+    if (!canPreAllocate) {
+        // Let ORT allocate for dynamic shapes
+        auto outputTensors =
+            session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(),
+                          inputTensors.size(), outputNames.data(), outputNames.size());
+
+        std::vector<OutputInfo> outputInfos;
+        for (auto& tensor : outputTensors) {
+            auto info = tensor.GetTensorTypeAndShapeInfo();
+            size_t elementCount = info.GetElementCount();
+
+            float* ptr = outputBuffer.allocate(elementCount);
+            float* tensorData = tensor.GetTensorMutableData<float>();
+
+            std::copy(tensorData, tensorData + elementCount, ptr);
+            outputInfos.push_back({ptr, elementCount});
+        }
+        return outputInfos;
+    }
+
+    // Pre-allocate outputs in buffer
     std::vector<Ort::Value> outputTensors;
     std::vector<OutputInfo> outputInfos;
     std::vector<std::vector<int64_t>> actualOutputShapes;
+    actualOutputShapes.reserve(outputShapes_.size());
 
     for (size_t i = 0; i < outputShapes_.size(); ++i) {
         std::vector<int64_t> shape = outputShapes_[i];
@@ -228,6 +264,7 @@ std::vector<ONNXSession::OutputInfo> ONNXSession::run(
     std::vector<Ort::Value> outputTensors;
     std::vector<OutputInfo> outputInfos;
     std::vector<std::vector<int64_t>> actualOutputShapes;
+    actualOutputShapes.reserve(outputShapes_.size());
 
     for (size_t i = 0; i < outputShapes_.size(); ++i) {
         std::vector<int64_t> shape = outputShapes_[i];
@@ -268,10 +305,16 @@ std::vector<int64_t> ONNXSession::getOutputShape(size_t index) const {
 // ========== Input Tensor Creation ==========
 
 std::vector<Ort::Value> ONNXSession::createInputTensors(
-    const std::vector<std::vector<float>>& inputs) {
+    const std::vector<std::vector<float>>& inputs, std::vector<std::vector<int64_t>>& outShapes) {
     std::vector<Ort::Value> tensors;
+    outShapes.reserve(inputs.size());
 
     for (size_t i = 0; i < inputs.size(); ++i) {
+        if (i >= inputShapes_.size()) {
+            LOG_ERROR("[ONNXSession] Input index " + std::to_string(i) +
+                      " exceeds model input count " + std::to_string(inputShapes_.size()));
+            break;
+        }
         const auto& data = inputs[i];
         std::vector<int64_t> actualShape = inputShapes_[i];
 
@@ -286,9 +329,11 @@ std::vector<Ort::Value> ONNXSession::createInputTensors(
             (staticElements > 0) ? static_cast<int64_t>(data.size() / staticElements) : 1;
         computeShapeAndCount(actualShape, dynamicValue);
 
-        tensors.push_back(
-            Ort::Value::CreateTensor<float>(memoryInfo_, const_cast<float*>(data.data()),
-                                            data.size(), actualShape.data(), actualShape.size()));
+        outShapes.push_back(actualShape);
+
+        tensors.push_back(Ort::Value::CreateTensor<float>(
+            memoryInfo_, const_cast<float*>(data.data()), data.size(), outShapes.back().data(),
+            outShapes.back().size()));
     }
 
     return tensors;
@@ -300,6 +345,11 @@ std::vector<Ort::Value> ONNXSession::createInputTensors(
     std::vector<Ort::Value> tensors;
 
     for (size_t i = 0; i < inputs.size(); ++i) {
+        if (i >= explicitShapes.size()) {
+            LOG_ERROR("[ONNXSession] Input index " + std::to_string(i) +
+                      " exceeds explicitShapes count " + std::to_string(explicitShapes.size()));
+            break;
+        }
         const auto& data = inputs[i];
         const std::vector<int64_t>& actualShape = explicitShapes[i];
 

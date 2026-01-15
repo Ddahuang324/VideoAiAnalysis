@@ -33,6 +33,17 @@ std::optional<Protocol::FrameMessage> FrameSubscriber::receiveFrame(int timeout_
     }
 
     stats_.total_received_frames += 1;
+    stats_.total_received_frames += 1;
+    return result;
+}
+
+Protocol::ReceiveResult FrameSubscriber::receive(int timeout_ms) {
+    auto result = Protocol::receiveMessage(subscriber_, timeout_ms);
+    if (result.type == Protocol::ReceiveResult::Type::Frame) {
+        stats_.total_received_frames += 1;
+    } else if (result.type == Protocol::ReceiveResult::Type::None) {
+        stats_.timeout_count += 1;
+    }
     return result;
 }
 
@@ -41,6 +52,7 @@ SubscriberStats FrameSubscriber::getStats() const {
 }
 
 void FrameSubscriber::shutdown() {
+    shutdown_.store(true);
     subscriber_.close();
     context_.close();
 }

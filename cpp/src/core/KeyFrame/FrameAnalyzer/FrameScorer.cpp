@@ -1,6 +1,7 @@
 #include "FrameScorer.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,6 +31,11 @@ float FrameScorer::FuseScores(const MultiDimensionScore& scores,
         appliedWeights = {0.45f, 0.2f, 0.35f};  // Default weights
     }
 
+    if (appliedWeights.size() < 3) {
+        LOG_WARN("[FrameScorer] Weight vector size mismatch, using defaults");
+        appliedWeights = {0.45f, 0.2f, 0.35f};
+    }
+
     float finalScore = scores.sceneScore * appliedWeights[0] +
                        scores.motionScore * appliedWeights[1] +
                        scores.textScore * appliedWeights[2];
@@ -52,10 +58,18 @@ FrameScore FrameScorer::score(const MultiDimensionScore& scores, const AnalysisC
     float boosted = ApplyBoosts(fused, scores);
     result.finalscore = ApplyTemporalSmoothing(context.frameIndex, boosted);
 
-    // Record contributions for debugging
-    result.sceneContribution = scores.sceneScore * result.appliedWeights[0];
-    result.motionContribution = scores.motionScore * result.appliedWeights[1];
-    result.textContribution = scores.textScore * result.appliedWeights[2];
+    // Record contributions for debugging (with safety check)
+    if (result.appliedWeights.size() >= 3) {
+        result.sceneContribution = scores.sceneScore * result.appliedWeights[0];
+        result.motionContribution = scores.motionScore * result.appliedWeights[1];
+        result.textContribution = scores.textScore * result.appliedWeights[2];
+    } else {
+        LOG_ERROR("[FrameScorer] appliedWeights size is " +
+                  std::to_string(result.appliedWeights.size()) + ", expected 3");
+        result.sceneContribution = 0.0f;
+        result.motionContribution = 0.0f;
+        result.textContribution = 0.0f;
+    }
 
     return result;
 }

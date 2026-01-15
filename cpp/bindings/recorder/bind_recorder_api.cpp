@@ -20,26 +20,26 @@ namespace py = pybind11;
 
 namespace Recorder::Bindings {
 
-// GIL 管理辅助函数
-template <typename Func>
-Func wrap_callback_with_gil(Func callback) {
-    if (!callback) {
-        return nullptr;
-    }
-
-    return [callback](auto&&... args) {
-        py::gil_scoped_acquire gil;
-        try {
-            callback(std::forward<decltype(args)>(args)...);
-        } catch (const py::error_already_set& e) {
-            PyErr_Clear();
-            // TODO: 添加日志记录
-        }
-    };
+// 创建 GIL 安全的 shared_ptr<py::function>，析构时自动获取 GIL
+inline auto make_gil_safe_callback(py::function callback) {
+    return std::shared_ptr<py::function>(
+        new py::function(std::move(callback)),
+        [](py::function* p) {
+            if (p && Py_IsInitialized()) {
+                py::gil_scoped_acquire gil;
+                delete p;
+            }
+        });
 }
 
 void bind_recorder_api(py::module& m) {
     using namespace Recorder;
+
+    // 绑定 RecorderMode 枚举
+    py::enum_<RecorderMode>(m, "RecorderMode", "录制模式")
+        .value("VIDEO", RecorderMode::VIDEO, "视频模式（连续录制）")
+        .value("SNAPSHOT", RecorderMode::SNAPSHOT, "快照模式（单帧录制）")
+        .export_values();
 
     py::class_<RecorderAPI>(
         m, "RecorderAPI",
@@ -81,11 +81,20 @@ void bind_recorder_api(py::module& m) {
              "停止录制\n\n"
              "停止所有录制活动并刷新缓冲区。\n\n"
              "返回:\n"
-             "    bool: 成功返回 True，失败返回 False")
+             "    bool: 成功返回 True,失败返回 False")
+
+        .def("graceful_stop", &RecorderAPI::gracefulStop, py::arg("timeout_ms") = 5000,
+             py::call_guard<py::gil_scoped_release>(),
+             "优雅停止录制,等待AI分析完成\n\n"
+             "发送停止信号并等待分析器处理完所有帧后再关闭。\n\n"
+             "参数:\n"
+             "    timeout_ms (int): 等待超时时间(毫秒),默认5000ms\n\n"
+             "返回:\n"
+             "    bool: 成功返回 True,失败返回 False")
 
         .def("shutdown", &RecorderAPI::shutdown, py::call_guard<py::gil_scoped_release>(),
              "关闭录制器\n\n"
-             "释放所有资源，调用后需要重新 initialize() 才能使用。")
+             "释放所有资源,调用后需要重新 initialize() 才能使用。")
 
         // 状态查询
         .def("get_status", &RecorderAPI::getStatus,
@@ -107,10 +116,13 @@ void bind_recorder_api(py::module& m) {
         .def(
             "set_status_callback",
             [](RecorderAPI& api, py::function callback) {
-                using CallbackType = RecorderAPI::StatusCallBack;
-                auto wrapped = wrap_callback_with_gil<CallbackType>(
-                    [callback](RecordingStatus status) { callback(status); });
-                api.setStatusCallback(wrapped);
+                auto safeCallback = make_gil_safe_callback(std::move(callback));
+                api.setStatusCallback([safeCallback](RecordingStatus status) {
+                    if (Py_IsInitialized()) {
+                        py::gil_scoped_acquire gil;
+                        try { (*safeCallback)(status); } catch (const py::error_already_set&) { PyErr_Clear(); }
+                    }
+                });
             },
             py::arg("callback"),
             "设置状态变更回调\n\n"
@@ -123,10 +135,13 @@ void bind_recorder_api(py::module& m) {
         .def(
             "set_error_callback",
             [](RecorderAPI& api, py::function callback) {
-                using CallbackType = RecorderAPI::ErrorCallBack;
-                auto wrapped = wrap_callback_with_gil<CallbackType>(
-                    [callback](const std::string& error) { callback(error); });
-                api.setErrorCallback(wrapped);
+                auto safeCallback = make_gil_safe_callback(std::move(callback));
+                api.setErrorCallback([safeCallback](const std::string& error) {
+                    if (Py_IsInitialized()) {
+                        py::gil_scoped_acquire gil;
+                        try { (*safeCallback)(error); } catch (const py::error_already_set&) { PyErr_Clear(); }
+                    }
+                });
             },
             py::arg("callback"),
             "设置错误回调\n\n"
@@ -135,6 +150,21 @@ void bind_recorder_api(py::module& m) {
             "    def on_error(error_msg):\n"
             "        print(f'错误: {error_msg}')\n"
             "    api.set_error_callback(on_error)")
+
+        // 录制模式设置
+        .def("set_recording_mode", &RecorderAPI::setRecordingMode, py::arg("mode"),
+             py::call_guard<py::gil_scoped_release>(),
+             "设置录制模式\n\n"
+             "参数:\n"
+             "    mode (RecorderMode): VIDEO 或 SNAPSHOT\n\n"
+             "示例:\n"
+             "    api.set_recording_mode(RecorderMode.SNAPSHOT)  # 单帧模式\n"
+             "    api.set_recording_mode(RecorderMode.VIDEO)     # 视频模式")
+
+        .def("get_recording_mode", &RecorderAPI::getRecordingMode,
+             "获取当前录制模式\n\n"
+             "返回:\n"
+             "    RecorderMode: 当前的录制模式")
 
         // Python 属性风格访问
         .def_property_readonly("status", &RecorderAPI::getStatus, "当前录制状态 (只读属性)")

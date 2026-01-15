@@ -132,7 +132,7 @@ def wait_for_debuggers():
     """等待用户附加调试器"""
     pid = os.getpid()
     print("\n" + "=" * 70)
-    print("🔧 ATTACH DEBUGGERS NOW!")
+    print("READY_TO_ATTACH: ATTACH DEBUGGERS NOW!")
     print("=" * 70)
     print(f"   Process ID (PID): {pid}")
     print(f"   Debugpy Port: {DEBUGPY_PORT}")
@@ -155,11 +155,11 @@ def wait_for_debuggers():
         time.sleep(15)
 
 
-def run_main_script(script_path: str, script_args: list[str]):
+def run_main_script(script_path_str: str, script_args: list[str]):
     """运行主脚本"""
-    sys.argv = [script_path] + script_args
+    sys.argv = [script_path_str] + script_args
     
-    script_path = Path(script_path).resolve()
+    script_path = Path(script_path_str).resolve()
     if not script_path.exists():
         print(f"❌ Script not found: {script_path}")
         sys.exit(1)
@@ -193,6 +193,20 @@ def main():
     # 保存 PID
     save_pid_to_file()
     
+    # 设置 DLL 搜索路径 (Windows)
+    if sys.platform == 'win32':
+        dll_paths = [
+            PROJECT_ROOT / "build" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "ffmpeg_prebuilt-src" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "opencv_prebuilt-src" / "Debug" / "bin",
+            PROJECT_ROOT / "build" / "_deps" / "onnxruntime_prebuilt-src" / "lib",
+        ]
+        for p in dll_paths:
+            if p.exists():
+                print(f"  📁 Adding DLL directory: {p}")
+                os.add_dll_directory(str(p))
+                os.environ['PATH'] = str(p) + os.pathsep + os.environ.get('PATH', '')
+
     # 设置 Python 路径
     python_path = str(PROJECT_ROOT / "python")
     build_python_path = str(PROJECT_ROOT / "build" / "python")
@@ -206,22 +220,22 @@ def main():
     debugpy_ready = setup_debugpy()
     print("")
     
-    # 2. 查找并预加载所有 pybind11 模块
-    print("🔍 Searching for pybind11 modules...")
-    pyd_modules = find_pyd_modules(PYBIND_MODULE_PATHS)
+    # 2. 查找并预加载指定的 pybind11 模块
+    print("🔍 Preloading designated pybind11 modules...")
+    all_pyd_modules = find_pyd_modules(PYBIND_MODULE_PATHS)
     
-    if not pyd_modules:
-        print("⚠️ No .pyd modules found.")
-    else:
-        print(f"   Found {len(pyd_modules)} module(s):\n")
-    
+    target_modules = ["recorder_module", "analyzer_module"]
     loaded_count = 0
-    for module_name, module_path in pyd_modules.items():
-        if preload_cpp_module(module_name, module_path):
-            loaded_count += 1
+    
+    for module_name in target_modules:
+        if module_name in all_pyd_modules:
+            if preload_cpp_module(module_name, all_pyd_modules[module_name]):
+                loaded_count += 1
+        else:
+            print(f"  ⚠️ Target module not found: {module_name}")
         print("")
     
-    print(f"📊 Loaded {loaded_count}/{len(pyd_modules)} C++ modules")
+    print(f"📊 Loaded {loaded_count}/{len(target_modules)} C++ modules")
     
     # 3. 等待调试器附加
     if WAIT_FOR_DEBUGGER:

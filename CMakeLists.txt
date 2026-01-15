@@ -80,8 +80,7 @@ endif()
 # FetchContent: nlohmann/json (C++ JSON library)
 FetchContent_Declare(
     nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.2
+    URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
 )
 
 if(NOT nlohmann_json_POPULATED)
@@ -182,6 +181,8 @@ if(NOT onnxruntime_prebuilt_POPULATED)
         # Disable libzmq precompiled headers to avoid duplicate PCH outputs when
         # building as a subproject (prevents "multiple rules generate precompiled.hpp")
         set(ENABLE_PRECOMPILED OFF CACHE BOOL "Disable precompiled headers for libzmq subbuild" FORCE)
+        # Disable .rc file building to avoid issues with clang-cl/llvm-rc and non-ASCII paths
+        set(WITH_RC OFF CACHE BOOL "Disable resource file building for libzmq" FORCE)
         # Disable examples/tests and optional crypto integrations in subprojects
         # to avoid extra CMake warnings and optional dependency searches.
         set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building examples in subprojects" FORCE)

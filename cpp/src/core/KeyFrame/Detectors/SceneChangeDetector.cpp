@@ -60,9 +60,10 @@ SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameRes
         result.score = normalizeScore(similarity);
         result.isSceneChange = (similarity < config_.similarityThreshold);
     } else {
-        result.similarity = 1.0f;
-        result.score = 0.0f;
-        result.isSceneChange = false;
+        // 第一帧：视为场景切换，因为它打破了之前的"无画面"状态
+        result.similarity = 0.0f;     // 第一帧没有前序帧，相似度定义为 0
+        result.score = 1.0f;          // 第一帧的分数应最高
+        result.isSceneChange = true;  // 必须判断为场景切换，以确保第一帧被捕获
     }
 
     if (config_.enableCache) {
@@ -71,6 +72,11 @@ SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameRes
             featureCache_.pop_front();
         }
     }
+
+    // Log detection result
+    LOG_INFO("[SceneChangeDetector] Score: " + std::to_string(result.score) +
+             ", Similarity: " + std::to_string(result.similarity) +
+             ", SceneChange: " + std::to_string(result.isSceneChange));
 
     return result;
 }

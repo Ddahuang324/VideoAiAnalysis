@@ -5,9 +5,10 @@
 #include <queue>
 #include <vector>
 
-#include "core/Config/UnifiedConfig.h"
 #include "DynamicCalculator.h"
 #include "IFrameAnalyzer.h"
+#include "core/Config/UnifiedConfig.h"
+
 
 namespace KeyFrame {
 
@@ -25,6 +26,7 @@ struct FrameScore {
 
     MultiDimensionScore rawScores;      // 各维度原始分数
     std::vector<float> appliedWeights;  // 各维度应用的权重
+    bool isEOS = false;                 // 是否为结束标志
 };
 
 class FrameScorer {

@@ -9,6 +9,11 @@ from services.recorder_service import RecorderService
 from infrastructure.process_manager import ModuleManager, ProcessStatus
 from infrastructure.log_manager import get_logger
 
+try:
+    from recorder_module import RecorderMode
+except ImportError:
+    RecorderMode = None
+
 
 class RecorderViewModel(QObject):
     """
@@ -33,10 +38,14 @@ class RecorderViewModel(QObject):
     # 错误信号
     errorOccurred = Signal(str)
 
+    # 模式信号
+    captureModeChanged = Signal()
+
     def __init__(
         self,
         recorder_service: RecorderService,
-        module_manager: ModuleManager
+        module_manager: ModuleManager,
+        analyzer_service=None  # 添加analyzer_service参数
     ):
         """
         初始化录制视图模型
@@ -44,10 +53,12 @@ class RecorderViewModel(QObject):
         Args:
             recorder_service: 录制服务实例
             module_manager: 模块管理器实例
+            analyzer_service: 分析服务实例(可选)
         """
         super().__init__()
         self._service = recorder_service
         self._module_manager = module_manager
+        self._analyzer_service = analyzer_service  # 保存analyzer_service引用
         self.logger = get_logger("RecorderViewModel")
 
         # 状态属性
@@ -62,6 +73,9 @@ class RecorderViewModel(QObject):
         self._dropped_count = 0
         self._file_size = 0
         self._current_fps = 0.0
+
+        # 录制模式
+        self._capture_mode = "VIDEO MODE"  # 默认为视频模式
 
         # 定时器 - 用于更新录制统计
         self._update_timer = QTimer()
@@ -129,6 +143,11 @@ class RecorderViewModel(QObject):
             return
 
         try:
+            # 录制过程中不再启动实时分析，以释放 CPU 资源给录制引擎
+            # if self._analyzer_service and not self._analyzer_service.is_running():
+            #     if not self._analyzer_service.start_analysis():
+            #         self.logger.warning("Failed to start analyzer, continuing anyway")
+            
             if self._service.start_recording():
                 self._is_recording = True
                 self.isRecordingChanged.emit(True)
@@ -140,7 +159,8 @@ class RecorderViewModel(QObject):
 
                 self.logger.info("Recording started")
             else:
-                error_msg = self._service.get_api().last_error if self._service.get_api() else "Unknown error"
+                api = self._service.get_api()
+                error_msg = api.last_error if api else "Unknown error"
                 self.errorOccurred.emit(f"Failed to start recording: {error_msg}")
         except Exception as e:
             self.errorOccurred.emit(f"Start recording error: {e}")
@@ -148,11 +168,16 @@ class RecorderViewModel(QObject):
 
     @Slot()
     def stopRecording(self):
-        """停止录制"""
+        """停止录制(优雅停止,等待AI分析完成)"""
         if not self._is_recording:
             return
 
         try:
+            # 1. 首先停止录制，确保 MP4 文件写入完成
+            # 获取当前录制路径（要在停止前获取，因为停止后 service 会清空 session）
+            info = self._service.get_recording_info()
+            output_path = info.get("output_path")
+
             if self._service.stop_recording():
                 self._is_recording = False
                 self._is_paused = False
@@ -162,9 +187,21 @@ class RecorderViewModel(QObject):
                 # 停止统计更新定时器
                 self._update_timer.stop()
 
-                self._status = "Stopped"
+                self._status = "Recording Stopped"
                 self.statusChanged.emit(self._status)
-                self.logger.info("Recording stopped")
+                self.logger.info(f"Recording stopped, file saved to: {output_path}")
+
+                # 2. 启动离线分析流程 (仅针对非 SNAPSHOT 模式)
+                # SNAPSHOT 模式下，分析是在录制过程中实时完成的，不需要后期重跑分析
+                if self._analyzer_service and output_path and self._capture_mode != "SNAPSHOT MODE":
+                    self.logger.info(f"Starting post-processing analysis for {output_path}")
+                    if self._analyzer_service.start_file_analysis(output_path):
+                        self._status = "Analyzing..."
+                        self.statusChanged.emit(self._status)
+                    else:
+                        self.logger.error("Failed to start offline analysis")
+                elif self._capture_mode == "SNAPSHOT MODE":
+                    self.logger.info("SNAPSHOT mode: Real-time analysis completed, skipping post-processing")
             else:
                 self.errorOccurred.emit("Failed to stop recording")
         except Exception as e:
@@ -208,6 +245,22 @@ class RecorderViewModel(QObject):
         except Exception as e:
             self.errorOccurred.emit(f"Resume error: {e}")
             self.logger.error(f"Resume error: {e}")
+
+    @Slot()
+    def toggleRecording(self):
+        """切换录制状态"""
+        if self._is_recording:
+            self.stopRecording()
+        else:
+            self.startRecording()
+
+    @Slot()
+    def togglePause(self):
+        """切换暂停状态"""
+        if self._is_paused:
+            self.resumeRecording()
+        else:
+            self.pauseRecording()
 
     def _update_stats(self):
         """更新录制统计信息"""
@@ -310,11 +363,39 @@ class RecorderViewModel(QObject):
     @Property(str, notify=fileSizeChanged)
     def formattedFileSize(self) -> str:
         """格式化的文件大小"""
+        size = float(self._file_size)
         for unit in ['B', 'KB', 'MB', 'GB']:
-            if self._file_size < 1024.0:
-                return f"{self._file_size:.2f} {unit}"
-            self._file_size /= 1024.0
-        return f"{self._file_size:.2f} TB"
+            if size < 1024.0:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} TB"
+
+    @Property(str, notify=captureModeChanged)
+    def captureMode(self) -> str:
+        """录制模式（QML绑定）"""
+        return self._capture_mode
+
+    @captureMode.setter
+    def captureMode(self, mode: str):
+        """设置录制模式"""
+        if self._capture_mode != mode:
+            self._capture_mode = mode
+            
+            # 转换为 C++ 枚举并设置
+            if RecorderMode is not None:
+                try:
+                    if mode == "SNAPSHOT MODE":
+                        self._service.set_recording_mode(RecorderMode.SNAPSHOT)
+                        self.logger.info("Capture mode set to SNAPSHOT")
+                    else:
+                        self._service.set_recording_mode(RecorderMode.VIDEO)
+                        self.logger.info("Capture mode set to VIDEO")
+                except Exception as e:
+                    self.logger.error(f"Failed to set capture mode: {e}")
+            else:
+                self.logger.warning("RecorderMode not available, mode change ignored")
+            
+            self.captureModeChanged.emit()
 
     def shutdown(self):
         """关闭视图模型"""

@@ -27,6 +27,7 @@ public:
     bool publish(const Protocol::FrameMessage& frame);
     bool publishRaw(const Protocol::FrameHeader& header, const void* data, size_t data_size,
                     uint32_t crc);
+    bool sendStopSignal(uint32_t lastFrameId);
     PublisherStats getStats() const;
     void shutdown();
 

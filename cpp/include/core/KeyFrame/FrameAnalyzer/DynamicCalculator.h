@@ -22,7 +22,7 @@ public:
         std::vector<float> histroyAvg;      // 历史平均激活度
     };
 
-    explicit DynamicCalculator(const Config& config) : config_(config) {};
+    explicit DynamicCalculator(const Config& config);
 
     ActivationStats update(const MultiDimensionScore& scores);
 

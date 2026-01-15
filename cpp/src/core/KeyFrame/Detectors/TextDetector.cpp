@@ -27,10 +27,13 @@ TextDetector::TextDetector(ModelManager& modelManager) : TextDetector(modelManag
 TextDetector::TextDetector(ModelManager& modelManager, const Config& config)
     : modelManager_(modelManager), config_(config) {
     if (!modelManager_.hasModel("ch_PP-OCRv4_det_infer.onnx")) {
-        LOG_WARN("[TextDetector] Detection model not loaded");
+        LOG_WARN("[TextDetector] Detection model not loaded - Text detection will be disabled");
     }
-    if (!modelManager_.hasModel("ch_PP-OCRv4_rec_infer.onnx")) {
-        LOG_WARN("[TextDetector] Recognition model not loaded");
+
+    // Only warn about missing recognition model if it's actually enabled in config
+    if (config_.enableRecognition && !modelManager_.hasModel("ch_PP-OCRv4_rec_infer.onnx")) {
+        LOG_WARN(
+            "[TextDetector] Recognition model not loaded - Recognition is enabled but will fail");
     }
 }
 
@@ -45,12 +48,22 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
 
     const cv::Mat& frame = resource->getOriginalFrame();
     if (frame.empty()) {
+        LOG_WARN("[TextDetector] Empty frame received");
         return Result();
+    }
+
+    // Safety check: if model not loaded, just return empty result
+    if (!modelManager_.hasModel("ch_PP-OCRv4_det_infer.onnx")) {
+        LOG_WARN("[TextDetector] Model not loaded, skipping detection");
+        Result emptyResult;
+        emptyResult.score = 0.0f;
+        return emptyResult;
     }
 
     std::vector<std::vector<cv::Point>> polygons = detectTextRegions(frame);
 
     if (polygons.empty()) {
+        LOG_INFO("[TextDetector] No text regions detected, score=0");
         Result emptyResult;
         emptyResult.score = 0.0f;
         previousRegions_.clear();
@@ -64,6 +77,12 @@ TextDetector::Result TextDetector::detect(std::shared_ptr<FrameResource> resourc
     result.coverageRatio = computeCoverageRatio(currentRegions, frame.size());
     result.changeRatio = computeChangeRatio(currentRegions, previousRegions_);
     result.score = config_.alpha * result.coverageRatio + config_.beta * result.changeRatio;
+
+    // Log detection result
+    LOG_INFO("[TextDetector] Score: " + std::to_string(result.score) +
+             ", Coverage: " + std::to_string(result.coverageRatio) +
+             ", Change: " + std::to_string(result.changeRatio) +
+             ", Regions: " + std::to_string(currentRegions.size()));
 
     previousRegions_ = currentRegions;
     return result;
@@ -80,6 +99,7 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
     std::vector<std::vector<cv::Point>> polygons;
 
     DataConverter::LetterboxInfo info;
+    // PP-OCR 只需归一化到[0,1]，不使用ImageNet标准化
     std::vector<float> inputData = DataConverter::matToTensorLetterbox(
         frame, cv::Size(config_.detInputWidth, config_.detInputHeight), info, true,
         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
@@ -89,19 +109,24 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
         modelManager_.runInference("ch_PP-OCRv4_det_infer.onnx", {inputData}, {inputShape});
 
     if (outputs.empty() || outputs[0].empty()) {
+        LOG_WARN("[TextDetector] Model inference returned empty output");
         return polygons;
     }
 
     int outH = config_.detInputHeight;
     int outW = config_.detInputWidth;
 
-    LOG_DEBUG("[TextDetector] Output size: " + std::to_string(outputs[0].size()) +
-              ", Expected: " + std::to_string(outH * outW));
-
     if (outputs[0].size() != static_cast<size_t>(outH * outW)) {
-        LOG_ERROR("[TextDetector] Model output size mismatch");
+        LOG_ERROR("[TextDetector] Model output size mismatch: " + std::to_string(outputs[0].size()) +
+                  " vs expected " + std::to_string(outH * outW));
         return polygons;
     }
+
+    // 分析输出值范围
+    float minVal = *std::min_element(outputs[0].begin(), outputs[0].end());
+    float maxVal = *std::max_element(outputs[0].begin(), outputs[0].end());
+    LOG_INFO("[TextDetector] Output range: [" + std::to_string(minVal) + ", " + std::to_string(maxVal) +
+             "], threshold: " + std::to_string(config_.detThreshold));
 
     // Threshold to binary
     cv::Mat pred(outH, outW, CV_32F, const_cast<float*>(outputs[0].data()));
@@ -112,6 +137,8 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
     // Find contours
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(bitMap, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
+
+    LOG_INFO("[TextDetector] Found " + std::to_string(contours.size()) + " contours");
 
     for (const auto& contour : contours) {
         if (cv::contourArea(contour) < 10) {
@@ -128,6 +155,10 @@ std::vector<std::vector<cv::Point>> TextDetector::detectTextRegions(const cv::Ma
 // ========== Text Recognition ==========
 
 std::string TextDetector::recognizeText(const cv::Mat& textRegion) {
+    if (!modelManager_.hasModel("ch_PP-OCRv4_rec_infer.onnx")) {
+        return "[Text]";
+    }
+
     int targetH = config_.recInputHeight;
     int targetW = config_.recInputWidth;
 

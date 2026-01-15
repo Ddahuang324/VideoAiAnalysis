@@ -2,12 +2,14 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "IFrameAnalyzer.h"
 #include "core/Config/UnifiedConfig.h"
 #include "core/KeyFrame/Detectors/MotionDetector.h"
 #include "core/KeyFrame/Detectors/SceneChangeDetector.h"
@@ -16,6 +18,7 @@
 #include "core/KeyFrame/FrameAnalyzer/FrameScorer.h"
 #include "core/KeyFrame/FrameAnalyzer/KeyFrameDetector.h"
 #include "core/KeyFrame/FrameAnalyzer/StandardFrameAnalyzer.h"
+#include "core/KeyFrame/KeyFrameVideoEncoder.h"
 #include "core/MQInfra/FrameSubscriber.h"
 #include "core/MQInfra/KeyFrameMetaDataPublisher.h"
 #include "core/ScreenRecorder/ProcessLayer/ThreadSafetyQueue.h"
@@ -40,6 +43,13 @@ public:
     void stop();
 
     bool isRunning() const { return running_; }
+
+    // 离线分析视频文件 (阻塞直到读取完成)
+    bool analyzeVideoFile(const std::string& filePath);
+
+    // 设置关键帧视频生成完成回调
+    using KeyFrameVideoCallback = std::function<void(const std::string& videoPath)>;
+    void setKeyFrameVideoCallback(KeyFrameVideoCallback callback);
 
     // 获取分析状态上下文 (拷贝)
     AnalysisContext getContext() const;
@@ -72,6 +82,7 @@ private:
 
     // 管道循环
     void receiveLoop();
+    void fileReadLoop(const std::string& filePath);
     void analysisLoop();
     void selectLoop();  // 关键帧选择循环
     void publishLoop();
@@ -103,10 +114,25 @@ private:
     std::vector<std::thread> analysisThreads_;
     std::thread selectThread_;  // 关键帧选择线程
     std::thread publishThread_;
+    std::thread fileReadThread_;
+
+    bool isOfflineMode_{false};
+    std::string currentSourceVideoPath_;        // 当前正在分析的视频路径
+    std::vector<int> selectedKeyFrameIndices_;  // 选中的关键帧索引
+
+    // 关键帧视频编码器
+    std::unique_ptr<KeyFrameVideoEncoder> keyframeEncoder_;
+    KeyFrameVideoCallback keyframeVideoCallback_;
+    std::mutex callbackMutex_;
 
     // 上下文记录
     AnalysisContext context_;
     mutable std::mutex contextMutex_;
+
+    // EOS 同步
+    std::mutex eosMutex_;
+    std::condition_variable eosCondition_;
+    bool eosReceived_{false};
 };
 
 }  // namespace KeyFrame
