@@ -135,8 +135,8 @@ class ApplicationContainer:
             self.recorder_service._analyzer_service = self.analyzer_service  # type: ignore
             self.recorder_service._history_service = self.history_service
 
-        # 创建 Gemini AI 服务
-        self.gemini_service = GeminiService()
+        # 创建 Gemini AI 服务（延迟初始化，等待设置加载）
+        self.gemini_service = None
 
         if self.log_manager:
             self.log_manager.info("Service layer initialized")
@@ -171,11 +171,45 @@ class ApplicationContainer:
         if self.history_service is None:
             raise RuntimeError("HistoryService not initialized")
 
-        # 创建历史记录视图模型
-        self.history_viewmodel = HistoryViewModel(self.history_service, self.gemini_service)
+        # 创建历史记录视图模型（gemini_service 稍后注入）
+        self.history_viewmodel = HistoryViewModel(self.history_service, None)
 
         # 创建设置视图模型
         self.settings_viewmodel = SettingsViewModel()
+
+        # 初始化 Gemini AI 服务（使用设置中的配置）
+        api_key = self.settings_viewmodel.geminiApiKey or None
+        model_name = self.settings_viewmodel.geminiModel or None
+        try:
+            self.gemini_service = GeminiService(api_key=api_key, model_name=model_name)
+            self.history_viewmodel._gemini_service = self.gemini_service
+        except ValueError:
+            self.gemini_service = None
+            if self.log_manager:
+                self.log_manager.warning("GeminiService not initialized: API key not configured")
+
+        # 监听设置变化，动态更新 GeminiService
+        def on_gemini_settings_changed():
+            if self.gemini_service and self.settings_viewmodel:
+                self.gemini_service.update_config(
+                    api_key=self.settings_viewmodel.geminiApiKey or None,
+                    model_name=self.settings_viewmodel.geminiModel or None
+                )
+            elif self.settings_viewmodel and self.settings_viewmodel.geminiApiKey:
+                # 如果之前没有初始化，现在有 API Key 了，尝试初始化
+                try:
+                    self.gemini_service = GeminiService(
+                        api_key=self.settings_viewmodel.geminiApiKey,
+                        model_name=self.settings_viewmodel.geminiModel or None
+                    )
+                    if self.history_viewmodel:
+                        self.history_viewmodel._gemini_service = self.gemini_service
+                except Exception as e:
+                    if self.log_manager:
+                        self.log_manager.error(f"Failed to initialize GeminiService: {e}")
+
+        self.settings_viewmodel.geminiApiKeyChanged.connect(on_gemini_settings_changed)
+        self.settings_viewmodel.geminiModelChanged.connect(on_gemini_settings_changed)
 
         # 创建提示词视图模型
         prompt_dao = PromptTemplateDAO(self.history_service.db_manager)

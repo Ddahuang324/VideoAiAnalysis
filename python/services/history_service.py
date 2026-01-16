@@ -491,9 +491,10 @@ class HistoryService:
             db_analysis = AIAnalysis(
                 analysis_id=analysis_id,
                 keyframe_id=keyframe_id,
-                video_analysis_md=result.get("video_analysis_md", ""),
-                audio_analysis_md=result.get("audio_analysis_md", ""),
-                summary_md=result.get("summary_md", ""),
+                recording_id=recording_id,
+                video_analysis_md=result.get("video_analysis_md") or "",
+                audio_analysis_md=result.get("audio_analysis_md") or "",
+                summary_md=result.get("summary_md") or "",
                 model_name=result.get("model_name", "gemini-model"),  # 尽量从结果中获取或预设
                 status="completed",
                 started_at=now,
@@ -506,11 +507,11 @@ class HistoryService:
                 event = TimestampEvent(
                     event_id=str(uuid.uuid4()),
                     analysis_id=analysis_id,
-                    timestamp_seconds=float(event_data.get("timestamp_seconds", 0)),
-                    event_type=event_data.get("event_type", "highlight"),
-                    title=event_data.get("title", ""),
-                    description=event_data.get("description", ""),
-                    importance_score=event_data.get("importance_score", 5)
+                    timestamp_seconds=float(event_data.get("timestamp_seconds") or 0),
+                    event_type=event_data.get("event_type") or "highlight",
+                    title=event_data.get("title") or "",
+                    description=event_data.get("description") or "",
+                    importance_score=event_data.get("importance_score") if event_data.get("importance_score") is not None else 5
                 )
                 self.timestamp_event_dao.create(event)
             
@@ -519,12 +520,12 @@ class HistoryService:
                 finding = KeyFinding(
                     finding_id=str(uuid.uuid4()),
                     analysis_id=analysis_id,
-                    sequence_order=finding_data.get("sequence_order", i),
-                    category=finding_data.get("category", "general"),
-                    title=finding_data.get("title", ""),
-                    content=finding_data.get("content", ""),
-                    confidence_score=finding_data.get("confidence_score", 80),
-                    related_timestamps=finding_data.get("related_timestamps", [])
+                    sequence_order=finding_data.get("sequence_order") if finding_data.get("sequence_order") is not None else i,
+                    category=finding_data.get("category") or "general",
+                    title=finding_data.get("title") or "",
+                    content=finding_data.get("content") or "",
+                    confidence_score=finding_data.get("confidence_score") if finding_data.get("confidence_score") is not None else 80,
+                    related_timestamps=finding_data.get("related_timestamps") or []
                 )
                 self.key_finding_dao.create(finding)
                 
@@ -533,9 +534,9 @@ class HistoryService:
                 meta = AnalysisMetadata(
                     metadata_id=str(uuid.uuid4()),
                     analysis_id=analysis_id,
-                    key=meta_data.get("key", ""),
-                    value=str(meta_data.get("value", "")),
-                    data_type=meta_data.get("data_type", "string")
+                    key=meta_data.get("key") or "",
+                    value=str(meta_data.get("value") or ""),
+                    data_type=meta_data.get("data_type") or "string"
                 )
                 self.analysis_metadata_dao.create(meta)
                 
@@ -728,3 +729,23 @@ class HistoryService:
         except Exception as e:
             self.logger.error(f"Failed to get analysis details: {e}")
             return result
+
+    def get_rendered_html(self, recording_id: str) -> str:
+        """获取已渲染的 HTML（如果存在）"""
+        try:
+            analyses = self.ai_analysis_dao.get_by_recording_id(recording_id)
+            if analyses and analyses[0].rendered_html:
+                return analyses[0].rendered_html
+        except Exception as e:
+            self.logger.error(f"Failed to get rendered HTML: {e}")
+        return ""
+
+    def save_rendered_html(self, recording_id: str, html: str) -> bool:
+        """保存渲染后的 HTML"""
+        try:
+            analyses = self.ai_analysis_dao.get_by_recording_id(recording_id)
+            if analyses:
+                return self.ai_analysis_dao.update_rendered_html(analyses[0].analysis_id, html)
+        except Exception as e:
+            self.logger.error(f"Failed to save rendered HTML: {e}")
+        return False

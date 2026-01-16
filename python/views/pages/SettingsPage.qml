@@ -196,6 +196,27 @@ Rectangle {
                     width: parent.width
                     spacing: 16
 
+                    // Gemini API Key
+                    SettingTextInput {
+                        label: "Gemini API Key"
+                        value: settingsViewModel.geminiApiKey
+                        placeholder: "Enter your Google API Key"
+                        isPassword: true
+                        onUpdated: function (val) {
+                            settingsViewModel.setGeminiApiKey(val);
+                        }
+                    }
+
+                    // 模型选择
+                    SettingComboBox {
+                        label: "AI Model"
+                        model: settingsViewModel.geminiModels
+                        currentValue: settingsViewModel.geminiModel
+                        onUpdated: function (val) {
+                            settingsViewModel.setGeminiModel(val);
+                        }
+                    }
+
                     SettingToggle {
                         label: "Enable Text Recognition (OCR)"
                         checked: settingsViewModel.textRecognitionEnabled
@@ -605,9 +626,9 @@ Rectangle {
 
                 contentItem: ListView {
                     clip: true
-                    implicitHeight: contentHeight
+                    implicitHeight: Math.min(contentHeight, 300)
                     model: combo.popup.visible ? combo.delegateModel : null
-                    ScrollIndicator.vertical: ScrollIndicator {}
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 }
 
                 background: Rectangle {
@@ -694,6 +715,51 @@ Rectangle {
             text: sliderRoot.description
             color: Styles.ThemeManager.textMuted
             font.pixelSize: 12
+        }
+    }
+
+    component SettingTextInput: RowLayout {
+        id: textInputRoot
+        property string label: ""
+        property string value: ""
+        property string placeholder: ""
+        property bool isPassword: false
+        signal updated(string value)
+
+        width: parent.width
+
+        Text {
+            text: textInputRoot.label
+            color: Styles.ThemeManager.textSecondary
+            font.pixelSize: 14
+            Layout.fillWidth: true
+        }
+
+        TextField {
+            id: textField
+            Layout.preferredWidth: 240
+            text: textInputRoot.value
+            placeholderText: textInputRoot.placeholder
+            echoMode: textInputRoot.isPassword ? TextInput.Password : TextInput.Normal
+
+            onTextChanged: {
+                if (text !== textInputRoot.value) {
+                    textInputRoot.updated(text);
+                }
+            }
+
+            background: Rectangle {
+                implicitHeight: 36
+                radius: 8
+                color: Styles.ThemeManager.overlayDark
+                border.width: 1
+                border.color: textField.activeFocus ? Styles.ThemeManager.primary : Styles.ThemeManager.border
+            }
+
+            color: Styles.ThemeManager.text
+            font.pixelSize: 14
+            leftPadding: 12
+            rightPadding: 12
         }
     }
 }

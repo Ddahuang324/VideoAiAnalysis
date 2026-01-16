@@ -109,45 +109,6 @@ Rectangle {
             Item {
                 Layout.fillWidth: true
             }
-
-            RowLayout {
-                spacing: 16
-                Repeater {
-                    model: ["download", "share", "more"]
-                    Item {
-                        Layout.preferredWidth: 20
-                        Layout.preferredHeight: 20
-                        Canvas {
-                            anchors.centerIn: parent
-                            width: 16
-                            height: 16
-                            onPaint: {
-                                var ctx = getContext("2d");
-                                ctx.reset();
-                                ctx.strokeStyle = "#a1a1aa";
-                                ctx.lineWidth = 1.2;
-                                ctx.beginPath();
-                                if (index === 0) {
-                                    ctx.moveTo(8, 2);
-                                    ctx.lineTo(8, 12);
-                                    ctx.moveTo(4, 8);
-                                    ctx.lineTo(8, 12);
-                                    ctx.lineTo(12, 8);
-                                } else if (index === 1) {
-                                    ctx.arc(5, 10, 3, 0.5, 5);
-                                    ctx.moveTo(8, 7);
-                                    ctx.lineTo(12, 4);
-                                } else {
-                                    ctx.arc(8, 4, 1, 0, 7);
-                                    ctx.arc(8, 8, 1, 0, 7);
-                                    ctx.arc(8, 12, 1, 0, 7);
-                                }
-                                ctx.stroke();
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 

@@ -30,11 +30,14 @@ Rectangle {
 
         // 第一个是最新的 (latest)
         var latest = list[0];
+        // 获取分析详情中的 keyFindings
+        var details = historyViewModel.getAnalysisDetails(latest.recordId);
+        var findings = details.keyFindings || [];
         latestReport = {
             "recordId": latest.recordId,
             "title": latest.fileName,
             "date": latest.startTime,
-            "findings": []
+            "findings": findings
         };
 
         // 剩余的作为 recentHistory (最多3个)

@@ -17,7 +17,7 @@ class ResponseParser:
         "required": ["video_analysis_md", "summary_md", "key_findings", "timestamp_events"],
         "properties": {
             "video_analysis_md": {"type": "string"},
-            "audio_analysis_md": {"type": "string"},
+            "audio_analysis_md": {"type": ["string", "null"]},
             "summary_md": {"type": "string", "minLength": 10},
             "key_findings": {
                 "type": "array",
@@ -43,7 +43,7 @@ class ResponseParser:
                         "timestamp_seconds": {"type": "number", "minimum": 0},
                         "event_type": {"type": "string", "enum": ["highlight", "action", "technical", "visual"]},
                         "title": {"type": "string"},
-                        "description": {"type": "string"},
+                        "description": {"type": ["string", "null"]},
                         "importance_score": {"type": "integer", "minimum": 1, "maximum": 10}
                     }
                 }
@@ -55,8 +55,8 @@ class ResponseParser:
                     "required": ["key", "value"],
                     "properties": {
                         "key": {"type": "string"},
-                        "value": {"type": "string"},
-                        "data_type": {"type": "string"}
+                        "value": {"type": ["string", "number", "null"]},
+                        "data_type": {"type": ["string", "null"]}
                     }
                 }
             }

@@ -117,9 +117,9 @@ def test_gemini_api():
     print("\n=== 测试 Gemini API ===")
     from google import genai
 
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("[SKIP] 未设置 GOOGLE_API_KEY")
+        print("[SKIP] 未设置 GEMINI_API_KEY 或 GOOGLE_API_KEY")
         return
 
     try:
