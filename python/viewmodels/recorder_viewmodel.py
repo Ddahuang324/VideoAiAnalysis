@@ -8,6 +8,7 @@ from typing import Optional
 from services.recorder_service import RecorderService
 from infrastructure.process_manager import ModuleManager, ProcessStatus
 from infrastructure.log_manager import get_logger
+from AiService.prompt_builder import PromptBuilder
 
 try:
     from recorder_module import RecorderMode
@@ -45,7 +46,9 @@ class RecorderViewModel(QObject):
         self,
         recorder_service: RecorderService,
         module_manager: ModuleManager,
-        analyzer_service=None  # 添加analyzer_service参数
+        analyzer_service=None,
+        history_viewmodel=None,
+        prompt_viewmodel=None
     ):
         """
         初始化录制视图模型
@@ -54,11 +57,15 @@ class RecorderViewModel(QObject):
             recorder_service: 录制服务实例
             module_manager: 模块管理器实例
             analyzer_service: 分析服务实例(可选)
+            history_viewmodel: 历史视图模型(可选)
+            prompt_viewmodel: 提示词视图模型(可选)
         """
         super().__init__()
         self._service = recorder_service
         self._module_manager = module_manager
-        self._analyzer_service = analyzer_service  # 保存analyzer_service引用
+        self._analyzer_service = analyzer_service
+        self._history_viewmodel = history_viewmodel
+        self._prompt_viewmodel = prompt_viewmodel
         self.logger = get_logger("RecorderViewModel")
 
         # 状态属性
@@ -191,17 +198,42 @@ class RecorderViewModel(QObject):
                 self.statusChanged.emit(self._status)
                 self.logger.info(f"Recording stopped, file saved to: {output_path}")
 
-                # 2. 启动离线分析流程 (仅针对非 SNAPSHOT 模式)
-                # SNAPSHOT 模式下，分析是在录制过程中实时完成的，不需要后期重跑分析
-                if self._analyzer_service and output_path and self._capture_mode != "SNAPSHOT MODE":
-                    self.logger.info(f"Starting post-processing analysis for {output_path}")
-                    if self._analyzer_service.start_file_analysis(output_path):
-                        self._status = "Analyzing..."
+                # 2. 启动 AI 分析流程
+                self.logger.info(f"AI analysis check: history_viewmodel={self._history_viewmodel is not None}, output_path={output_path}")
+                if self._history_viewmodel and output_path:
+                    # 先刷新历史列表，确保能获取到刚录制的记录
+                    self._history_viewmodel.loadHistory()
+                    
+                    # 获取最新录制记录的 ID
+                    history_list = self._history_viewmodel.getHistoryList()
+                    self.logger.info(f"AI analysis: history_list count={len(history_list)}")
+                    if history_list:
+                        record_id = history_list[0].get("recordId", "")
+                        
+                        # 使用 PromptBuilder 构建完整提示词
+                        prompt_builder = PromptBuilder()
+                        
+                        # 获取用户自定义提示词（如果有）
+                        user_prompt = None
+                        if self._prompt_viewmodel:
+                            user_prompt = self._prompt_viewmodel.currentTemplateContent
+                        
+                        # 构建完整提示词
+                        if user_prompt:
+                            # 如果用户提供了自定义提示词，将其作为任务描述添加到系统提示词中
+                            prompt = f"{prompt_builder.SYSTEM_PROMPT}\n\n**用户任务：**\n{user_prompt}\n\n{prompt_builder.OUTPUT_FORMAT_PROMPT}"
+                        else:
+                            # 使用默认的完整提示词
+                            prompt = prompt_builder.build_prompt(scenario_category="general")
+
+                        self.logger.info(f"Starting AI analysis for record: {record_id}")
+                        self.logger.info(f"Prompt length: {len(prompt)} chars")
+                        self._history_viewmodel.startAIAnalysis(record_id, output_path, prompt)
+                        self._status = "AI Analyzing..."
                         self.statusChanged.emit(self._status)
+                        self.logger.info(f"Started AI analysis for {record_id}")
                     else:
-                        self.logger.error("Failed to start offline analysis")
-                elif self._capture_mode == "SNAPSHOT MODE":
-                    self.logger.info("SNAPSHOT mode: Real-time analysis completed, skipping post-processing")
+                        self.logger.warning("AI analysis skipped: history_list is empty")
             else:
                 self.errorOccurred.emit("Failed to stop recording")
         except Exception as e:

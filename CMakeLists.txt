@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
+# 设置策略以避免警告
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)  # 下载文件提取时间戳策略
+endif()
+
 project(AiVideoAnalysisSystem
     VERSION 1.0.0
     DESCRIPTION "AI Video Analysis System with C++ and Python"
@@ -80,7 +85,8 @@ endif()
 # FetchContent: nlohmann/json (C++ JSON library)
 FetchContent_Declare(
     nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 if(NOT nlohmann_json_POPULATED)
@@ -430,14 +436,10 @@ install(TARGETS ai_video_core
 # ==================== Google Test (FetchContent) ====================
 include(FetchContent)
 
-# 解决 CMP0135 警告：设置下载文件的提取时间戳
-if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)
-endif()
-
 FetchContent_Declare(
   googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)

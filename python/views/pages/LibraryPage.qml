@@ -15,71 +15,53 @@ Rectangle {
     // 信号：请求显示详情页
     signal detailRequested(var data)
 
-    // 模拟数据
-    property var videoData: [
-        {
-            id: "1",
-            title: "UX Usability Test - Session A",
-            date: "Today, 10:23 AM",
-            duration: "12:04",
-            status: "completed"
-        },
-        {
-            id: "2",
-            title: "Competitor Analysis - Landing Page",
-            date: "Yesterday, 4:15 PM",
-            duration: "05:32",
-            status: "completed"
-        },
-        {
-            id: "3",
-            title: "Bug Repro - Crash on Load",
-            date: "Dec 08, 09:00 AM",
-            duration: "01:15",
-            status: "processing"
-        },
-        {
-            id: "4",
-            title: "Design Critique V2",
-            date: "Dec 05, 02:30 PM",
-            duration: "45:00",
-            status: "completed"
-        },
-        {
-            id: "5",
-            title: "User Interview - Customer A",
-            date: "Dec 03, 11:00 AM",
-            duration: "22:30",
-            status: "completed"
-        },
-        {
-            id: "6",
-            title: "Prototype Demo - Stakeholder",
-            date: "Dec 01, 03:45 PM",
-            duration: "08:15",
-            status: "completed"
-        },
-        {
-            id: "7",
-            title: "A/B Test Analysis",
-            date: "Nov 28, 10:00 AM",
-            duration: "15:00",
-            status: "completed"
-        },
-        {
-            id: "8",
-            title: "Accessibility Audit",
-            date: "Nov 25, 02:00 PM",
-            duration: "18:45",
-            status: "failed"
-        }
-    ]
-
     ListModel {
         id: videoModel
-        Component.onCompleted: {
-            for (var i = 0; i < videoData.length; i++) {
-                append(videoData[i]);
+    }
+
+    // 加载历史数据
+    function refreshList() {
+        videoModel.clear();
+        if (typeof historyViewModel !== "undefined") {
+            var list = historyViewModel.getHistoryList();
+            for (var i = 0; i < list.length; i++) {
+                var r = list[i];
+                // 根据缓存状态决定显示状态
+                var status = "completed";
+                if (historyViewModel.isProcessing(r.recordId)) {
+                    status = "processing";
+                }
+                // 移除自动预加载逻辑，避免信号循环
+                // 预加载将在用户点击卡片时按需触发
+                videoModel.append({
+                    recordId: r.recordId,
+                    title: r.fileName,
+                    date: r.startTime,
+                    duration: r.duration,
+                    status: status
+                });
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        if (typeof historyViewModel !== "undefined") {
+            historyViewModel.loadHistory();
+        }
+    }
+
+    Connections {
+        target: typeof historyViewModel !== "undefined" ? historyViewModel : null
+        function onHistoryListChanged() {
+            refreshList();
+        }
+        function onProcessingCompleted(recordId) {
+            // 预加载完成后更新对应卡片状态
+            for (var i = 0; i < videoModel.count; i++) {
+                if (videoModel.get(i).recordId === recordId) {
+                    videoModel.setProperty(i, "status", "completed");
+                    break;
+                }
             }
         }
     }
@@ -227,16 +209,20 @@ Rectangle {
                 cardStatus: model.status
 
                 onCardClicked: {
-                    root.detailRequested({
-                        title: model.title,
-                        date: model.date,
-                        duration: model.duration,
-                        status: model.status
-                    })
+                    // 只有 completed 状态才能打开
+                    if (model.status === "completed") {
+                        root.detailRequested({
+                            recordId: model.recordId,
+                            title: model.title,
+                            date: model.date,
+                            duration: model.duration,
+                            status: model.status
+                        });
+                    }
                 }
 
-                onContextMenuRequested: function(mousePos, title) {
-                    contextMenu.show(mousePos.x, mousePos.y, title)
+                onContextMenuRequested: function (mousePos, title) {
+                    contextMenu.show(mousePos.x, mousePos.y, model.recordId, title);
                 }
             }
 
@@ -256,18 +242,19 @@ Rectangle {
         border.color: Styles.ThemeManager.border
         z: 9999
 
+        property string currentRecordId: ""
         property string currentTitle: ""
 
-        function show(x, y, title) {
-            currentTitle = title
-            // 以鼠标位置为左下角，所以 y 需要减去菜单高度
-            contextMenu.x = x
-            contextMenu.y = y - height
-            contextMenu.visible = true
+        function show(x, y, recordId, title) {
+            currentRecordId = recordId;
+            currentTitle = title;
+            contextMenu.x = x;
+            contextMenu.y = y - height;
+            contextMenu.visible = true;
         }
 
         function hide() {
-            contextMenu.visible = false
+            contextMenu.visible = false;
         }
 
         Column {
@@ -295,8 +282,10 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     onClicked: {
-                        console.log("Delete: " + contextMenu.currentTitle)
-                        contextMenu.hide()
+                        if (typeof historyViewModel !== "undefined" && contextMenu.currentRecordId) {
+                            historyViewModel.deleteRecord(contextMenu.currentRecordId);
+                        }
+                        contextMenu.hide();
                     }
                 }
             }
@@ -322,8 +311,10 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     onClicked: {
-                        console.log("Add to Favorites: " + contextMenu.currentTitle)
-                        contextMenu.hide()
+                        if (typeof historyViewModel !== "undefined" && contextMenu.currentRecordId) {
+                            historyViewModel.toggleFavorite(contextMenu.currentRecordId);
+                        }
+                        contextMenu.hide();
                     }
                 }
             }

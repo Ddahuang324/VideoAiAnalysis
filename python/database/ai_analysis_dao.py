@@ -31,7 +31,7 @@ class AIAnalysisDAO:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
-            analysis.analysis_id, analysis.keyframe_id, analysis.prompt_id or None,
+            analysis.analysis_id, analysis.keyframe_id or None, analysis.prompt_id or None,
             analysis.analysis_type, analysis.model_name, analysis.model_version,
             analysis.status, analysis.video_analysis_md, analysis.audio_analysis_md,
             analysis.summary_md, analysis.started_at, analysis.completed_at,

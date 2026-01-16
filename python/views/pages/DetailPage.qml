@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtWebEngine
 import "../styles" as Styles
 import "../components"
 
@@ -11,12 +12,42 @@ Rectangle {
     color: "#09090b"
 
     // 属性
+    property string recordId: ""
     property string recordTitle: "UX Usability Test - Session A"
     property string recordDate: "Today, 10:23 AM"
     property string recordDuration: "12:04"
     property string recordStatus: "completed"
 
+    // 动态分析数据
+    property string analysisTitle: "Analysis Report"
+    property string analysisSubtitle: "AI-generated insights based on visual and audio processing."
+    property var timestampHighlights: []
+    property var keyFindings: []
+    property var parameters: []
+
     signal backRequested
+
+    // 加载分析详情
+    function loadAnalysisDetails() {
+        if (recordId && typeof historyViewModel !== "undefined") {
+            var details = historyViewModel.getAnalysisDetails(recordId);
+            if (details.title)
+                analysisTitle = details.title;
+            if (details.subtitle)
+                analysisSubtitle = details.subtitle;
+            if (details.timestamps && details.timestamps.length > 0)
+                timestampHighlights = details.timestamps;
+            if (details.keyFindings && details.keyFindings.length > 0)
+                keyFindings = details.keyFindings;
+            if (details.parameters && details.parameters.length > 0)
+                parameters = details.parameters;
+
+            // 触发 Markdown 内容加载
+            historyViewModel.loadAnalysisContent(recordId);
+        }
+    }
+
+    onRecordIdChanged: loadAnalysisDetails()
 
     // ==================== 顶部导航栏 ====================
     Rectangle {
@@ -165,13 +196,13 @@ Rectangle {
                     ColumnLayout {
                         spacing: 8
                         Text {
-                            text: "Analysis Report"
+                            text: root.analysisTitle
                             color: "#ffffff"
                             font.pixelSize: 48
                             font.weight: Font.Light
                         }
                         Text {
-                            text: "AI-generated insights based on visual and audio processing."
+                            text: root.analysisSubtitle
                             color: "#a1a1aa"
                             font.pixelSize: 18
                             font.weight: Font.Light
@@ -185,9 +216,11 @@ Rectangle {
                     color: "#27272a"
                 }
 
-                // 2. Analysis Result 区
+                // 2. Analysis Result 区 (动态 Markdown 渲染)
                 ColumnLayout {
-                    spacing: 32
+                    spacing: 24
+                    Layout.fillWidth: true
+
                     Text {
                         text: "Analysis Result"
                         color: "#ffffff"
@@ -195,101 +228,26 @@ Rectangle {
                         font.weight: Font.Medium
                     }
 
-                    Row {
-                        spacing: 8
-                        Text {
-                            text: "Sentiment:"
-                            color: "#ffffff"
-                            font.pixelSize: 15
-                            font.weight: Font.Bold
+                    WebEngineView {
+                        id: analysisWebView
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 600
+                        backgroundColor: "#09090b"
+
+                        property string htmlContent: typeof historyViewModel !== "undefined" ? historyViewModel.currentAnalysisHtml : "<p style='color:#71717a;'>暂无分析结果</p>"
+
+                        onHtmlContentChanged: {
+                            loadHtml(wrapHtml(htmlContent), "about:blank");
                         }
-                        Text {
-                            text: "Positive"
-                            color: "#a1a1aa"
-                            font.pixelSize: 15
+
+                        function wrapHtml(content) {
+                            return "<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{background:#09090b;color:#e4e4e7;font-family:'Microsoft YaHei',sans-serif;font-size:15px;padding:0;margin:0;}a{color:#60a5fa;}img{max-width:100%;}</style></head><body>" + content + "</body></html>";
+                        }
+
+                        Component.onCompleted: {
+                            loadHtml(wrapHtml(htmlContent), "about:blank");
                         }
                     }
-
-                    ColumnLayout {
-                        spacing: 20
-                        Text {
-                            text: "Key Findings:"
-                            color: "#ffffff"
-                            font.pixelSize: 16
-                            font.weight: Font.Bold
-                        }
-
-                        Repeater {
-                            model: ["User struggled with the checkout button.", "Navigation flow was described as \"intuitive\".", "Time on task: 45s."]
-                            RowLayout {
-                                spacing: 16
-                                Rectangle {
-                                    width: 4
-                                    height: 4
-                                    radius: 2
-                                    color: "#ef4444"
-                                    Layout.alignment: Qt.AlignTop
-                                    Layout.topMargin: 8
-                                }
-                                Text {
-                                    text: modelData
-                                    color: "#e4e4e7"
-                                    font.pixelSize: 15
-                                    Layout.fillWidth: true
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. Action Items 区
-                ColumnLayout {
-                    spacing: 24
-                    Text {
-                        text: "Action Items:"
-                        color: "#ffffff"
-                        font.pixelSize: 16
-                        font.weight: Font.Bold
-                    }
-
-                    ColumnLayout {
-                        spacing: 16
-                        RowLayout {
-                            spacing: 12
-                            Rectangle {
-                                width: 18
-                                height: 18
-                                radius: 4
-                                color: "#18181b"
-                                border.color: "#27272a"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "1"
-                                    color: "#71717a"
-                                    font.pixelSize: 10
-                                }
-                            }
-                            Text {
-                                text: "Increase contrast on CTA."
-                                color: "#e4e4e7"
-                                font.pixelSize: 15
-                            }
-                        }
-                        Text {
-                            text: "2. Reduce steps in onboarding."
-                            color: "#e4e4e7"
-                            font.pixelSize: 15
-                            Layout.leftMargin: 30
-                        }
-                    }
-                }
-
-                // 4. Raw Data Transcripts
-                Text {
-                    text: "Raw Data Transcripts"
-                    color: "#71717a"
-                    font.pixelSize: 18
-                    font.weight: Font.Medium
                 }
             }
         }
@@ -389,6 +347,7 @@ Rectangle {
                         // Timestamp Highlights
                         ColumnLayout {
                             spacing: 16
+                            visible: root.timestampHighlights.length > 0
                             Text {
                                 text: "Timestamp Highlights"
                                 color: "#ffffff"
@@ -397,33 +356,7 @@ Rectangle {
                             }
 
                             Repeater {
-                                model: [
-                                    {
-                                        t: "00:45",
-                                        d: "User frustration detected on button click",
-                                        img: "clip1"
-                                    },
-                                    {
-                                        t: "02:14",
-                                        d: "Entry into checkout flow initiated",
-                                        img: "clip2"
-                                    },
-                                    {
-                                        t: "05:30",
-                                        d: "Successful payment conversion confirmed",
-                                        img: "clip3"
-                                    },
-                                    {
-                                        t: "08:12",
-                                        d: "User abandoned cart at shipping step",
-                                        img: "clip4"
-                                    },
-                                    {
-                                        t: "10:45",
-                                        d: "Help menu triggered twice by user",
-                                        img: "clip5"
-                                    }
-                                ]
+                                model: root.timestampHighlights
                                 ColumnLayout {
                                     spacing: 8
                                     Layout.fillWidth: true
@@ -436,7 +369,7 @@ Rectangle {
                                             color: "#30ef4444"
                                             Text {
                                                 anchors.centerIn: parent
-                                                text: model.t
+                                                text: modelData.time || ""
                                                 color: "#ef4444"
                                                 font.pixelSize: 10
                                                 font.family: "monospace"
@@ -444,45 +377,11 @@ Rectangle {
                                             }
                                         }
                                         Text {
-                                            text: model.d
+                                            text: modelData.description || ""
                                             color: "#e4e4e7"
                                             font.pixelSize: 13
                                             Layout.fillWidth: true
                                             elide: Text.ElideRight
-                                        }
-                                    }
-                                    // 实例案例预览图 (Dummy)
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 60
-                                        radius: 8
-                                        color: "#18181b"
-                                        border.color: "#27272a"
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
-                                            spacing: 12
-                                            Rectangle {
-                                                width: 44
-                                                height: 44
-                                                radius: 4
-                                                color: "#27272a"
-                                            }
-                                            Column {
-                                                Layout.fillWidth: true
-                                                Text {
-                                                    text: "Visual Context"
-                                                    color: "#71717a"
-                                                    font.pixelSize: 10
-                                                }
-                                                Text {
-                                                    text: "Detected anomaly in area 42"
-                                                    color: "#a1a1aa"
-                                                    font.pixelSize: 11
-                                                    elide: Text.ElideRight
-                                                    width: parent.width
-                                                }
-                                            }
                                         }
                                     }
                                 }
@@ -492,6 +391,7 @@ Rectangle {
                         // Parameters
                         ColumnLayout {
                             spacing: 16
+                            visible: root.parameters.length > 0
                             Text {
                                 text: "Parameters"
                                 color: "#ffffff"
@@ -505,20 +405,7 @@ Rectangle {
                                 rowSpacing: 12
                                 Layout.fillWidth: true
                                 Repeater {
-                                    model: [
-                                        {
-                                            l: "RESOLUTION",
-                                            v: "1920×1080"
-                                        },
-                                        {
-                                            l: "FRAME RATE",
-                                            v: "60 FPS"
-                                        },
-                                        {
-                                            l: "AUDIO",
-                                            v: "Stereo"
-                                        }
-                                    ]
+                                    model: root.parameters
                                     Rectangle {
                                         Layout.fillWidth: true
                                         height: 64
@@ -529,14 +416,14 @@ Rectangle {
                                             anchors.centerIn: parent
                                             spacing: 4
                                             Text {
-                                                text: model.l
+                                                text: modelData.label || ""
                                                 color: "#71717a"
                                                 font.pixelSize: 9
                                                 font.weight: Font.Bold
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                             }
                                             Text {
-                                                text: model.v
+                                                text: modelData.value || ""
                                                 color: "#e4e4e7"
                                                 font.pixelSize: 13
                                                 font.weight: Font.Medium
@@ -551,6 +438,7 @@ Rectangle {
                         // Key Findings (视频下方的关键发现)
                         ColumnLayout {
                             spacing: 16
+                            visible: root.keyFindings.length > 0
                             Text {
                                 text: "Key Findings:"
                                 color: "#ffffff"
@@ -562,7 +450,7 @@ Rectangle {
                                 spacing: 12
                                 Layout.fillWidth: true
                                 Repeater {
-                                    model: ["Visual contrast issues on mobile devices", "Load time exceeded 3s globally in 40% cases", "Unresponsive UI during background API fetch", "Confusing navigation labeling in sub-menus"]
+                                    model: root.keyFindings
                                     RowLayout {
                                         spacing: 10
                                         Layout.fillWidth: true
@@ -573,7 +461,7 @@ Rectangle {
                                             color: "#ef4444"
                                         }
                                         Text {
-                                            text: modelData
+                                            text: modelData || ""
                                             color: "#a1a1aa"
                                             font.pixelSize: 13
                                             Layout.fillWidth: true

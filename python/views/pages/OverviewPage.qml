@@ -12,29 +12,54 @@ Rectangle {
 
     signal detailRequested(var data)
 
-    property var latestReport: {
-        "title": "UX Usability Test - Session A",
-        "date": "Today, 10:23 AM",
-        "findings": ["User struggled with the checkout button visibility.", "Navigation flow described as \"intuitive\" by 80% of subjects.", "Critical friction point detected at timestamp 02:14."]
+    // 动态数据：从 historyViewModel 获取
+    property var latestReport: ({
+        "recordId": "",
+        "title": "No Analysis Yet",
+        "date": "",
+        "findings": []
+    })
+
+    property var recentHistory: []
+
+    // 加载历史数据
+    function refreshData() {
+        if (typeof historyViewModel === "undefined") return;
+        var list = historyViewModel.getHistoryList();
+        if (list.length === 0) return;
+
+        // 第一个是最新的 (latest)
+        var latest = list[0];
+        latestReport = {
+            "recordId": latest.recordId,
+            "title": latest.fileName,
+            "date": latest.startTime,
+            "findings": []
+        };
+
+        // 剩余的作为 recentHistory (最多3个)
+        var recent = [];
+        for (var i = 1; i < Math.min(list.length, 4); i++) {
+            recent.push({
+                "recordId": list[i].recordId,
+                "title": list[i].fileName,
+                "date": list[i].startTime,
+                "duration": list[i].duration
+            });
+        }
+        recentHistory = recent;
     }
 
-    property var recentHistory: [
-        {
-            title: "Competitor Analysis - Landing Page",
-            date: "Yesterday",
-            duration: "05:32"
-        },
-        {
-            title: "Bug Repro - Crash on Load",
-            date: "Dec 08",
-            duration: "01:15"
-        },
-        {
-            title: "Design Critique V2",
-            date: "Dec 05",
-            duration: "45:00"
+    Component.onCompleted: {
+        if (typeof historyViewModel !== "undefined") {
+            historyViewModel.loadHistory();
         }
-    ]
+    }
+
+    Connections {
+        target: typeof historyViewModel !== "undefined" ? historyViewModel : null
+        function onHistoryListChanged() { refreshData(); }
+    }
 
     ScrollView {
         anchors.fill: parent
@@ -219,6 +244,7 @@ Rectangle {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.detailRequested({
+                            recordId: latestReport.recordId,
                             title: latestReport.title,
                             date: latestReport.date,
                             duration: "12:04",
@@ -316,6 +342,7 @@ Rectangle {
                                     onEntered: parent.border.color = "#3f3f46"
                                     onExited: parent.border.color = "#18181b"
                                     onClicked: root.detailRequested({
+                                        recordId: modelData.recordId,
                                         title: modelData.title,
                                         date: modelData.date,
                                         duration: modelData.duration,

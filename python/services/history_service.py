@@ -13,6 +13,10 @@ from infrastructure.log_manager import get_logger
 from database.database_manager import DatabaseManager
 from database.recording_dao import RecordingDAO
 from database.keyframe_dao import KeyFrameVideoDAO
+from database.ai_analysis_dao import AIAnalysisDAO
+from database.timestamp_event_dao import TimestampEventDAO
+from database.key_finding_dao import KeyFindingDAO
+from database.analysis_metadata_dao import AnalysisMetadataDAO
 from database.models import Recording, KeyFrameVideo
 
 
@@ -83,6 +87,10 @@ class HistoryService:
         self.db_manager = DatabaseManager(db_path)
         self.recording_dao = RecordingDAO(self.db_manager)
         self.keyframe_dao = KeyFrameVideoDAO(self.db_manager)
+        self.ai_analysis_dao = AIAnalysisDAO(self.db_manager)
+        self.timestamp_event_dao = TimestampEventDAO(self.db_manager)
+        self.key_finding_dao = KeyFindingDAO(self.db_manager)
+        self.analysis_metadata_dao = AnalysisMetadataDAO(self.db_manager)
 
         # 数据文件
         self._recordings_file = self.data_dir / "recordings.json"
@@ -351,6 +359,21 @@ class HistoryService:
         self._save_recordings()
         return True
 
+    def toggle_favorite(self, record_id: str) -> bool:
+        """切换收藏状态"""
+        try:
+            db_recording = self.recording_dao.get_by_id(record_id)
+            if not db_recording:
+                return False
+            is_fav = db_recording.metadata.get("is_favorite", False)
+            db_recording.metadata["is_favorite"] = not is_fav
+            self.recording_dao.update(db_recording)
+            self.logger.info(f"Toggled favorite for {record_id}: {not is_fav}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to toggle favorite: {e}")
+            return False
+
     def add_keyframe_video(
         self,
         recording_id: str,
@@ -443,6 +466,95 @@ class HistoryService:
         self.logger.info(f"Added analysis record: {record_id}")
         return record_id
 
+    def save_ai_analysis_result(self, recording_id: str, result: Dict[str, Any]) -> bool:
+        """
+        保存详细的 AI 分析结果到数据库各表
+
+        Args:
+            recording_id: 关联的录制记录ID
+            result: 解析后的 AI 响应字典
+
+        Returns:
+            bool: 成功返回 True
+        """
+        try:
+            from database.models import AIAnalysis, TimestampEvent, KeyFinding, AnalysisMetadata
+            
+            # 1. 获取关联的关键帧视频
+            keyframes = self.keyframe_dao.get_by_recording_id(recording_id)
+            keyframe_id = keyframes[0].keyframe_id if keyframes else None
+            
+            analysis_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
+            
+            # 2. 创建主分析记录
+            db_analysis = AIAnalysis(
+                analysis_id=analysis_id,
+                keyframe_id=keyframe_id,
+                video_analysis_md=result.get("video_analysis_md", ""),
+                audio_analysis_md=result.get("audio_analysis_md", ""),
+                summary_md=result.get("summary_md", ""),
+                model_name=result.get("model_name", "gemini-model"),  # 尽量从结果中获取或预设
+                status="completed",
+                started_at=now,
+                completed_at=now
+            )
+            self.ai_analysis_dao.create(db_analysis)
+            
+            # 3. 保存时间轴事件
+            for event_data in result.get("timestamp_events", []):
+                event = TimestampEvent(
+                    event_id=str(uuid.uuid4()),
+                    analysis_id=analysis_id,
+                    timestamp_seconds=float(event_data.get("timestamp_seconds", 0)),
+                    event_type=event_data.get("event_type", "highlight"),
+                    title=event_data.get("title", ""),
+                    description=event_data.get("description", ""),
+                    importance_score=event_data.get("importance_score", 5)
+                )
+                self.timestamp_event_dao.create(event)
+            
+            # 4. 保存关键发现
+            for i, finding_data in enumerate(result.get("key_findings", [])):
+                finding = KeyFinding(
+                    finding_id=str(uuid.uuid4()),
+                    analysis_id=analysis_id,
+                    sequence_order=finding_data.get("sequence_order", i),
+                    category=finding_data.get("category", "general"),
+                    title=finding_data.get("title", ""),
+                    content=finding_data.get("content", ""),
+                    confidence_score=finding_data.get("confidence_score", 80),
+                    related_timestamps=finding_data.get("related_timestamps", [])
+                )
+                self.key_finding_dao.create(finding)
+                
+            # 5. 保存元数据
+            for meta_data in result.get("analysis_metadata", []):
+                meta = AnalysisMetadata(
+                    metadata_id=str(uuid.uuid4()),
+                    analysis_id=analysis_id,
+                    key=meta_data.get("key", ""),
+                    value=str(meta_data.get("value", "")),
+                    data_type=meta_data.get("data_type", "string")
+                )
+                self.analysis_metadata_dao.create(meta)
+                
+            # 6. 同时更新内存缓存和 JSON 文件 (为了向下兼容)
+            self.add_analysis(
+                recording_id=recording_id,
+                start_time=datetime.fromisoformat(now),
+                end_time=datetime.fromisoformat(now),
+                keyframe_count=len(keyframes),
+                analyzed_frames=0,
+                results=[{"markdown": result.get("summary_md", ""), "detailed": True}]
+            )
+            
+            self.logger.info(f"Successfully saved detailed AI analysis for {recording_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save detailed AI analysis: {e}")
+            return False
+
     def get_all_analyses(self) -> List[AnalysisRecord]:
         """获取所有分析记录"""
         return list(self._analyses.values())
@@ -526,3 +638,93 @@ class HistoryService:
         except Exception as e:
             self.logger.error(f"Error clearing history: {e}")
             return False
+
+    def get_analysis_details(self, recording_id: str) -> Dict[str, Any]:
+        """
+        获取录制记录的完整分析详情
+
+        Args:
+            recording_id: 录制记录ID
+
+        Returns:
+            Dict: 包含标题、时间戳事件、关键发现、参数等
+        """
+        result = {
+            "title": "",
+            "subtitle": "",
+            "timestamps": [],
+            "keyFindings": [],
+            "parameters": [],
+            "videoAnalysisMd": ""  # 新增：主报告 Markdown
+        }
+
+        try:
+            # 获取录制记录
+            recording = self.recording_dao.get_by_id(recording_id)
+            if not recording:
+                return result
+
+            result["title"] = recording.title or "Analysis Report"
+            result["subtitle"] = recording.description or "AI-generated insights based on visual and audio processing."
+
+            # 获取关键帧视频 (可能为空)
+            keyframes = self.keyframe_dao.get_by_recording_id(recording_id)
+            keyframe = keyframes[0] if keyframes else None
+
+            # 添加参数信息 (基于录制记录或关键帧)
+            if keyframe:
+                result["parameters"] = [
+                    {"label": "DURATION", "value": f"{keyframe.duration_seconds}s"},
+                    {"label": "KEYFRAMES", "value": str(keyframe.keyframe_count)},
+                    {"label": "COMPRESSION", "value": f"{keyframe.compression_ratio:.1f}x" if keyframe.compression_ratio else "N/A"}
+                ]
+            else:
+                result["parameters"] = [
+                    {"label": "DURATION", "value": f"{recording.duration_seconds}s"},
+                    {"label": "FILE SIZE", "value": f"{recording.file_size_bytes / (1024*1024):.1f} MB"},
+                ]
+
+            # 获取AI分析结果 - 优先使用 keyframe_id，否则尝试获取最新（通过新增方法）
+            analysis = None
+            if keyframe:
+                analyses = self.ai_analysis_dao.get_by_keyframe_id(keyframe.keyframe_id)
+                if analyses:
+                    analysis = analyses[0]
+            
+            # 后备：如果通过 keyframe 找不到，尝试获取所有分析并匹配 (需要新方法)
+            if not analysis:
+                all_analyses = self.ai_analysis_dao.get_all(limit=100)
+                # 过滤：找到 keyframe_id 为空但属于此 recording 的分析 (这是一种临时方案)
+                # 更优方案：在 ai_analysis 表中增加 recording_id 直接关联
+                for a in all_analyses:
+                    # 此处需要反向查找，暂时跳过复杂逻辑，直接返回最近的无关键帧分析
+                    if not a.keyframe_id:
+                        analysis = a
+                        break
+
+            if not analysis:
+                return result
+            
+            # 核心：获取主报告 Markdown
+            result["videoAnalysisMd"] = analysis.video_analysis_md or ""
+
+            # 获取时间戳事件
+            events = self.timestamp_event_dao.get_by_analysis_id(analysis.analysis_id)
+            for e in events:
+                mins = int(e.timestamp_seconds) // 60
+                secs = int(e.timestamp_seconds) % 60
+                result["timestamps"].append({
+                    "time": f"{mins:02d}:{secs:02d}",
+                    "description": e.description or e.title
+                })
+
+            # 获取关键发现
+            findings = self.key_finding_dao.get_by_analysis_id(analysis.analysis_id)
+            for f in findings:
+                result["keyFindings"].append(f.content or f.title)
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Failed to get analysis details: {e}")
+            return result

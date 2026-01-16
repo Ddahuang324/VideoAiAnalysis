@@ -200,46 +200,81 @@ Rectangle {
                 spacing: 12
 
                 // Prompt 选择
-                Rectangle {
+                ComboBox {
+                    id: promptCombo
                     width: 180
                     height: 36
-                    radius: 8
-                    color: Styles.ThemeManager.overlayDark
-                    border.width: 1
-                    border.color: Styles.ThemeManager.border
-
-                    RowLayout {
+                    model: promptViewModel ? promptViewModel.templates : []
+                    textRole: "name"
+                    currentIndex: {
+                        if (!promptViewModel) return 0;
+                        var templates = promptViewModel.templates;
+                        for (var i = 0; i < templates.length; i++) {
+                            if (templates[i].promptId === promptViewModel.currentTemplateId) return i;
+                        }
+                        return 0;
+                    }
+                    onActivated: index => {
+                        if (promptViewModel && promptCombo.model[index]) {
+                            promptViewModel.selectTemplate(promptCombo.model[index].promptId);
+                        }
+                    }
+                    background: Rectangle {
+                        radius: 8
+                        color: Styles.ThemeManager.overlayDark
+                        border.width: 1
+                        border.color: Styles.ThemeManager.border
+                    }
+                    contentItem: RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
                         spacing: 8
-
                         Text {
                             text: "PROMPT:"
                             color: Styles.ThemeManager.textMuted
                             font.pixelSize: 10
                             font.weight: Font.Bold
                         }
-
                         Text {
                             Layout.fillWidth: true
-                            text: "Default Analysis"
+                            text: promptCombo.displayText || "Default"
                             color: Styles.ThemeManager.textSecondary
                             font.pixelSize: 11
                             elide: Text.ElideRight
                         }
-
                         Text {
                             text: "▾"
                             color: Styles.ThemeManager.textSecondary
                             font.pixelSize: 12
                         }
                     }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: console.log("Open Prompt Selector")
+                    delegate: ItemDelegate {
+                        width: promptCombo.width
+                        contentItem: Text {
+                            text: modelData.name
+                            color: Styles.ThemeManager.text
+                            font.pixelSize: 11
+                            leftPadding: 12
+                        }
+                        background: Rectangle {
+                            color: highlighted ? Styles.ThemeManager.overlayLight : "transparent"
+                        }
+                    }
+                    popup: Popup {
+                        y: promptCombo.height + 4
+                        width: promptCombo.width
+                        padding: 1
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: promptCombo.popup.visible ? promptCombo.delegateModel : null
+                        }
+                        background: Rectangle {
+                            radius: 8
+                            color: Styles.ThemeManager.bgSurface
+                            border.color: Styles.ThemeManager.border
+                        }
                     }
                 }
 

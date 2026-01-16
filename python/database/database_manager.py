@@ -132,7 +132,7 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ai_analysis (
                     analysis_id TEXT PRIMARY KEY,
-                    keyframe_id TEXT NOT NULL,
+                    keyframe_id TEXT,
                     prompt_id TEXT,
                     analysis_type TEXT DEFAULT 'general',
                     model_name TEXT NOT NULL,

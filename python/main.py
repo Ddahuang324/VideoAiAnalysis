@@ -6,9 +6,13 @@ import sys
 import os
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent
+
+# 加载 .env 文件
+load_dotenv(project_root / ".env")
 sys.path.insert(0, str(project_root))
 
 # 添加 C++ Python 绑定目录
@@ -30,7 +34,7 @@ if sys.platform == 'win32':
             try:
                 os.add_dll_directory(str(bin_path))
             except Exception as e:
-                print(f"⚠️ Warning: Failed to add DLL directory {bin_path}: {e}")
+                print(f"[WARN] Failed to add DLL directory {bin_path}: {e}")
 
     if ffmpeg_bin_path.exists():
         new_paths.append(str(ffmpeg_bin_path))
@@ -38,7 +42,7 @@ if sys.platform == 'win32':
             try:
                 os.add_dll_directory(str(ffmpeg_bin_path))
             except Exception as e:
-                print(f"⚠️ Warning: Failed to add DLL directory {ffmpeg_bin_path}: {e}")
+                print(f"[WARN] Failed to add DLL directory {ffmpeg_bin_path}: {e}")
 
     if new_paths:
         os.environ['PATH'] = os.pathsep.join(new_paths + [current_path])
@@ -51,10 +55,13 @@ from PySide6.QtCore import QUrl
 from services.recorder_service import RecorderService
 from services.analyzer_service import AnalyzerService
 from services.history_service import HistoryService
+from services.gemini_service import GeminiService
 from viewmodels.recorder_viewmodel import RecorderViewModel
 from viewmodels.analyzer_viewmodel import AnalyzerViewModel
 from viewmodels.history_viewmodel import HistoryViewModel
 from viewmodels.settings_viewmodel import SettingsViewModel
+from viewmodels.prompt_viewmodel import PromptViewModel
+from database.prompt_template_dao import PromptTemplateDAO
 from infrastructure.log_manager import LogManager
 from infrastructure.process_manager import ModuleManager
 
@@ -77,12 +84,14 @@ class ApplicationContainer:
         self.recorder_service: Optional[RecorderService] = None
         self.analyzer_service: Optional[AnalyzerService] = None
         self.history_service: Optional[HistoryService] = None
+        self.gemini_service: Optional[GeminiService] = None
 
         # 视图模型层
         self.recorder_viewmodel: Optional[RecorderViewModel] = None
         self.analyzer_viewmodel: Optional[AnalyzerViewModel] = None
         self.history_viewmodel: Optional[HistoryViewModel] = None
         self.settings_viewmodel: Optional[SettingsViewModel] = None
+        self.prompt_viewmodel: Optional[PromptViewModel] = None
 
     def initialize_infrastructure(self):
         """初始化基础设施层"""
@@ -100,7 +109,7 @@ class ApplicationContainer:
         # 创建模块管理器
         self.module_manager = ModuleManager(log_manager)
 
-        print("✅ Infrastructure layer initialized")
+        print("[OK] Infrastructure layer initialized")
 
     def initialize_services(self):
         """初始化服务层"""
@@ -126,9 +135,12 @@ class ApplicationContainer:
             self.recorder_service._analyzer_service = self.analyzer_service  # type: ignore
             self.recorder_service._history_service = self.history_service
 
+        # 创建 Gemini AI 服务
+        self.gemini_service = GeminiService()
+
         if self.log_manager:
             self.log_manager.info("Service layer initialized")
-        print("✅ Service layer initialized")
+        print("[OK] Service layer initialized")
 
     def initialize_viewmodels(self):
         """初始化视图模型层"""
@@ -160,10 +172,20 @@ class ApplicationContainer:
             raise RuntimeError("HistoryService not initialized")
 
         # 创建历史记录视图模型
-        self.history_viewmodel = HistoryViewModel(self.history_service)
+        self.history_viewmodel = HistoryViewModel(self.history_service, self.gemini_service)
 
         # 创建设置视图模型
         self.settings_viewmodel = SettingsViewModel()
+
+        # 创建提示词视图模型
+        prompt_dao = PromptTemplateDAO(self.history_service.db_manager)
+        self.prompt_viewmodel = PromptViewModel(prompt_dao)
+        self.prompt_viewmodel.loadTemplates()
+
+        # 注入 history_viewmodel 和 prompt_viewmodel 到 recorder_viewmodel
+        if self.recorder_viewmodel:
+            self.recorder_viewmodel._history_viewmodel = self.history_viewmodel
+            self.recorder_viewmodel._prompt_viewmodel = self.prompt_viewmodel
 
         # 将设置视图模型注入到录制服务
         if self.recorder_service and self.settings_viewmodel:
@@ -208,7 +230,7 @@ class ApplicationContainer:
 
         if self.log_manager:
             self.log_manager.info("ViewModel layer initialized")
-        print("✅ ViewModel layer initialized")
+        print("[OK] ViewModel layer initialized")
 
     def create_qt_application(self):
         """创建Qt应用"""
@@ -218,7 +240,7 @@ class ApplicationContainer:
 
         if self.log_manager:
             self.log_manager.info("Qt application created")
-        print("✅ Qt application created")
+        print("[OK] Qt application created")
 
     def create_qml_engine(self):
         """创建QML引擎"""
@@ -242,13 +264,14 @@ class ApplicationContainer:
         context.setContextProperty("analyzerViewModel", self.analyzer_viewmodel)
         context.setContextProperty("historyViewModel", self.history_viewmodel)
         context.setContextProperty("settingsViewModel", self.settings_viewmodel)
+        context.setContextProperty("promptViewModel", self.prompt_viewmodel)
 
         # 加载 QML 文件
         qml_file = views_path / "main.qml"
         if not qml_file.exists():
             if self.log_manager:
                 self.log_manager.error(f"QML file not found: {qml_file}")
-            print(f"❌ Error: QML file not found: {qml_file}")
+            print(f"[ERROR] Error: QML file not found: {qml_file}")
             return False
 
         self.engine.load(QUrl.fromLocalFile(str(qml_file)))
@@ -256,12 +279,12 @@ class ApplicationContainer:
         if not self.engine.rootObjects():
             if self.log_manager:
                 self.log_manager.error("Failed to load QML file")
-            print("❌ Error: Failed to load QML file")
+            print("[ERROR] Error: Failed to load QML file")
             return False
 
         if self.log_manager:
             self.log_manager.info(f"QML file loaded: {qml_file}")
-        print(f"✅ QML file loaded: {qml_file}")
+        print(f"[OK] QML file loaded: {qml_file}")
         return True
 
     def initialize_services_async(self):
@@ -280,7 +303,7 @@ class ApplicationContainer:
 
         if self.log_manager:
             self.log_manager.info("All services initialized")
-        print("✅ All services initialized")
+        print("[OK] All services initialized")
 
     def run(self):
         """运行应用"""
@@ -306,11 +329,11 @@ class ApplicationContainer:
 
             # 打印启动信息
             print("\n" + "=" * 70)
-            print("🚀 Application started successfully!")
-            print(f"📝 QML file: {project_root / 'python' / 'views' / 'main.qml'}")
-            print(f"🏗️  Architecture: MVVM (Phase 3)")
-            print(f"🐍 Python: {sys.version.split()[0]}")
-            print(f"🔗 C++ modules: recorder_module, analyzer_module")
+            print("Application started successfully!")
+            print(f"QML file: {project_root / 'python' / 'views' / 'main.qml'}")
+            print(f"Architecture: MVVM (Phase 3)")
+            print(f"Python: {sys.version.split()[0]}")
+            print(f"C++ modules: recorder_module, analyzer_module")
             print("=" * 70 + "\n")
 
             # 7. 进入事件循环
@@ -322,7 +345,7 @@ class ApplicationContainer:
         except Exception as e:
             if self.log_manager:
                 self.log_manager.error(f"Application error: {e}")
-            print(f"❌ Application error: {e}")
+            print(f"[ERROR] Application error: {e}")
             import traceback
             traceback.print_exc()
             return -1

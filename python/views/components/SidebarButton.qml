@@ -96,6 +96,15 @@ Rectangle {
                     ctx.stroke();
                 }
                 break;
+            case "prompt":
+                // Document/text icon
+                ctx.strokeRect(4, 2, 16, 20);
+                ctx.beginPath();
+                ctx.moveTo(7, 7); ctx.lineTo(17, 7);
+                ctx.moveTo(7, 11); ctx.lineTo(17, 11);
+                ctx.moveTo(7, 15); ctx.lineTo(13, 15);
+                ctx.stroke();
+                break;
             }
         }
 

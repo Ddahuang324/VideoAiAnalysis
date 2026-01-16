@@ -25,7 +25,7 @@ Window {
 
     // ==================== 页面导航 ====================
 
-    property int currentPage: 0  // 0=Overview, 1=Record, 2=Library, 3=Settings
+    property int currentPage: 0  // 0=Overview, 1=Record, 2=Library, 3=Settings, 4=Prompts
     property bool showingDetail: false  // 是否显示详情页
     property var detailData: null  // 详情页数据
 
@@ -42,6 +42,8 @@ Window {
             return "pages/LibraryPage.qml";
         case 3:
             return "pages/SettingsPage.qml";
+        case 4:
+            return "pages/PromptManagerPage.qml";
         default:
             return "pages/OverviewPage.qml";
         }
@@ -195,6 +197,17 @@ Window {
                         root.showingDetail = false;
                     }
                 }
+
+                // 提示词管理按钮
+                SidebarButton {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    icon: "prompt"
+                    isActive: root.currentPage === 4
+                    onClicked: {
+                        root.currentPage = 4;
+                        root.showingDetail = false;
+                    }
+                }
             }
 
             // 底部主题切换
@@ -285,10 +298,15 @@ Window {
                     if (root.showingDetail && item) {
                         item.backRequested.connect(root.hideDetail);
                         if (root.detailData) {
+                            item.recordId = root.detailData.recordId || "";
                             item.recordTitle = root.detailData.title || "";
                             item.recordDate = root.detailData.date || "";
                             item.recordDuration = root.detailData.duration || "";
                             item.recordStatus = root.detailData.status || "completed";
+                            // 加载分析内容
+                            if (root.detailData.recordId && typeof historyViewModel !== "undefined") {
+                                historyViewModel.loadAnalysisContent(root.detailData.recordId);
+                            }
                         }
                     }
 
