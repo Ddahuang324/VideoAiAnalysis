@@ -56,6 +56,7 @@ class AIAnalysis:
     """AI 分析结果数据类"""
     analysis_id: str = ""
     keyframe_id: str = ""
+    recording_id: str = ""
     prompt_id: str = ""
     analysis_type: str = "general"
     model_name: str = ""
@@ -64,6 +65,7 @@ class AIAnalysis:
     video_analysis_md: str = ""
     audio_analysis_md: str = ""
     summary_md: str = ""
+    rendered_html: str = ""
     started_at: str = ""
     completed_at: str = ""
     processing_time_ms: int = 0

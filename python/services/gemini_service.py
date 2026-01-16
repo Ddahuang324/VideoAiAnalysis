@@ -19,12 +19,16 @@ class GeminiService:
     model_name: str
     parser: ResponseParser
 
-    def __init__(self, api_key: Optional[str] = None, config_path: str = "configs/gemini_config.json",
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None,
+                 config_path: str = "configs/gemini_config.json",
                  recorder_service=None, analyzer_service=None):
         self.logger = get_logger("GeminiService")
         self._config = self._load_config(config_path)
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-        self.model_name = self._config.get("model", {}).get("name", "gemini-2.5-flash-lite")
+
+        # 依次尝试获取 API Key: 参数传入 > GEMINI_API_KEY > GOOGLE_API_KEY
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        self.model_name = model_name or self._config.get("model", {}).get("name", "gemini-2.5-flash-lite")
         self.model = None
         self._genai = None  # 增加显式初始化
         self.parser = ResponseParser()
@@ -58,6 +62,19 @@ class GeminiService:
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini client: {e}")
             raise
+
+    def update_config(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
+        """动态更新 API Key 和模型"""
+        reinit = False
+        if api_key and api_key != self.api_key:
+            self.api_key = api_key
+            reinit = True
+        if model_name and model_name != self.model_name:
+            self.model_name = model_name
+            self.model = model_name
+            self.logger.info(f"Model updated to: {model_name}")
+        if reinit:
+            self._init_client()
 
     def upload_video(self, video_path: str) -> str:
         """上传视频文件"""

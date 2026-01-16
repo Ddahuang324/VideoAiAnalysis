@@ -141,6 +141,7 @@ class DatabaseManager:
                     video_analysis_md TEXT DEFAULT '',
                     audio_analysis_md TEXT DEFAULT '',
                     summary_md TEXT DEFAULT '',
+                    rendered_html TEXT DEFAULT '',
                     started_at TEXT,
                     completed_at TEXT,
                     processing_time_ms INTEGER DEFAULT 0,
@@ -149,7 +150,18 @@ class DatabaseManager:
                     FOREIGN KEY (prompt_id) REFERENCES prompt_template(prompt_id) ON DELETE SET NULL
                 )
             """)
+            # 迁移：添加 rendered_html 列（如果不存在）
+            try:
+                cursor.execute("ALTER TABLE ai_analysis ADD COLUMN rendered_html TEXT DEFAULT ''")
+            except:
+                pass  # 列已存在
+            # 迁移：添加 recording_id 列（如果不存在）
+            try:
+                cursor.execute("ALTER TABLE ai_analysis ADD COLUMN recording_id TEXT DEFAULT ''")
+            except:
+                pass  # 列已存在
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_keyframe_id ON ai_analysis(keyframe_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_recording_id ON ai_analysis(recording_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_prompt_id ON ai_analysis(prompt_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_status ON ai_analysis(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_completed_at ON ai_analysis(completed_at DESC)")

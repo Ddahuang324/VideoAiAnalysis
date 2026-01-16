@@ -16,6 +16,11 @@ class SettingsViewModel(QObject):
     settingsChanged = Signal()
     outputDirChanged = Signal()
 
+    # Gemini AI 配置信号
+    geminiApiKeyChanged = Signal()
+    geminiModelChanged = Signal()
+    geminiModelsChanged = Signal()  # 可用模型列表变化
+
     # 视频配置信号
     videoWidthChanged = Signal()
     videoHeightChanged = Signal()
@@ -72,9 +77,18 @@ class SettingsViewModel(QObject):
         self._recording_mode = "video"
         self._analysis_realtime = True  # 默认开启实时分析（针对SNAPSHOT模式）
 
+        # Gemini AI 配置
+        self._gemini_api_key = ""
+        self._gemini_model = "gemini-2.5-flash-lite"
+        self._gemini_models = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]  # 默认列表
+
         # 加载保存的配置
         self._load_settings()
         self.logger.info("SettingsViewModel initialized")
+
+        # 如果已有 API Key，自动获取可用模型
+        if self._gemini_api_key:
+            self._fetch_available_models(self._gemini_api_key)
 
     # ========== 输出目录 ==========
     @Property(str, notify=outputDirChanged)
@@ -369,6 +383,71 @@ class SettingsViewModel(QObject):
     def setAnalysisRealTime(self, value):
         self.analysisRealTime = value
 
+    # ========== Gemini AI 配置 ==========
+    @Property(str, notify=geminiApiKeyChanged)
+    def geminiApiKey(self):
+        return self._gemini_api_key
+
+    @Slot(str)
+    def setGeminiApiKey(self, value):
+        if self._gemini_api_key != value:
+            self._gemini_api_key = value
+            self.geminiApiKeyChanged.emit()
+            self._save_settings()
+            # API Key 变化时自动获取可用模型
+            if value:
+                self._fetch_available_models(value)
+
+    @Property(str, notify=geminiModelChanged)
+    def geminiModel(self):
+        return self._gemini_model
+
+    @Slot(str)
+    def setGeminiModel(self, value):
+        if self._gemini_model != value:
+            self._gemini_model = value
+            self.geminiModelChanged.emit()
+            self._save_settings()
+
+    @Property(list, notify=geminiModelsChanged)
+    def geminiModels(self):
+        return self._gemini_models
+
+    @Slot()
+    def refreshGeminiModels(self):
+        """手动刷新模型列表"""
+        if self._gemini_api_key:
+            self._fetch_available_models(self._gemini_api_key)
+
+    def _fetch_available_models(self, api_key: str):
+        """从 API 获取可用模型列表"""
+        import threading
+        def fetch():
+            try:
+                from google import genai
+                client = genai.Client(api_key=api_key)
+                models = []
+                for model in client.models.list():
+                    name = model.name
+                    # 过滤出 gemini 模型，排除实验性和不可用的模型
+                    if "gemini" in name.lower():
+                        short_name = name.replace("models/", "")
+                        # 排除实验性模型（-exp 后缀）和其他不稳定版本
+                        if "-exp" in short_name or "-preview" in short_name:
+                            continue
+                        # 只保留支持 generateContent 的模型
+                        if hasattr(model, 'supported_generation_methods'):
+                            if 'generateContent' not in model.supported_generation_methods:
+                                continue
+                        models.append(short_name)
+                if models:
+                    self._gemini_models = sorted(models)
+                    self.geminiModelsChanged.emit()
+                    self.logger.info(f"Fetched {len(models)} Gemini models")
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch models: {e}")
+        threading.Thread(target=fetch, daemon=True).start()
+
     # ========== 便捷属性 ==========
     @Property(str, notify=videoWidthChanged)
     def videoResolution(self):
@@ -448,6 +527,10 @@ class SettingsViewModel(QObject):
                 self._recording_mode = data.get('recording_mode', self._recording_mode)
                 self._analysis_realtime = data.get('analysis_realtime', self._analysis_realtime)
 
+                # Gemini AI 配置
+                self._gemini_api_key = data.get('gemini_api_key', self._gemini_api_key)
+                self._gemini_model = data.get('gemini_model', self._gemini_model)
+
                 self.logger.info("Settings loaded from file")
         except Exception as e:
             self.logger.warning(f"Failed to load settings: {e}")
@@ -477,6 +560,8 @@ class SettingsViewModel(QObject):
                 'analysis_thread_count': self._analysis_thread_count,
                 'recording_mode': self._recording_mode,
                 'analysis_realtime': self._analysis_realtime,
+                'gemini_api_key': self._gemini_api_key,
+                'gemini_model': self._gemini_model,
             }
 
             with open(self._config_path, 'w', encoding='utf-8') as f:
@@ -508,6 +593,8 @@ class SettingsViewModel(QObject):
         self._analysis_thread_count = 4
         self._recording_mode = "video"
         self._analysis_realtime = True
+        self._gemini_api_key = ""
+        self._gemini_model = "gemini-2.5-flash-lite"
 
         self._save_settings()
 
@@ -531,5 +618,7 @@ class SettingsViewModel(QObject):
         self.analysisThreadCountChanged.emit()
         self.recordingModeChanged.emit()
         self.analysisRealTimeChanged.emit()
+        self.geminiApiKeyChanged.emit()
+        self.geminiModelChanged.emit()
 
         self.logger.info("Settings reset to defaults")

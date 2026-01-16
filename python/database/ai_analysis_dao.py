@@ -25,16 +25,16 @@ class AIAnalysisDAO:
 
         query = """
             INSERT INTO ai_analysis (
-                analysis_id, keyframe_id, prompt_id, analysis_type, model_name,
+                analysis_id, keyframe_id, recording_id, prompt_id, analysis_type, model_name,
                 model_version, status, video_analysis_md, audio_analysis_md,
-                summary_md, started_at, completed_at, processing_time_ms, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                summary_md, rendered_html, started_at, completed_at, processing_time_ms, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
-            analysis.analysis_id, analysis.keyframe_id or None, analysis.prompt_id or None,
-            analysis.analysis_type, analysis.model_name, analysis.model_version,
+            analysis.analysis_id, analysis.keyframe_id or None, analysis.recording_id or None,
+            analysis.prompt_id or None, analysis.analysis_type, analysis.model_name, analysis.model_version,
             analysis.status, analysis.video_analysis_md, analysis.audio_analysis_md,
-            analysis.summary_md, analysis.started_at, analysis.completed_at,
+            analysis.summary_md, analysis.rendered_html, analysis.started_at, analysis.completed_at,
             analysis.processing_time_ms, analysis.error_message
         )
         self.db.execute_update(query, params)
@@ -76,10 +76,21 @@ class AIAnalysisDAO:
             self.logger.info(f"Deleted AI analysis: {analysis_id}")
         return affected > 0
 
+    def update_rendered_html(self, analysis_id: str, rendered_html: str) -> bool:
+        """更新渲染后的 HTML"""
+        query = "UPDATE ai_analysis SET rendered_html = ? WHERE analysis_id = ?"
+        return self.db.execute_update(query, (rendered_html, analysis_id)) > 0
+
+    def get_by_recording_id(self, recording_id: str) -> List[AIAnalysis]:
+        query = "SELECT * FROM ai_analysis WHERE recording_id = ? ORDER BY started_at DESC"
+        results = self.db.execute_query(query, (recording_id,))
+        return [self._row_to_analysis(row) for row in results]
+
     def _row_to_analysis(self, row) -> AIAnalysis:
         return AIAnalysis(
             analysis_id=row['analysis_id'],
             keyframe_id=row['keyframe_id'],
+            recording_id=row['recording_id'] if 'recording_id' in row.keys() else "",
             prompt_id=row['prompt_id'] or "",
             analysis_type=row['analysis_type'],
             model_name=row['model_name'],
@@ -88,6 +99,7 @@ class AIAnalysisDAO:
             video_analysis_md=row['video_analysis_md'],
             audio_analysis_md=row['audio_analysis_md'],
             summary_md=row['summary_md'],
+            rendered_html=row['rendered_html'] if 'rendered_html' in row.keys() else "",
             started_at=row['started_at'] or "",
             completed_at=row['completed_at'] or "",
             processing_time_ms=row['processing_time_ms'],

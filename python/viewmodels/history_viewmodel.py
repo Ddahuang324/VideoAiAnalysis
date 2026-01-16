@@ -50,14 +50,14 @@ class AIAnalysisWorker(QThread):
                 md = []
                 
                 # 1. 摘要
-                if "summary_md" in result:
+                if result.get("summary_md"):
                     md.append(f"# 视频分析摘要\n\n{result['summary_md']}\n")
                 
                 # 2. 详细分析
-                if "video_analysis_md" in result:
+                if result.get("video_analysis_md"):
                     md.append(f"## 画面详细分析\n\n{result['video_analysis_md']}\n")
                 
-                if "audio_analysis_md" in result:
+                if result.get("audio_analysis_md"):
                     md.append(f"## 音频详细分析\n\n{result['audio_analysis_md']}\n")
                 
                 # 4. 时间轴事件和关键发现 (不再合并到 Markdown，由 UI 独立显示)
@@ -117,6 +117,8 @@ class HistoryViewModel(QObject):
         self._html_cache: Dict[str, str] = {}
         # 正在处理的记录
         self._processing_ids: set = set()
+        # 当前正在查看的记录 ID
+        self._current_record_id: str = ""
         # 当前工作线程
         self._worker: Optional[MarkdownWorker] = None
         self._ai_worker: Optional[AIAnalysisWorker] = None
@@ -132,10 +134,12 @@ class HistoryViewModel(QObject):
         if self._loading_in_progress:
             self.logger.debug("loadHistory() skipped - already in progress")
             return
-        
+
         self._loading_in_progress = True
         try:
             records = self._service.get_all_recordings()
+            # 按开始时间降序排序（最新的在前）
+            records.sort(key=lambda r: r.start_time, reverse=True)
             self._history_list = records.copy()
             self._filtered_list = records.copy()
             self._total_count = len(records)
@@ -421,11 +425,13 @@ class HistoryViewModel(QObject):
         """渲染完成回调"""
         self._html_cache[record_id] = html
         self._processing_ids.discard(record_id)
-        self._current_analysis_html = html
+        # 持久化渲染结果到数据库
+        self._service.save_rendered_html(record_id, html)
         self.processingCompleted.emit(record_id)
-        self.analysisHtmlChanged.emit()
-        # 不再发射 historyListChanged，由 processingCompleted 信号单独处理状态更新
-        # self.historyListChanged.emit()  # 移除：这会导致信号循环
+        # 只有当渲染的是当前查看的记录时才更新全局 HTML
+        if record_id == self._current_record_id:
+            self._current_analysis_html = html
+            self.analysisHtmlChanged.emit()
 
     @Slot(str)
     def preloadAnalysisContent(self, record_id: str):
@@ -458,7 +464,9 @@ class HistoryViewModel(QObject):
 
     @Slot(str)
     def loadAnalysisContent(self, record_id: str):
-        """加载分析内容（优先使用缓存）"""
+        """加载分析内容（优先使用缓存，其次数据库，最后重新渲染）"""
+        # 更新当前查看的记录 ID
+        self._current_record_id = record_id
         # 已缓存，直接使用
         if record_id in self._html_cache:
             self._current_analysis_html = self._html_cache[record_id]
@@ -467,7 +475,14 @@ class HistoryViewModel(QObject):
         # 正在处理中，等待完成
         if record_id in self._processing_ids:
             return
-        # 启动预加载
+        # 尝试从数据库加载已渲染的 HTML
+        saved_html = self._service.get_rendered_html(record_id)
+        if saved_html:
+            self._html_cache[record_id] = saved_html
+            self._current_analysis_html = saved_html
+            self.analysisHtmlChanged.emit()
+            return
+        # 启动预加载（重新渲染）
         self.preloadAnalysisContent(record_id)
 
     @Slot(str)
