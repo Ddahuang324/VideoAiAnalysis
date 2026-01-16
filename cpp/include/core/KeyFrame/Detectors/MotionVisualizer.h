@@ -111,10 +111,30 @@ private:
      */
     void updateTrackHistory(const std::vector<MotionDetector::Track>& tracks);
 
-    Config config_;
-    std::map<int, std::deque<cv::Point>> trackHistory_;  // Track ID -> 轨迹历史点
+    /**
+     * @brief 构建轨迹标签文本
+     */
+    std::string buildLabel(const MotionDetector::Track& track);
 
-    // COCO 数据集类别名称
+    /**
+     * @brief 绘制单个标签
+     */
+    void drawLabel(cv::Mat& canvas, const cv::Rect& box, const std::string& label,
+                   const cv::Scalar& color);
+
+    /**
+     * @brief 获取边界框中心点
+     */
+    cv::Point getBoxCenter(const cv::Rect& box);
+
+    /**
+     * @brief 格式化浮点数文本
+     */
+    std::string formatFloat(const std::string& prefix, float value, int precision);
+
+    Config config_;
+    std::map<int, std::deque<cv::Point>> trackHistory_;
+
     static const char* COCO_CLASSES[80];
 };
 

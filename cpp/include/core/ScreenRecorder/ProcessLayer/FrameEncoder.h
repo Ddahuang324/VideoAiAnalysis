@@ -48,7 +48,7 @@ public:
 private:
     // 编码线程主循环
     void encodeLoop();
-    bool ProcessFrame(const FrameData& frameData);
+    bool processFrame(const FrameData& frameData);
 
     // 回调通知
     void notifyProgress();

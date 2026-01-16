@@ -3,27 +3,26 @@
 #include <cstddef>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
 #include "ModelManager.h"
 
 namespace KeyFrame {
 
 class FrameResource;  // 前向声明
 
+// 使用统一配置系统的类型别名
+using SceneChangeDetectorConfig = Config::SceneChangeDetectorConfig;
+
 class SceneChangeDetector {
 public:
-    struct Config {
-        float similarityThreshold = 0.8f;  // 相似度阈值
-        int featureDim = 1000;             // 特征维度 (匹配 MobileNet-v3-Small 输出)
-        int inputsize = 224;               // 输入尺寸
-        bool enableCache = true;           // 启用缓存以加速处理
-
-        Config() {}
-    };
+    // 使用统一配置
+    using Config = SceneChangeDetectorConfig;
 
     struct Result {
         bool isSceneChange = false;         // 是否发生场景变化
@@ -46,19 +45,16 @@ public:
     const Config& getConfig() const { return config_; }
 
 private:
-    // 预处理帧
     std::vector<float> preProcessFrame(const cv::Mat& frame);
-
-    // 提取特征向量
     std::vector<float> extractFeature(const std::vector<float>& inputData);
-
-    // 计算余弦相似度
     float computeCosineSimilarity(const std::vector<float>& feat1, const std::vector<float>& feat2);
+    float normalizeScore(float similarity);
 
     ModelManager& modelManager_;
     Config config_;
     std::string modelName_;
     std::deque<std::vector<float>> featureCache_;
+    std::mutex mutex_;
 
     static constexpr size_t MAX_CACHE_SIZE = 2;
 };

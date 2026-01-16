@@ -1,5 +1,4 @@
 module components
-WindowButton 1.0 WindowButton.qml
-SidebarItem 1.0 SidebarItem.qml
-GlassButton 1.0 GlassButton.qml
-StatusIndicator 1.0 StatusIndicator.qml
+SidebarButton 1.0 SidebarButton.qml
+ControlButton 1.0 ControlButton.qml
+VideoCard 1.0 VideoCard.qml

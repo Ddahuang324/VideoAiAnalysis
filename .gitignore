@@ -1,97 +1,35 @@
-# ==================== Project Specific ====================
-Reference/
-docs/implementation_report.md
-packages
-.cache
+# ==================== Git 归一化策略 ====================
+# 1. 默认忽略根目录下所有内容
+/*
 
-# ==================== Build Directories ====================
-build/
-cmake-build-*/
-out/
-bin/
-lib/
+# 2. 显式排除（保留）指定的文件夹
+!/python/
+!/Models/
+!/cpp/
+!/configs/
+!/data/
+/data/*
+!/data/images/
 
-# ==================== Python ====================
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-ENV/
-env/
-*.egg-info/
-dist/
-*.egg
+# 3. 显式排除（保留）指定的根目录文件
+!/CMakeLists.txt
+!/requirements.txt
+!/.gitignore
+!/README.md
 
-# ==================== C++ ====================
-*.o
-*.obj
-*.a
-*.lib
-*.dll
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# ==================== IDE ====================
+# ==================== 针对保留文件夹内部的忽略规则 ====================
+# 虽然保留了文件夹，但其中的编译产物和缓存仍需过滤
+**/__pycache__/
+**/*.py[cod]
+**/*.so
+**/*.dll
+**/*.exe
+**/*.obj
+**/*.o
+**/build/
+**/bin/
+**/lib/
 .vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/c_cpp_properties.json
-!.vscode/pid.txt
-!.vscode/cmake-kits.json
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-.clangd.local
-
-# ==================== CMake ====================
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-Makefile
-*.cmake
-!CMakeLists.txt
-!cmake/*.cmake
-# compile_commands.json - 保留此文件供 clangd 使用
-CTestTestfile.cmake
-_deps/
-
-# ==================== Qt/QML ====================
-*.qmlc
-*.jsc
-*.autosave
-*.user
-*.pro.user*
-moc_*.cpp
-moc_*.h
-qrc_*.cpp
-ui_*.h
-*.qm
-
-# ==================== Logs and Temp ====================
 *.log
 *.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-
-# ==================== OS ====================
-Thumbs.db
-.DS_Store
-.AppleDouble
-.LSOverride

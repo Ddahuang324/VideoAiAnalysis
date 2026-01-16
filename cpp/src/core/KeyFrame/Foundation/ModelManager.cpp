@@ -1,7 +1,5 @@
 #include "ModelManager.h"
 
-#include <cstdint>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -9,14 +7,11 @@
 
 #include "Log.h"
 #include "ONNXSession.h"
-#include "onnxruntime_c_api.h"
-#include "onnxruntime_cxx_api.h"
 
 namespace KeyFrame {
 
 ModelManager::ModelManager() {
     env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "KeyFrameModelManager");
-
     LOG_INFO("[ModelManager] Initialized");
 }
 
@@ -24,20 +19,16 @@ void ModelManager::loadModel(const std::string& modelName, const std::string& mo
                              FrameWorkType framework, const std::string& paramsPath) {
     std::lock_guard<std::mutex> lock(mtx_);
 
-    // 检查是否已加载
     if (onnxSessions_.find(modelName) != onnxSessions_.end()) {
-        LOG_INFO("[ModelManager] Model is already loaded: " + modelName);
+        LOG_INFO("[ModelManager] Model already loaded: " + modelName);
         return;
     }
 
     ONNXSession::Config config;
-
     config.intraOpNumThreads = 4;
-
     config.optimizationLevel = GraphOptimizationLevel::ORT_ENABLE_ALL;
 
     auto session = std::make_unique<ONNXSession>(*env_, modelPath, config);
-
     onnxSessions_[modelName] = std::move(session);
 
     LOG_INFO("[ModelManager] Loaded model: " + modelName);
@@ -49,10 +40,10 @@ ONNXSession* ModelManager::getSession(const std::string& modelName) {
     auto it = onnxSessions_.find(modelName);
     if (it != onnxSessions_.end()) {
         return it->second.get();
-    } else {
-        LOG_ERROR("[ModelManager] Model not found: " + modelName);
-        return nullptr;
     }
+
+    LOG_ERROR("[ModelManager] Model not found: " + modelName);
+    return nullptr;
 }
 
 std::vector<std::vector<float>> ModelManager::runInference(
@@ -65,11 +56,9 @@ std::vector<std::vector<float>> ModelManager::runInference(
         return {};
     }
 
-    // 使用内存池优化：减少推理过程中的动态内存分配
     tensorBuffer_.reset();
     auto outputInfos = it->second->run(inputs, tensorBuffer_);
 
-    // 将结果从内存池拷贝到返回的 vector
     std::vector<std::vector<float>> results;
     results.reserve(outputInfos.size());
 
@@ -91,11 +80,9 @@ std::vector<std::vector<float>> ModelManager::runInference(
         return {};
     }
 
-    // 使用内存池优化：减少推理过程中的动态内存分配
     tensorBuffer_.reset();
     auto outputInfos = it->second->run(inputs, inputShapes, tensorBuffer_);
 
-    // 将结果从内存池拷贝到返回的 vector
     std::vector<std::vector<float>> results;
     results.reserve(outputInfos.size());
 
@@ -117,7 +104,6 @@ void ModelManager::warmUpModel() {
 
 bool ModelManager::hasModel(const std::string& modelName) const {
     std::lock_guard<std::mutex> lock(mtx_);
-
     return onnxSessions_.find(modelName) != onnxSessions_.end();
 }
 
@@ -130,4 +116,5 @@ std::vector<std::string> ModelManager::getLoadedModelNames() {
     }
     return modelNames;
 }
-};  // namespace KeyFrame
+
+}  // namespace KeyFrame

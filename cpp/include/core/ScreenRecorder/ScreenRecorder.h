@@ -1,9 +1,14 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <opencv2/core/mat.hpp>
+#include <queue>
 #include <string>
+#include <thread>
 
 #include "AudioData.h"
 #include "AudioEncoder.h"
@@ -11,14 +16,14 @@
 #include "FFmpegWrapper.h"
 #include "FrameEncoder.h"
 #include "FrameGrabberThread.h"
+#include "FramePublisher.h"
+#include "KeyFrameMetaDataSubscriber.h"
+#include "Protocol.h"
+#include "RingFrameBuffer.h"
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
-
-enum class RecorderMode {
-    VIDEO,    // 视频模式 (普通帧率, 如 30fps)
-    SNAPSHOT  // 快照模式 (低帧率, 如 1fps)
-};
+enum class RecorderMode { VIDEO, SNAPSHOT };
 
 class ScreenRecorder {
 public:
@@ -27,6 +32,7 @@ public:
 
     bool startRecording(std::string& path);
     void stopRecording();
+    void gracefulStop(int timeoutMs = 5000);  // 优雅停止
     void pauseRecording();
     void resumeRecording();
 
@@ -36,7 +42,7 @@ public:
     int64_t getOutputFileSize() const;
     double getCurrentFps() const;
 
-    bool is_Recording() const;
+    bool isRecording() const;
 
     void setRecorderMode(RecorderMode mode);
     RecorderMode getRecorderMode() const;
@@ -49,22 +55,63 @@ public:
     void setErrorCallback(ErrorCallback callback);
     void setFrameCallback(FrameCallback callback);
 
+    std::string getLastError() const { return lastError_; }
+
+    bool startPublishing();
+    void stopPublishing();
+    void pushToPublishQueue(const FrameData& frame);
+
+    bool startKeyFrameMetaDataReceiving(const std::string& keyFramePath);
+    bool stopKeyFrameMetaDataReceiving();
+
 private:
-    std::shared_ptr<VideoGrabber> m_grabber_;  // 改为 shared_ptr 以便与 FrameGrabberThread 共享
-    std::shared_ptr<AudioGrabber> m_audioGrabber_;
+    void publishingLoop();
+    void keyFrameMetaDataReceiveLoop();
 
-    std::shared_ptr<FFmpegWrapper> m_ffmpegWrapper_;
-    std::unique_ptr<FrameEncoder> m_encoder_;
-    std::unique_ptr<AudioEncoder> m_audioEncoder_;
+    // Core recording components
+    std::shared_ptr<VideoGrabber> grabber_;
+    std::shared_ptr<AudioGrabber> audioGrabber_;
+    std::shared_ptr<FFmpegWrapper> ffmpegWrapper_;
+    std::unique_ptr<FrameEncoder> encoder_;
+    std::unique_ptr<AudioEncoder> audioEncoder_;
+    std::shared_ptr<ThreadSafetyQueue<FrameData>> frameQueue_;
+    std::shared_ptr<ThreadSafetyQueue<AudioData>> audioQueue_;
+    std::shared_ptr<FrameGrabberThread> grabberThread_;
 
-    std::shared_ptr<ThreadSafetyQueue<FrameData>> m_frameQueue_;
-    std::shared_ptr<ThreadSafetyQueue<AudioData>> m_audioQueue_;
+    // Recording state
+    std::atomic<bool> isRecording_{false};
+    RecorderMode mode_{RecorderMode::VIDEO};
+    std::string lastError_;
+    ProgressCallback progressCallback_;
+    ErrorCallback errorCallback_;
+    FrameCallback frameCallback_;
 
-    std::shared_ptr<FrameGrabberThread> grabber_thread_;
-    std::atomic<bool> m_isRecording{false};
-    RecorderMode m_mode{RecorderMode::VIDEO};
-    std::string m_lastError;
-    ProgressCallback m_progressCallback;
-    ErrorCallback m_errorCallback;
-    FrameCallback m_frameCallback;
+    // Publishing thread
+    std::thread publishingThread_;
+    std::queue<FrameData> publishQueue_;
+    std::mutex publishMutex_;
+    std::condition_variable publishCondVar_;
+    std::unique_ptr<MQInfra::FramePublisher> framePublisher_;
+    std::atomic<bool> publishingRunning_{false};
+
+    // Key frame receiving thread
+    std::thread keyFrameReceiveThread_;
+    std::queue<Protocol::KeyFrameMetaDataHeader> keyFrameMetaDataQueue_;
+    std::mutex keyFrameMetaDataMutex_;
+    std::condition_variable keyFrameMetaDataCondVar_;
+    std::unique_ptr<MQInfra::KeyFrameMetaDataSubscriber> keyFrameMetaDataSubscriber_;
+    std::atomic<bool> receivingRunning_{false};
+
+    // Key frame encoding components
+    std::shared_ptr<FFmpegWrapper> keyFrameFFmpegWrapper_;
+    std::shared_ptr<ThreadSafetyQueue<AudioData>> keyFrameAudioQueue_;
+    std::unique_ptr<AudioEncoder> keyFrameAudioEncoder_;
+    std::unique_ptr<RingFrameBuffer> videoRingBuffer_;
+    std::string keyFrameOutputPath_;
+
+    // Graceful Stop Sync
+    std::mutex stopAckMutex_;
+    std::condition_variable stopAckCV_;
+    std::atomic<bool> stopAckReceived_{false};
+    std::atomic<int64_t> lastPublishedFrameId_{0};
 };

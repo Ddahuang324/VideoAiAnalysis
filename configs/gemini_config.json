@@ -1,0 +1,55 @@
+{
+  "model": {
+    "name": "gemini-2.5-flash-lite",
+    "version": "latest"
+  },
+  "generation_config": {
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 65536,
+    "response_mime_type": "application/json"
+  },
+  "safety_settings": [
+    {
+      "category": "HARM_CATEGORY_HARASSMENT",
+      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+      "category": "HARM_CATEGORY_HATE_SPEECH",
+      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+      "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    },
+    {
+      "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+    }
+  ],
+  "upload_config": {
+    "max_file_size_mb": 2048,
+    "supported_formats": [
+      "mp4",
+      "avi",
+      "mov",
+      "mkv",
+      "webm",
+      "flv"
+    ],
+    "chunk_size_mb": 10,
+    "timeout_seconds": 300
+  },
+  "retry_config": {
+    "max_retries": 3,
+    "initial_delay_seconds": 1,
+    "max_delay_seconds": 60,
+    "exponential_base": 2,
+    "jitter": true
+  },
+  "file_processing": {
+    "max_wait_time_seconds": 600,
+    "poll_interval_seconds": 5
+  }
+}

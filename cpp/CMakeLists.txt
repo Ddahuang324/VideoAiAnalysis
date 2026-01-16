@@ -22,11 +22,36 @@ set(CORE_HEADERS
     include/core/KeyFrame/Foundation/ModelManager.h
     include/core/KeyFrame/Foundation/ONNXSession.h
     include/core/KeyFrame/Foundation/TensorBuffer.h
-    include/core/KeyFrame/FrameAnaylzer/DynamicCalculator.h
-    include/core/KeyFrame/FrameAnaylzer/FrameScorer.h
-    include/core/KeyFrame/FrameAnaylzer/IFrameAnalyzer.h
-    include/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.h
-    include/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.h
+    include/core/KeyFrame/FrameAnalyzer/DynamicCalculator.h
+    include/core/KeyFrame/FrameAnalyzer/FrameScorer.h
+    include/core/KeyFrame/FrameAnalyzer/IFrameAnalyzer.h
+    include/core/KeyFrame/FrameAnalyzer/KeyFrameDetector.h
+    include/core/KeyFrame/FrameAnalyzer/StandardFrameAnalyzer.h
+    include/core/MQInfra/FramePublisher.h
+    include/core/MQInfra/FrameSubscriber.h
+    include/core/MQInfra/KeyFrameMetaDataPublisher.h
+    include/core/MQInfra/KeyFrameMetaDataSubscriber.h
+    include/core/MQInfra/Protocol.h
+    include/core/KeyFrame/FrameAnalyzer/FrameAnalyzer.h
+    include/core/KeyFrame/FrameAnalyzer/FrameResource.h
+    include/core/KeyFrame/KeyFrameVideoEncoder.h
+    include/core/ScreenRecorder/ProcessLayer/FrameGrabberThread.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/DXGI_Grabber.h
+    include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Win/GDI_Grabber.h
+    include/core/ScreenRecorder/RingFrameBuffer.h
+    include/core/KeyFrame/KeyFrameAnalyzerService.h
+    include/Process/Analyzer/AnalyzerAPI.h
+    include/Process/Recorder/RecorderAPI.h
+    include/Process/IPC/AnalyzerProcessClient.h
+    include/Process/IPC/CommandProtocol.h
+    include/Process/IPC/IIPCClientBase.h
+    include/Process/IPC/IPCServer.h
+    include/Process/IPC/RecorderProcessClient.h
+    include/core/Config/ConfigBase.h
+    include/core/Config/ConfigValidation.h
+    include/core/Config/UnifiedConfig.h
 )
 
 add_library(ai_video_core STATIC
@@ -49,10 +74,39 @@ add_library(ai_video_core STATIC
     src/core/KeyFrame/Foundation/ModelManager.cpp
     src/core/KeyFrame/Foundation/ONNXSession.cpp
     src/core/KeyFrame/Foundation/TensorBuffer.cpp
-    src/core/KeyFrame/FrameAnaylzer/DynamicCalculator.cpp
-    src/core/KeyFrame/FrameAnaylzer/FrameScorer.cpp
-    src/core/KeyFrame/FrameAnaylzer/KeyFrameDetector.cpp
-    src/core/KeyFrame/FrameAnaylzer/StandardFrameAnalyzer.cpp
+    src/core/KeyFrame/FrameAnalyzer/DynamicCalculator.cpp
+    src/core/KeyFrame/FrameAnalyzer/FrameScorer.cpp
+    src/core/KeyFrame/FrameAnalyzer/KeyFrameDetector.cpp
+    src/core/KeyFrame/FrameAnalyzer/StandardFrameAnalyzer.cpp
+    src/Infra/Log.cpp
+    src/core/MQInfra/FramePublisher.cpp
+    src/core/MQInfra/FrameSubscriber.cpp
+    src/core/MQInfra/KeyFrameMetaDataPublisher.cpp
+    src/core/MQInfra/KeyFrameMetaDataSubscriber.cpp
+    src/core/MQInfra/Protocol.cpp
+    src/core/ScreenRecorder/ScreenRecorder.cpp
+    src/core/KeyFrame/FrameAnalyzer/FrameAnalyzer.cpp
+    src/core/KeyFrame/FrameAnalyzer/FrameResource.cpp
+    src/core/KeyFrame/FrameAnalyzer/IFrameAnalyzer.cpp
+    src/core/ScreenRecorder/ProcessLayer/ThreadSafetyQueue.cpp
+    src/core/ScreenRecorder/CaptureLayer/AudioGrabber/AudioData.cpp
+    src/core/ScreenRecorder/CaptureLayer/AudioGrabber/AudioGrabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/VideoGrabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/PipeWire_Grabber.cpp
+    src/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux/X11_Grabber.cpp
+    src/core/ScreenRecorder/RingFrameBuffer.cpp
+    src/core/KeyFrame/KeyFrameAnalyzerService.cpp
+    src/core/KeyFrame/KeyFrameVideoEncoder.cpp
+    src/Process/Analyzer/AnalyzerAPI.cpp
+    src/Process/Recorder/RecorderAPI.cpp
+    src/Process/IPC/AnalyzerProcessClient.cpp
+    src/Process/IPC/CommandProtocol.cpp
+    src/Process/IPC/IIPCClientBase.cpp
+    src/Process/IPC/IPCServer.cpp
+    src/Process/IPC/RecorderProcessClient.cpp
+    src/core/Config/ConfigBase.cpp
+    src/core/Config/ConfigValidation.cpp
+    src/core/Config/UnifiedConfig.cpp
 )
 
 target_include_directories(ai_video_core PUBLIC
@@ -73,7 +127,14 @@ target_include_directories(ai_video_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Detectors
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/Foundation
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/FrameAnaylzer
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/KeyFrame/FrameAnalyzer
+    # MQInfra 模块头文件路径，支持仅文件名包含 Protocol.h 等
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/MQInfra
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/ScreenRecorder/CaptureLayer/VideoGrabber/Linux
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/Analyzer
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/Recorder
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/Process/IPC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core/Config
 )
 
 # 链接 FFmpeg
@@ -129,7 +190,84 @@ if(OpenCV_FOUND)
     message(STATUS "✓ Linked OpenCV to ai_video_core")
 endif()
 
+# ==================== ZeroMQ 链接（如果通过根 CMake 拉取） ====================
+if(TARGET cppzmq::cppzmq OR TARGET cppzmq OR TARGET libzmq::libzmq OR TARGET libzmq)
+    message(STATUS "ZeroMQ targets detected; linking to ai_video_core if available")
+    # 尝试以规范的命名空间链接（优先使用 namespaced alias）
+    if(TARGET cppzmq::cppzmq)
+        target_link_libraries(ai_video_core PUBLIC cppzmq::cppzmq)
+    elseif(TARGET cppzmq)
+        target_link_libraries(ai_video_core PUBLIC cppzmq)
+    endif()
+
+    if(TARGET libzmq::libzmq)
+        target_link_libraries(ai_video_core PUBLIC libzmq::libzmq)
+    elseif(TARGET libzmq)
+        target_link_libraries(ai_video_core PUBLIC libzmq)
+    endif()
+
+    message(STATUS "✓ Linked ZeroMQ (if targets provided by FetchContent)")
+endif()
+
+# Link nlohmann/json if available
+if(TARGET nlohmann_json::nlohmann_json OR TARGET nlohmann_json)
+    message(STATUS "Linking nlohmann/json to ai_video_core")
+    if(TARGET nlohmann_json::nlohmann_json)
+        target_link_libraries(ai_video_core PUBLIC nlohmann_json::nlohmann_json)
+    else()
+        target_link_libraries(ai_video_core PUBLIC nlohmann_json)
+    endif()
+    message(STATUS "✓ Linked nlohmann/json to ai_video_core")
+endif()
+
 target_compile_features(ai_video_core PUBLIC cxx_std_17)
+
+# ==================== 可执行文件构建 (Process 模式) ====================
+
+# 设置可执行文件输出目录
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# 1. RecorderProcess
+add_executable(RecorderProcess
+    src/Process/Recorder/RecorderProcessMain.cpp
+)
+
+target_link_libraries(RecorderProcess PRIVATE ai_video_core)
+target_compile_features(RecorderProcess PRIVATE cxx_std_17)
+
+# 2. AnalyzerProcess
+add_executable(AnalyzerProcess
+    src/Process/Analyzer/AnaylerProcessMain.cpp
+)
+
+target_link_libraries(AnalyzerProcess PRIVATE ai_video_core)
+target_compile_features(AnalyzerProcess PRIVATE cxx_std_17)
+
+# Windows 平台：拷贝依赖的 DLL 到可执行文件目录
+if(WIN32)
+    # 定义需要拷贝到 bin 目录的 DLL 列表
+    set(DEPENDENT_DLLS "")
+    if(ONNXRUNTIME_DLLS)
+        list(APPEND DEPENDENT_DLLS ${ONNXRUNTIME_DLLS})
+    endif()
+    if(OpenCV_DLLS)
+        list(APPEND DEPENDENT_DLLS ${OpenCV_DLLS})
+    endif()
+
+    # 为每个可执行文件添加 POST_BUILD 拷贝逻辑
+    foreach(exe_target RecorderProcess AnalyzerProcess)
+        foreach(dll ${DEPENDENT_DLLS})
+            add_custom_command(TARGET ${exe_target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${dll}"
+                    "$<TARGET_FILE_DIR:${exe_target}>"
+                COMMENT "Copying DLL to ${exe_target} directory: ${dll}"
+            )
+        endforeach()
+    endforeach()
+endif()
+
+message(STATUS "✓ Added executable targets: RecorderProcess, AnalyzerProcess")
 
 # ==================== Python 绑定模块 ====================
 add_subdirectory(bindings)

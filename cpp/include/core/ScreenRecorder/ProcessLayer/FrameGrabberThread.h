@@ -55,8 +55,9 @@ public:
     }  // 新增：设置帧回调
 
 private:
+    void resetStatistics();   // 重置统计数据
     void captureLoop();       // 采集线程主循环
-    void UpdateFps();         // 更新当前帧率
+    void updateFps();         // 更新当前帧率
     void waitForNextFrame();  // 等待下一帧采集时间
 
     void notifyProgress();                           // 通知进度回调

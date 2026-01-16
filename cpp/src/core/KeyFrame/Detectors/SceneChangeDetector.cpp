@@ -4,8 +4,8 @@
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
-#include <opencv2/core/types.hpp>
 #include <string>
 #include <vector>
 
@@ -13,103 +13,102 @@
 #include "FrameResource.h"
 #include "Log.h"
 #include "ModelManager.h"
+#include "opencv2/core/types.hpp"
 
 namespace KeyFrame {
 
+// ========== Constructor ==========
+
 SceneChangeDetector::SceneChangeDetector(ModelManager& modelManager, const Config& config)
     : modelManager_(modelManager), config_(config), modelName_("MobileNet-v3-Small") {
-    // 可选：预分配缓存空间
     if (config_.enableCache) {
         featureCache_.clear();
     }
 }
+
+// ========== Detection ==========
 
 SceneChangeDetector::Result SceneChangeDetector::detect(const cv::Mat& frame) {
     return detect(std::make_shared<FrameResource>(frame));
 }
 
 SceneChangeDetector::Result SceneChangeDetector::detect(std::shared_ptr<FrameResource> resource) {
+    std::lock_guard<std::mutex> lock(mutex_);
     Result result;
-    std::vector<float> inputData;
 
-    // 使用 FrameResource 缓存预处理后的 Tensor
-    std::string cacheKey = "scene_tensor_" + std::to_string(config_.inputsize);
+    std::string cacheKey = "scene_tensor_" + std::to_string(config_.inputSize);
     auto cachedTensor = resource->getOrGenerate<std::vector<float>>(cacheKey, [&]() {
         return std::make_shared<std::vector<float>>(preProcessFrame(resource->getOriginalFrame()));
     });
 
     if (!cachedTensor || cachedTensor->empty()) {
-        LOG_ERROR("Failed to preprocess frame for scene change detection.");
+        LOG_ERROR("[SceneChangeDetector] Preprocessing failed");
         return result;
     }
 
-    inputData = *cachedTensor;
-
-    // 提取特征向量
-    std::vector<float> currentFeature = extractFeature(inputData);
+    std::vector<float> currentFeature = extractFeature(*cachedTensor);
     if (currentFeature.empty()) {
-        LOG_ERROR("Failed to extract feature for scene change detection.");
+        LOG_ERROR("[SceneChangeDetector] Feature extraction failed");
         return result;
     }
 
     result.currentFeature = currentFeature;
 
-    // 计算相似度
     if (!featureCache_.empty()) {
         float similarity = computeCosineSimilarity(featureCache_.back(), currentFeature);
         result.similarity = similarity;
-
-        // 分数归一化：将压缩的余弦距离映射到 [0, 1] 区间
-        // MobileNet 分类向量的余弦相似度通常在 [0.6, 1.0] 范围内
-        // 我们将这个范围归一化到 [0, 1]，使分数在多维加权时更有区分度
-        constexpr float minSimilarity = 0.6f;   // 经验值：完全不同的场景
-        constexpr float maxSimilarity = 0.98f;  // 经验值：几乎相同的帧
-
-        // 线性归一化: (max - similarity) / (max - min)
-        float rawScore = (maxSimilarity - similarity) / (maxSimilarity - minSimilarity);
-        result.score = std::clamp(rawScore, 0.0f, 1.0f);  // 限制在 [0, 1] 范围
-
+        result.score = normalizeScore(similarity);
         result.isSceneChange = (similarity < config_.similarityThreshold);
     } else {
-        result.similarity = 1.0f;
-        result.score = 0.0f;
-        result.isSceneChange = false;
+        // 第一帧：视为场景切换，因为它打破了之前的"无画面"状态
+        result.similarity = 0.0f;     // 第一帧没有前序帧，相似度定义为 0
+        result.score = 1.0f;          // 第一帧的分数应最高
+        result.isSceneChange = true;  // 必须判断为场景切换，以确保第一帧被捕获
     }
 
-    // 更新缓存
     if (config_.enableCache) {
         featureCache_.push_back(currentFeature);
-        if (featureCache_.size() > 5) {  // 限制缓存大小
+        if (featureCache_.size() > 5) {
             featureCache_.pop_front();
         }
     }
+
+    // Log detection result
+    LOG_INFO("[SceneChangeDetector] Score: " + std::to_string(result.score) +
+             ", Similarity: " + std::to_string(result.similarity) +
+             ", SceneChange: " + std::to_string(result.isSceneChange));
 
     return result;
 }
 
 void SceneChangeDetector::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
     featureCache_.clear();
 }
+
+// ========== Preprocessing ==========
 
 std::vector<float> SceneChangeDetector::preProcessFrame(const cv::Mat& frame) {
     if (frame.empty()) {
         return {};
     }
 
+    // Convert to tensor (HWC format)
     std::vector<float> hwcData =
-        DataConverter::matToTensor(frame, cv::Size(config_.inputsize, config_.inputsize), true,
+        DataConverter::matToTensor(frame, cv::Size(config_.inputSize, config_.inputSize), true,
                                    {0.485f, 0.456f, 0.406f}, {0.229f, 0.224f, 0.225f});
 
-    // 2. 将 HWC 转换为 NCHW 格式
-    return DataConverter::hwcToNchw(hwcData, config_.inputsize, config_.inputsize, 3);
+    // Convert HWC to NCHW
+    return DataConverter::hwcToNchw(hwcData, config_.inputSize, config_.inputSize, 3);
 }
+
+// ========== Feature Extraction ==========
 
 std::vector<float> SceneChangeDetector::extractFeature(const std::vector<float>& inputData) {
     if (inputData.empty()) {
         return {};
     }
 
-    // 通过 ModelManager 统一执行推理，
     std::vector<std::vector<float>> inputs = {inputData};
     auto outputs = modelManager_.runInference(modelName_, inputs);
 
@@ -119,6 +118,8 @@ std::vector<float> SceneChangeDetector::extractFeature(const std::vector<float>&
 
     return outputs[0];
 }
+
+// ========== Similarity Computation ==========
 
 float SceneChangeDetector::computeCosineSimilarity(const std::vector<float>& feat1,
                                                    const std::vector<float>& feat2) {
@@ -142,4 +143,12 @@ float SceneChangeDetector::computeCosineSimilarity(const std::vector<float>& fea
 
     return dotProduct / (std::sqrt(normA) * std::sqrt(normB));
 }
+
+float SceneChangeDetector::normalizeScore(float similarity) {
+    constexpr float MIN_SIMILARITY = 0.6f;
+    constexpr float MAX_SIMILARITY = 0.98f;
+    float rawScore = (MAX_SIMILARITY - similarity) / (MAX_SIMILARITY - MIN_SIMILARITY);
+    return std::clamp(rawScore, 0.0f, 1.0f);
+}
+
 }  // namespace KeyFrame

@@ -1,33 +1,28 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
+#include "core/Config/UnifiedConfig.h"
+#include "DataConverter.h"
 #include "ModelManager.h"
 
 namespace KeyFrame {
 
 class FrameResource;  // 前向声明
 
+// 使用统一配置系统的类型别名
+using TextDetectorConfig = Config::TextDetectorConfig;
+
 class TextDetector {
 public:
-    struct Config {
-        int detInputHeight = 960;  // 检测模型输入高度
-        int detInputWidth = 960;   // 检测模型输入宽度
-        int recInputHeight = 48;   // 识别模型输入高度
-        int recInputWidth = 320;   // 识别模型输入宽度
-
-        float detThreshold = 0.3f;  // 检测置信度阈值
-        float recThreshold = 0.5f;  // 识别置信度阈值
-
-        // 权重参数
-        float alpha = 0.6f;  // 文本区域覆盖率权重
-        float beta = 0.4f;   // 文本变化率权重
-    };
+    // 使用统一配置
+    using Config = TextDetectorConfig;
 
     struct TextRegion {
         std::vector<cv::Point> polygon;  // 文本区域多边形
@@ -56,19 +51,20 @@ public:
 
 private:
     std::vector<std::vector<cv::Point>> detectTextRegions(const cv::Mat& frame);
-
     std::string recognizeText(const cv::Mat& textRegion);
-
     float computeCoverageRatio(const std::vector<TextRegion>& textRegions,
                                const cv::Size& frameSize);
-
     float computeChangeRatio(const std::vector<TextRegion>& currentRegions,
                              const std::vector<TextRegion>& previousRegions);
+    std::vector<TextRegion> processTextRegions(const cv::Mat& frame,
+                                               const std::vector<std::vector<cv::Point>>& polygons);
+    std::vector<cv::Point> mapContourToOriginal(const std::vector<cv::Point>& contour,
+                                                const DataConverter::LetterboxInfo& info);
 
-private:
     std::vector<TextRegion> previousRegions_;
     ModelManager& modelManager_;
     Config config_;
+    std::mutex mutex_;
 
 };  // class TextDetector
 

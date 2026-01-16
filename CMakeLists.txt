@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
+# 设置策略以避免警告
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)  # 下载文件提取时间戳策略
+endif()
+
 project(AiVideoAnalysisSystem
     VERSION 1.0.0
     DESCRIPTION "AI Video Analysis System with C++ and Python"
@@ -39,11 +44,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 if(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # clang-cl: 使用 MSVC 风格的编译选项
     message(STATUS "Using clang-cl (MSVC compatible mode)")
+
     add_compile_options(
         /W3
         /EHsc
     )
-    
+
     if(CMAKE_BUILD_TYPE MATCHES "Debug")
         add_compile_options(/Od /Zi)
     else()
@@ -74,6 +80,22 @@ include(FetchContent)
 # 设置 FetchContent 策略以避免警告
 if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)  # 允许使用 FetchContent_Populate 进行手动配置
+endif()
+
+# FetchContent: nlohmann/json (C++ JSON library)
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+if(NOT nlohmann_json_POPULATED)
+    message(STATUS "Fetching nlohmann/json via FetchContent...")
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+if(TARGET nlohmann_json::nlohmann_json)
+    message(STATUS "✓ nlohmann/json available via FetchContent")
 endif()
 
 FetchContent_Declare(
@@ -141,6 +163,54 @@ if(NOT onnxruntime_prebuilt_POPULATED)
         message(STATUS "  Library: ${ONNXRUNTIME_LIBRARY}")
     else()
         message(FATAL_ERROR "Failed to find ONNX Runtime library in downloaded archive")
+    endif()
+
+    # ==================== ZeroMQ (libzmq + cppzmq via FetchContent) ====================
+    # 使用 FetchContent 下载并构建 libzmq 与 cppzmq（C++ 绑定）
+    FetchContent_Declare(
+        libzmq
+        GIT_REPOSITORY https://github.com/zeromq/libzmq.git
+        GIT_TAG v4.3.4
+    )
+
+    FetchContent_Declare(
+        cppzmq
+        GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+        GIT_TAG v4.9.0
+    )
+
+    if(NOT libzmq_POPULATED OR NOT cppzmq_POPULATED)
+        message(STATUS "Fetching ZeroMQ (libzmq + cppzmq) via FetchContent...")
+        # Disable building tests in libzmq to speed up
+        set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+        set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        # Disable libzmq precompiled headers to avoid duplicate PCH outputs when
+        # building as a subproject (prevents "multiple rules generate precompiled.hpp")
+        set(ENABLE_PRECOMPILED OFF CACHE BOOL "Disable precompiled headers for libzmq subbuild" FORCE)
+        # Disable .rc file building to avoid issues with clang-cl/llvm-rc and non-ASCII paths
+        set(WITH_RC OFF CACHE BOOL "Disable resource file building for libzmq" FORCE)
+        # Disable examples/tests and optional crypto integrations in subprojects
+        # to avoid extra CMake warnings and optional dependency searches.
+        set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building examples in subprojects" FORCE)
+        set(CPPZMQ_BUILD_EXAMPLES OFF CACHE BOOL "Disable cppzmq examples" FORCE)
+        set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "Disable cppzmq tests" FORCE)
+        # Prefer not to try to find optional crypto libs here (user can enable if installed)
+        set(WITH_LIBSODIUM OFF CACHE BOOL "Don't attempt to use libsodium in subproject build" FORCE)
+        set(WITH_GNUTLS OFF CACHE BOOL "Don't attempt to use GnuTLS in subproject build" FORCE)
+        # Also disable WSS/TLS and NSS probing in libzmq subbuild to avoid warnings
+        set(WITH_TLS OFF CACHE BOOL "Don't attempt to enable WSS/TLS in subproject build" FORCE)
+        set(WITH_NSS OFF CACHE BOOL "Don't attempt to use NSS in subproject build" FORCE)
+        FetchContent_MakeAvailable(libzmq cppzmq)
+
+        # Create namespaced aliases so downstream code can reliably link
+        if(TARGET cppzmq)
+            add_library(cppzmq::cppzmq ALIAS cppzmq)
+        endif()
+        if(TARGET libzmq)
+            add_library(libzmq::libzmq ALIAS libzmq)
+        endif()
+
+        message(STATUS "✓ ZeroMQ (libzmq + cppzmq) available via FetchContent if targets exist")
     endif()
 endif()
 
@@ -256,19 +326,40 @@ if(NOT OpenCV_FOUND)
         FetchContent_Populate(opencv_prebuilt)
         
         set(OpenCV_DIR "${opencv_prebuilt_SOURCE_DIR}")
-        set(OpenCV_INCLUDE_DIRS "${OpenCV_DIR}/include")
-        set(OpenCV_LIB_DIR "${OpenCV_DIR}/lib")
-        set(OpenCV_BIN_DIR "${OpenCV_DIR}/bin")
         
-        find_library(OpenCV_core_LIBRARY NAMES opencv_core480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
-        find_library(OpenCV_imgproc_LIBRARY NAMES opencv_imgproc480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
-        find_library(OpenCV_imgcodecs_LIBRARY NAMES opencv_imgcodecs480 PATHS "${OpenCV_LIB_DIR}" NO_DEFAULT_PATH)
+        # 针对该预编译包的特殊结构 (可能有 Debug/Release 子目录)
+        if(EXISTS "${OpenCV_DIR}/Release")
+            set(OpenCV_BASE_REL "${OpenCV_DIR}/Release")
+        else()
+            set(OpenCV_BASE_REL "${OpenCV_DIR}")
+        endif()
         
+        if(EXISTS "${OpenCV_DIR}/Debug")
+            set(OpenCV_BASE_DBG "${OpenCV_DIR}/Debug")
+        else()
+            set(OpenCV_BASE_DBG "${OpenCV_DIR}")
+        endif()
+
+        # 根据当前的 CMAKE_BUILD_TYPE 选择基础目录
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(OpenCV_BASE "${OpenCV_BASE_DBG}")
+            set(CV_SUFFIX "d")
+        else()
+            set(OpenCV_BASE "${OpenCV_BASE_REL}")
+            set(CV_SUFFIX "")
+        endif()
+
+        set(OpenCV_INCLUDE_DIRS "${OpenCV_BASE}/include")
+        set(OpenCV_LIB_DIR "${OpenCV_BASE}/lib")
+        set(OpenCV_BIN_DIR "${OpenCV_BASE}/bin")
+        
+        # 查找所有库文件 (处理分立库及其所有依赖)
+        file(GLOB OpenCV_LIBS "${OpenCV_LIB_DIR}/*.lib")
         file(GLOB OpenCV_DLLS "${OpenCV_BIN_DIR}/*.dll")
         
-        if(OpenCV_core_LIBRARY)
+        if(OpenCV_LIBS)
             set(OpenCV_FOUND TRUE)
-            set(OpenCV_LIBS ${OpenCV_core_LIBRARY} ${OpenCV_imgproc_LIBRARY} ${OpenCV_imgcodecs_LIBRARY})
+            message(STATUS "✓ Found ${OpenCV_LIBS_COUNT} OpenCV libraries in ${OpenCV_LIB_DIR}")
         endif()
     endif()
 endif()
@@ -345,14 +436,10 @@ install(TARGETS ai_video_core
 # ==================== Google Test (FetchContent) ====================
 include(FetchContent)
 
-# 解决 CMP0135 警告：设置下载文件的提取时间戳
-if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)
-endif()
-
 FetchContent_Declare(
   googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)

@@ -5,17 +5,26 @@
 #include <exception>
 #include <memory>
 #include <mutex>
-#include <string>
 #include <thread>
 
 #include "Log.h"
 #include "ThreadSafetyQueue.h"
 #include "VideoGrabber.h"
 
+namespace {
+
+constexpr int DEFAULT_FRAME_TIMEOUT_MS = 100;
+constexpr int PROGRESS_CALLBACK_INTERVAL = 1;  // Callback every target_fps frames
+
+}  // namespace
 
 FrameGrabberThread::FrameGrabberThread(std::shared_ptr<VideoGrabber> grabber,
-                                       ThreadSafetyQueue<FrameData>& queue, int target_fps)
-    : grabber_(grabber), frame_queue_(queue), m_thread(nullptr), target_fps_(target_fps) {}
+                                       ThreadSafetyQueue<FrameData>& queue,
+                                       int target_fps)
+    : grabber_(std::move(grabber)),
+      frame_queue_(queue),
+      m_thread(nullptr),
+      target_fps_(target_fps) {}
 
 FrameGrabberThread::~FrameGrabberThread() {
     if (running_) {
@@ -26,8 +35,8 @@ FrameGrabberThread::~FrameGrabberThread() {
 
 void FrameGrabberThread::start() {
     if (running_) {
-        LOG_WARN("Thread is already Running");
-        return;  // 已经在运行
+        LOG_WARN("Thread is already running");
+        return;
     }
 
     if (!grabber_->start()) {
@@ -36,14 +45,7 @@ void FrameGrabberThread::start() {
         return;
     }
 
-    // 重置统计数据（支持stop后重新start）
-    captured_frame_count_ = 0;
-    dropped_frame_count_ = 0;
-    current_fps_ = 0.0;
-    {
-        std::lock_guard<std::mutex> lock(fps_mutex_);
-        fps_samples.clear();
-    }
+    resetStatistics();
 
     running_ = true;
     paused_ = false;
@@ -55,10 +57,11 @@ void FrameGrabberThread::start() {
 void FrameGrabberThread::stop() {
     if (!running_) {
         LOG_WARN("Thread is not running");
-        return;  // 已经停止
+        return;
     }
 
     running_ = false;
+
     if (m_thread && m_thread->joinable()) {
         m_thread->join();
     }
@@ -72,8 +75,9 @@ void FrameGrabberThread::pause() {
         LOG_WARN("Thread is not running, cannot pause");
         return;
     }
+
     paused_ = true;
-    grabber_->pause();  // 同时暂停底层采集器
+    grabber_->pause();
     LOG_INFO("FrameGrabberThread paused");
 }
 
@@ -82,12 +86,13 @@ void FrameGrabberThread::resume() {
         LOG_WARN("Thread is not running, cannot resume");
         return;
     }
+
     {
         std::lock_guard<std::mutex> lock(pause_mutex_);
         paused_ = false;
     }
-    pause_cv_.notify_one();  // 唤醒等待的线程
-    grabber_->resume();      // 同时恢复底层采集器
+    pause_cv_.notify_one();
+    grabber_->resume();
     LOG_INFO("FrameGrabberThread resumed");
 }
 
@@ -111,52 +116,61 @@ bool FrameGrabberThread::isPaused() const {
     return paused_.load();
 }
 
+void FrameGrabberThread::resetStatistics() {
+    captured_frame_count_ = 0;
+    dropped_frame_count_ = 0;
+    current_fps_ = 0.0;
+    std::lock_guard<std::mutex> lock(fps_mutex_);
+    fps_samples.clear();
+}
+
 void FrameGrabberThread::captureLoop() {
     start_time_ = std::chrono::steady_clock::now();
     last_frame_time_ = start_time_;
 
     LOG_INFO("Capture loop started");
 
+    constexpr auto QUEUE_PUSH_TIMEOUT = std::chrono::milliseconds(100);
+
     while (running_) {
-        // 优化的暂停机制：使用条件变量而非轮询
         if (paused_) {
             std::unique_lock<std::mutex> lock(pause_mutex_);
             pause_cv_.wait(lock, [this] { return !paused_ || !running_; });
-            if (!running_)
-                break;  // 在暂停期间被停止
+            if (!running_) {
+                break;
+            }
             continue;
         }
 
         capture_start_ = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time_);
 
-        FrameData frame;
-        frame = grabber_->CaptureFrame(100);
+        FrameData frame = grabber_->CaptureFrame(DEFAULT_FRAME_TIMEOUT_MS);
 
         if (!frame.data) {
             LOG_WARN("Failed to capture frame");
-            notifyError("Failed to capture frame");  // 通知Python层
+            notifyError("Failed to capture frame");
             continue;
         }
 
         frame.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - start_time_)
                                  .count();
+        frame.frame_ID = captured_frame_count_.load() + 1;
 
-        if (!frame_queue_.push(frame, std::chrono::milliseconds(100))) {
+        if (!frame_queue_.push(frame, QUEUE_PUSH_TIMEOUT)) {
             dropped_frame_count_++;
             LOG_WARN("Frame dropped: queue full");
             notifyDropped(dropped_frame_count_);
-
         } else {
             captured_frame_count_++;
-            UpdateFps();
+            updateFps();
 
             if (frame_callback_) {
                 frame_callback_(frame);
             }
 
-            if (captured_frame_count_ % target_fps_ == 0) {  // 减少回调频率
+            if (captured_frame_count_.load() % target_fps_ == 0) {
                 notifyProgress();
             }
         }
@@ -180,10 +194,9 @@ void FrameGrabberThread::waitForNextFrame() {
     last_frame_time_ = std::chrono::steady_clock::now();
 }
 
-void FrameGrabberThread::UpdateFps() {
+void FrameGrabberThread::updateFps() {
     auto now = std::chrono::steady_clock::now();
 
-    // 线程安全：保护fps_samples的访问
     std::lock_guard<std::mutex> lock(fps_mutex_);
 
     fps_samples.push_back(now);
@@ -195,7 +208,6 @@ void FrameGrabberThread::UpdateFps() {
     if (fps_samples.size() >= 2) {
         auto duration = fps_samples.back() - fps_samples.front();
         auto seconds = std::chrono::duration<double>(duration).count();
-
         current_fps_ = (fps_samples.size() - 1) / seconds;
     }
 }

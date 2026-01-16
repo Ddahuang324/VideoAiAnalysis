@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <opencv2/core.hpp>
+#include <opencv2/core/mat.hpp>
 
 enum class PixelFormat {
     UNKNOWN,
@@ -12,26 +14,23 @@ enum class PixelFormat {
 };
 
 struct FrameData {
-    uint8_t* data;
-    int width;
-    int height;
-    PixelFormat format;
-    int64_t timestamp_ms;
-
+    uint8_t* data = nullptr;
+    int width = 0;
+    int height = 0;
+    PixelFormat format = PixelFormat::UNKNOWN;
+    int64_t timestamp_ms = 0;
+    uint32_t frame_ID = 0;
+    cv::Mat frame;
     std::shared_ptr<uint8_t> data_holder;
-
-    FrameData()
-        : data(nullptr), width(0), height(0), format(PixelFormat::UNKNOWN), timestamp_ms(0) {}
 };
 
-inline FrameData CaptureFrame(int width, int height) {
+inline FrameData CreateFrameData(int width, int height) {
     FrameData frame;
     frame.width = width;
     frame.height = height;
 
-    size_t size = width * height * 4;
-    // 使用 shared_ptr 构造函数接管原生指针，并指定数组删除器
-    frame.data_holder = std::shared_ptr<uint8_t>(new uint8_t[size], [](uint8_t* p) { delete[] p; });
+    const size_t size = width * height * 4;
+    frame.data_holder = std::shared_ptr<uint8_t>(new uint8_t[size], std::default_delete<uint8_t[]>());
     frame.data = frame.data_holder.get();
 
     return frame;
