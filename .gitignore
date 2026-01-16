@@ -7,6 +7,9 @@
 !/Models/
 !/cpp/
 !/configs/
+!/data/
+/data/*
+!/data/images/
 
 # 3. 显式排除（保留）指定的根目录文件
 !/CMakeLists.txt
