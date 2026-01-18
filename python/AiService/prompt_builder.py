@@ -54,17 +54,26 @@ class PromptBuilder:
 3. **时间标注**：对重要事件标注其在视频中的大致时间点。
 4. **专业表达**：使用与视频内容领域相关的专业术语（技术、商业、教育等）。"""
 
-    OUTPUT_FORMAT_PROMPT = """请严格按照以下JSON格式输出分析结果：
+    OUTPUT_FORMAT_PROMPT = """## 📤 输出格式要求 (Strict JSON Output)
+你必须输出一个合法的 JSON 对象。
+
+### ⚠️ 核心规则 (Crucial Rules)
+1. **禁止物理换行 (NO Literal Newlines)**: JSON 字符串内部的所有换行必须转义为 `\\n`。绝对禁止在引号 `" "` 之间直接换行。
+2. **Markdown 转义**: `video_analysis_md` 字段中的 Markdown 内容（包括表格、Mermaid、代码块）必须视为普通字符串的一部分进行转义。
+3. **严格格式**: 仅输出 JSON 内容，不要包含任何前导或后置的说明文字。
+
+### 📋 JSON Schema
+```json
 {
-    "video_analysis_md": "基于视频实际内容的完整分析文档。必须包含 Emoji 标题和至少两个 Mermaid 图表，按需使用表格和代码。",
-    "audio_analysis_md": "音频内容中的对话或语音描述（如有）",
-    "summary_md": "一句话核心摘要，概括视频的主要内容（用于列表展示，至少10个字符）",
+    "video_analysis_md": "基于视频内容生成的 Markdown。注意：内部换行必须转义为 \\n。",
+    "audio_analysis_md": "音频内容分析（如无填 null）。",
+    "summary_md": "一句话核心摘要（至少10个字符）。",
     "key_findings": [
         {
             "sequence_order": 0,
-            "category": "technical|action|visual",
-            "title": "关键发现标题",
-            "content": "基于视频内容的简练描述",
+            "category": "任意字符串（如 technical, architecture, visual, action 等）",
+            "title": "标题",
+            "content": "内容描述",
             "confidence_score": 90,
             "related_timestamps": [0.0]
         }
@@ -72,16 +81,23 @@ class PromptBuilder:
     "timestamp_events": [
         {
             "timestamp_seconds": 0.0,
-            "event_type": "technical|action|visual|highlight",
-            "title": "事件简短标题",
-            "description": "事件描述",
+            "event_type": "任意字符串（如 action, interface_display, code_review 等）",
+            "title": "事件标题",
+            "description": "详细描述（可填 null）",
             "importance_score": 8
         }
     ],
     "analysis_metadata": [
-        {"key": "content_type", "value": "视频内容类型", "data_type": "string"}
+        {"key": "content_type", "value": "视频类型", "data_type": "string"}
     ]
-}"""
+}
+
+**字段说明**：
+- `category` 和 `event_type`：可以使用任何描述性字符串，根据视频内容灵活选择
+- `confidence_score`：0-100 之间的整数
+- `importance_score`：1-10 之间的整数
+- `timestamp_seconds`：非负数
+```"""
 
     def __init__(self, prompt_dao: Optional[PromptTemplateDAO] = None):
         self.logger = get_logger("PromptBuilder")

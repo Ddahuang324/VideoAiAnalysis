@@ -685,23 +685,18 @@ class HistoryService:
                     {"label": "FILE SIZE", "value": f"{recording.file_size_bytes / (1024*1024):.1f} MB"},
                 ]
 
-            # 获取AI分析结果 - 优先使用 keyframe_id，否则尝试获取最新（通过新增方法）
+            # 获取AI分析结果 - 优先使用 keyframe_id，否则通过 recording_id 获取
             analysis = None
             if keyframe:
                 analyses = self.ai_analysis_dao.get_by_keyframe_id(keyframe.keyframe_id)
                 if analyses:
                     analysis = analyses[0]
             
-            # 后备：如果通过 keyframe 找不到，尝试获取所有分析并匹配 (需要新方法)
+            # 后备：直接通过 recording_id 获取分析（针对直接分析录制视频的情况）
             if not analysis:
-                all_analyses = self.ai_analysis_dao.get_all(limit=100)
-                # 过滤：找到 keyframe_id 为空但属于此 recording 的分析 (这是一种临时方案)
-                # 更优方案：在 ai_analysis 表中增加 recording_id 直接关联
-                for a in all_analyses:
-                    # 此处需要反向查找，暂时跳过复杂逻辑，直接返回最近的无关键帧分析
-                    if not a.keyframe_id:
-                        analysis = a
-                        break
+                analyses = self.ai_analysis_dao.get_by_recording_id(recording_id)
+                if analyses:
+                    analysis = analyses[0]
 
             if not analysis:
                 return result

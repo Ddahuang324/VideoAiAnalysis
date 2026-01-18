@@ -47,9 +47,15 @@ class ModuleManager:
         self._recorder_api = None
         self._analyzer_api = None
 
-        # 构建路径
-        self.build_python_path = Path(__file__).parent.parent.parent / "build" / "python"
-        self.build_bin_path = Path(__file__).parent.parent.parent / "build" / "bin"
+        # 构建路径 (适配 PyInstaller)
+        if getattr(sys, 'frozen', False):
+            # 打包状态下，DLL和模块都在根目录
+            self.build_python_path = Path(sys._MEIPASS)
+            self.build_bin_path = Path(sys._MEIPASS)
+        else:
+            # 源码运行状态
+            self.build_python_path = Path(__file__).parent.parent.parent / "build" / "python"
+            self.build_bin_path = Path(__file__).parent.parent.parent / "build" / "bin"
 
         # 监控标志
         self._is_monitoring = False
