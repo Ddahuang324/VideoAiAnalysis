@@ -9,21 +9,31 @@ from typing import Optional
 from dotenv import load_dotenv
 
 # 添加项目根目录到 Python 路径
-project_root = Path(__file__).parent.parent
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后的路径
+    project_root = Path(sys._MEIPASS)
+else:
+    # 正常运行路径 (python/main.py)
+    project_root = Path(__file__).parent.parent
 
 # 加载 .env 文件
 load_dotenv(project_root / ".env")
 sys.path.insert(0, str(project_root))
 
-# 添加 C++ Python 绑定目录
-build_python_path = project_root / "build" / "python"
-if build_python_path.exists():
-    sys.path.insert(0, str(build_python_path))
+# 添加 C++ Python 绑定目录 (仅在非打包模式下需要)
+if not getattr(sys, 'frozen', False):
+    build_python_path = project_root / "build" / "python"
+    if build_python_path.exists():
+        sys.path.insert(0, str(build_python_path))
 
 # 添加 FFmpeg DLL 目录到 PATH (Windows)
 if sys.platform == 'win32':
-    bin_path = project_root / "build" / "bin"
-    ffmpeg_bin_path = project_root / "build" / "_deps" / "ffmpeg_prebuilt-src" / "bin"
+    if getattr(sys, 'frozen', False):
+        bin_path = project_root
+        ffmpeg_bin_path = project_root
+    else:
+        bin_path = project_root / "build" / "bin"
+        ffmpeg_bin_path = project_root / "build" / "_deps" / "ffmpeg_prebuilt-src" / "bin"
 
     current_path = os.environ.get('PATH', '')
     new_paths = []
@@ -34,18 +44,21 @@ if sys.platform == 'win32':
             try:
                 os.add_dll_directory(str(bin_path))
             except Exception as e:
-                print(f"[WARN] Failed to add DLL directory {bin_path}: {e}")
+                # 打包模式下如果 DLL 已经在根目录，此步骤通常会自动处理，但保留以防万一
+                pass
 
-    if ffmpeg_bin_path.exists():
+    if ffmpeg_bin_path.exists() and ffmpeg_bin_path != bin_path:
         new_paths.append(str(ffmpeg_bin_path))
         if hasattr(os, 'add_dll_directory'):
             try:
                 os.add_dll_directory(str(ffmpeg_bin_path))
             except Exception as e:
-                print(f"[WARN] Failed to add DLL directory {ffmpeg_bin_path}: {e}")
+                pass
 
     if new_paths:
-        os.environ['PATH'] = os.pathsep.join(new_paths + [current_path])
+        # 确保去重
+        unique_paths = list(dict.fromkeys([p for p in new_paths if p]))
+        os.environ['PATH'] = os.pathsep.join(unique_paths + [current_path])
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
@@ -409,4 +422,14 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:
+        import traceback
+        print("\n" + "!"*60)
+        print("FATAL ERROR DURING EXECUTION:")
+        traceback.print_exc()
+        print("!"*60 + "\n")
+        if getattr(sys, 'frozen', False):
+            input("Press Enter to exit...")
+        sys.exit(1)
